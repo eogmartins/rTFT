@@ -1,0 +1,55 @@
+#!/bin/sh
+# pre-commit - gate the two things that can drift without a failure showing: the
+# test count and the help pages.
+#
+# Each gate fires only when a commit touches what it is about. The 
+# expectation-count gate covers R/, tests/ and tools/ -- tools/ included so 
+# a control cannot be edited with nothing firing. The help-page gate covers 
+# R/ and DESCRIPTION, the only things that can leave man/ or NAMESPACE stale.
+#
+# .git/hooks is not version-controlled, so a fresh clone has no hook until
+# `tools/hooks/install` is run. Nothing does that automatically or announces
+# it has not been done.
+#
+# NOT_CRAN is set so no test skips itself, as a skipped file lowers the count 
+# and a lower count is taken as check that stopped checking.
+
+staged=$(git diff --cached --name-only)
+
+if printf '%s\n' "$staged" | grep -qE '^(R/|tests/|tools/)'; then
+  echo "pre-commit: running the expectation-count gate..."
+  if printf '%s\n' "$staged" | grep -qE '^tools/'; then
+    echo "pre-commit: this commit touches tools/, where the controls live."
+    echo "  A pass here means the test count is unchanged and that someone"
+    echo "  touched a control -- not that the control itself was verified."
+  fi
+  if ! NOT_CRAN=true Rscript tools/check-expectation-counts.R; then
+    echo ""
+    echo "pre-commit: the gate refused. Commit aborted."
+    echo "  A fallen count means a check stopped checking; find out which before"
+    echo "  changing the manifest. To commit anyway: git commit --no-verify"
+    exit 1
+  fi
+fi
+
+if printf '%s\n' "$staged" | grep -qE '^(R/|DESCRIPTION$)'; then
+  echo "pre-commit: checking that man/ and NAMESPACE are what document() writes..."
+  if ! Rscript -e 'if (!requireNamespace("roxygen2", quietly = TRUE)) quit(status = 1)'; then
+    echo "pre-commit: roxygen2 is not installed, so the help pages cannot be"
+    echo "  checked. Install it rather than committing past this."
+    exit 1
+  fi
+  if ! Rscript -e 'suppressMessages(roxygen2::roxygenise(load_code = "source"))' >/dev/null; then
+    echo "pre-commit: roxygenise() failed. Commit aborted."
+    exit 1
+  fi
+  if ! git diff --quiet -- man NAMESPACE; then
+    echo ""
+    echo "pre-commit: the help pages are not what document() writes. Commit aborted."
+    echo "  The regenerated files are in the working tree now; read the diff and"
+    echo "  stage them with the change that caused them:"
+    git diff --stat -- man NAMESPACE | sed 's/^/    /'
+    exit 1
+  fi
+fi
+exit 0

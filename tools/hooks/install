@@ -1,0 +1,8 @@
+#!/bin/sh
+# Install the repository's hooks into .git/hooks, which git does not track.
+# Run once per clone.
+root=$(git rev-parse --show-toplevel) || exit 1
+for h in "$root"/tools/hooks/pre-commit; do
+  cp "$h" "$root/.git/hooks/$(basename "$h")" && chmod +x "$root/.git/hooks/$(basename "$h")" \
+    && echo "installed: $(basename "$h")"
+done
