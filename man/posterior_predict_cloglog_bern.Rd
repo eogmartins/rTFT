@@ -20,3 +20,4 @@ binds these columns into the draws-by-observations matrix.
 \description{
 Draw from the posterior predictive of a \code{cloglog_bern} observation
 }
+\keyword{internal}

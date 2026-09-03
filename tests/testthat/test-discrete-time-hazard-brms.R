@@ -11,17 +11,19 @@
 # from the function under test), so the test checks correctness rather than
 # re-recording what the function returned.
 
-stub_prep <- function(mu, y) {
+stub_prep <- function(mu, y, vint1 = NULL) {
   if (is.null(dim(mu))) mu <- matrix(mu, ncol = 1)
+  data <- list(Y = y)
+  if (!is.null(vint1)) data$vint1 <- vint1     # per-row known-time flag, for hazard_mixed
   structure(
-    list(dpars = list(mu = mu), data = list(Y = y),
+    list(dpars = list(mu = mu), data = data,
          ndraws = nrow(mu), nobs = ncol(mu)),
     class = "brmsprep"
   )
 }
 
 # ===========================================================================
-# 0. Numerically stable cloglog Bernoulli family (interval mode)
+# 0a. Numerically stable cloglog Bernoulli family (interval mode)
 # ===========================================================================
 
 # Interval-censored cloglog Bernoulli response ---------------------------------
@@ -122,4 +124,113 @@ test_that("the family stays finite where the naive inverse-cloglog underflows", 
   # The route brms's bernoulli(cloglog) would take: form p, then log(1 - p).
   p_naive  <- 1 - exp(-exp(40))              # rounds to exactly 1
   expect_true(is.infinite(log(1 - p_naive))) # log(0) = -Inf, the failure
+})
+
+
+# ===========================================================================
+# 0b. Unified family for mixed interval-censored + known-time endpoints
+# ===========================================================================
+
+# Mixed interval-censored and known-time response ------------------------------
+#
+# The family declaration (hazard_mixed_family), its Stan log-mass and density
+# function (.hazard_mixed_stanvars), and the three R methods brms calls after
+# fitting.
+
+# The Stan log-mass and density definition, written out in R as this family's
+# reference. Three branches, keyed on the survived indicator y and the known-time
+# flag kt: a survived interval contributes -Lambda, an interval-censored endpoint
+# log(1 - exp(-Lambda)), and a known-time endpoint the log density mu - Lambda,
+# with Lambda = exp(mu).
+ref_loglik_mixed <- function(mu, y, kt) {
+  lam <- exp(mu)
+  if (y == 0)  return(-lam)
+  if (kt == 0) return(log(1 - exp(-lam)))
+  mu - lam
+}
+
+
+test_that("hazard_mixed_family() is the family brms is given", {
+  fam <- hazard_mixed_family()
+  expect_s3_class(fam, "brmsfamily")
+  expect_equal(fam$name, "hazard_mixed")
+  expect_equal(fam$dpars, "mu")
+  expect_equal(fam$link, "identity")
+  expect_equal(fam$type, "int")
+  expect_equal(fam$lb$mu, "0")
+  expect_equal(fam$ub$mu, "1")
+  # The per-row known-time flag travels as an integer vint, which is what lets one
+  # fit contain both kinds of endpoint.
+  expect_true(any(grepl("vint1", fam$vars)))
+})
+
+
+test_that(".hazard_mixed_stanvars adds hazard_mixed_lpmf to Stan's functions block", {
+  sv <- .hazard_mixed_stanvars
+  expect_s3_class(sv, "stanvars")
+  expect_equal(sv[[1]]$block, "functions")
+  expect_match(sv[[1]]$scode, "real hazard_mixed_lpmf\\(int y, real mu, int vint1\\)")
+  # the three branches: survived, interval-censored, known-time
+  expect_match(sv[[1]]$scode, "return -lam")
+  expect_match(sv[[1]]$scode, "log1m_exp\\(-lam\\)")
+  expect_match(sv[[1]]$scode, "return mu - lam")
+})
+
+
+test_that("log_lik_hazard_mixed reproduces the survived, interval, and known-time branches", {
+  set.seed(4)
+  mu <- matrix(rnorm(200 * 3), nrow = 200)   # 200 draws, 3 observations
+  y  <- c(0, 1, 1)                           # survived, endpoint, endpoint
+  kt <- c(0, 0, 1)                           # kt is ignored for the survived row
+  prep <- stub_prep(mu, y, vint1 = kt)
+
+  for (i in seq_len(3)) {
+    ll <- log_lik_hazard_mixed(i, prep)
+    expect_equal(ll, ref_loglik_mixed(mu[, i], y[i], kt[i]))
+    expect_length(ll, 200)
+  }
+})
+
+
+test_that("vint1 selects the endpoint term, and is ignored when the animal survived", {
+  set.seed(5)
+  mu  <- matrix(rnorm(50), nrow = 50, ncol = 1)   # 50 draws, 1 observation
+  lam <- exp(mu[, 1])
+
+  # On an endpoint row (y = 1) the flag picks interval vs known-time, and they differ.
+  ll_interval <- log_lik_hazard_mixed(1L, stub_prep(mu, y = 1, vint1 = 0))
+  ll_known    <- log_lik_hazard_mixed(1L, stub_prep(mu, y = 1, vint1 = 1))
+  expect_equal(ll_interval, log(1 - exp(-lam)))    # interval-censored term
+  expect_equal(ll_known,    mu[, 1] - lam)         # known-time term
+  expect_false(isTRUE(all.equal(ll_interval, ll_known)))
+  # The interval-censored term is exactly the cloglog family's endpoint term.
+  expect_equal(ll_interval, log_lik_cloglog_bern(1L, stub_prep(mu, y = 1)))
+
+  # On a survived row (y = 0) the flag makes no difference: both give -lam.
+  ll_surv0 <- log_lik_hazard_mixed(1L, stub_prep(mu, y = 0, vint1 = 0))
+  ll_surv1 <- log_lik_hazard_mixed(1L, stub_prep(mu, y = 0, vint1 = 1))
+  expect_equal(ll_surv0, ll_surv1)
+  expect_equal(ll_surv0, -lam)
+})
+
+
+test_that("posterior_epred_hazard_mixed returns the interval failure probability", {
+  set.seed(6)
+  mu <- matrix(rnorm(50 * 4), nrow = 50)     # 50 draws, 4 observations
+  prep <- stub_prep(mu, y = rep(0, 4))       # epred reads neither Y nor vint1
+
+  ep <- posterior_epred_hazard_mixed(prep)
+  expect_equal(dim(ep), c(50L, 4L))
+  expect_equal(ep, 1 - exp(-exp(mu)))
+  expect_true(all(ep >= 0 & ep <= 1))
+})
+
+
+test_that("posterior_predict_hazard_mixed draws Bernoulli(p)", {
+  set.seed(7)
+  prep <- stub_prep(matrix(0, nrow = 20000, ncol = 1), y = 1)
+  pp <- posterior_predict_hazard_mixed(1L, prep)
+  expect_length(pp, 20000)
+  expect_true(all(pp %in% c(0, 1)))
+  expect_equal(mean(pp), 1 - exp(-exp(0)), tolerance = 0.02)
 })

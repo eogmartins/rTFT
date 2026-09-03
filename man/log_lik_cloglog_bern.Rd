@@ -21,3 +21,4 @@ density in R. brms needs this function after fitting to compute the pointwise
 log-likelihood (used by LOO and WAIC), as the Stan function cannot be called
 from R.
 }
+\keyword{internal}
