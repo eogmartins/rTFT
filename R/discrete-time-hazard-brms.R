@@ -403,3 +403,242 @@ brms_log_h0 <- list(
                     " - log1p(exp(exp(logshape) * (log_tau - logscale)))"),
   gompertz = "gam * tau"
 )
+
+
+# ===========================================================================
+# 2. Build the row-per-interval long table
+# ===========================================================================
+
+# build_hazard_data() ----------------------------------------------------------
+
+#' Build the row-per-interval table a failure-rate model is fitted to
+#'
+#' Reshapes one row per individual, together with a temperature trajectory, into
+#' one row per individual and at-risk interval. An interval-censored failure
+#' gives the failure its whole censoring interval; an exactly timed one truncates
+#' the final at-risk interval at the recorded time. The cumulative hazard is
+#' integrated numerically over the at-risk intervals, with the failure-check times
+#' serving as the integration nodes. For a known-time failure, the fit integrates
+#' on the checks (its final interval ending exactly at the failure time) and no
+#' finer sub-grid is required but can be provided.
+#'
+#' @param ind A data frame with one row per individual. Required: `id`, `path_id` (key
+#'   into `path`), `event` (1 = failed, 0 = right-censored), plus the covariate
+#'   columns referenced in the model. Timing depends on how the failure was
+#'   observed: interval-censored individuals have `t_upper` (the check at which
+#'   failure was found, or a survivor's last observed check); exactly timed ones
+#'   have `t_event` (the exact failure or censoring time). For
+#'   `observation = "mixed"` the data also needs an `obs_type` column per
+#'   individual (`"interval"` or `"continuous"`), and each type supplies its own
+#'   timing column.
+#' @param path A data frame giving the temperature trajectory for each path.
+#'   Required columns: `path_id`, `time`, `temp`. The function interpolates these
+#'   points linearly in time, so a minimal two-point path (start and end) encodes a
+#'   linear ramp. Interpolation uses the full series, so a temperature data logger
+#'   whose records are finer than the checks still supplies the true temperature at
+#'   each interval midpoint (never a check-to-check straight line); the checks control
+#'   only the integration grid, not the temperature. Temperatures outside the recorded
+#'   time range are held flat at the nearest endpoint rather than returned as `NA`,
+#'   because the at-risk grid (the checks, the exact failure time, and the `t = 0`
+#'   start) need not sit strictly inside the logged times: a check or failure time
+#'   can fall just past the last reading, or the first interval can begin before the
+#'   first reading, and an `NA` temperature there would propagate into `Ta` and the
+#'   linear predictor.
+#' @param observation How each failure time was observed. One of `"interval"`
+#'   (every failure known only to fall within a censoring interval), `"continuous"`
+#'   (every failure time known exactly), or `"mixed"` (both kinds in one table,
+#'   each individual's kind given by its `obs_type` column). This determines which
+#'   response family the table is fitted with, and whether the `exact` flag is
+#'   added; the response column is `failed` in every mode.
+#' @param covariates A character vector of column names in `ind` to carry through
+#'   onto every row of the output table, so they are available as predictors when
+#'   the model is fitted.
+#' @param Tr The reference temperature, written to a constant `Tr` column so the
+#'   functions can form `Ta - Tr`. It is a single model reference, not the
+#'   per-trial starting temperature (see [M_catalogue]); the per-trial starts live
+#'   in the temperature trajectories (`path`). For the forms that take a logarithm or
+#'   fractional power of `Ta - Tr` (`zeroexp`, `power`, `zeropower`) it must lie at
+#'   or below the minimum temperature in the data, so it defaults (`NULL`) to the
+#'   coldest temperature in `path`. It must be set to a common value across datasets 
+#'   when comparing `loga`, whose meaning is anchored at `Tr`.
+#' @param checks An optional data frame with `path_id`, `time` giving the
+#'   failure-check schedule per path (i.e., the times at which each individual was
+#'   inspected for failure). Defaults to the distinct `path` times (logger reading =
+#'   check). As noted above, these times double as the integration nodes for the
+#'   cumulative hazard, so their spacing sets the midpoint-rule resolution. For a
+#'   known-time failure, a regular grid can be used instead (see `grid_dt`).
+#' @param grid_dt An optional numeric giving a fixed time step (in the units of
+#'   `path$time`). If set, a known-time failure is integrated on a regular grid of
+#'   this step, from `t = 0` to the failure time, instead of on `checks`, providing 
+#'   a finer cumulative hazard at the cost of more rows. Defaults to `NULL` (integrate
+#'   on the checks).
+#' @return A long-format data frame, one row per individual and at-risk interval,
+#'   holding the identifiers `id` and `path_id`; the model columns `Ta`, `Tr`,
+#'   `tau`, `log_tau`, `exposure`, `log_exposure`; the carried covariates; the
+#'   0/1 response column `failed`; and, for mixed observation, the integer `exact`
+#'   flag the family branches on.
+#' @examples
+#' # A single linear ramp encoded as two points: 20 -> 35 degrees over 60 minutes,
+#' # with failure checked for every 10 minutes.
+#' path   <- data.frame(path_id = "A", time = c(0, 60), temp = c(20, 35))
+#' checks <- data.frame(path_id = "A", time = seq(0, 60, by = 10))
+#'
+#' # Interval-censored: one failure found at the 30-minute check, one survivor.
+#' ind <- data.frame(id = 1:2, path_id = "A", event = c(1, 0), t_upper = c(30, 60))
+#' build_hazard_data(ind, path, "interval", checks = checks)
+#'
+#' # Known-time: the exact failure time, integrated on the same checks.
+#' ind_c <- data.frame(id = 1, path_id = "A", event = 1, t_event = 42)
+#' build_hazard_data(ind_c, path, "continuous", checks = checks)
+#'
+#' # A finer, regular integration grid instead of the checks (known-time only);
+#' # the last interval still closes exactly on the failure time.
+#' build_hazard_data(ind_c, path, "continuous", grid_dt = 5)
+#'
+#' # Mixed: each individual carries its kind in obs_type; the unused timing
+#' # column is left NA.
+#' ind_m <- data.frame(id = 1:2, path_id = "A", event = 1,
+#'                     obs_type = c("interval", "continuous"),
+#'                     t_upper = c(30, NA), t_event = c(NA, 42))
+#' build_hazard_data(ind_m, path, "mixed", checks = checks)
+#'
+#' # A covariate carried through to every row, and a shared reference Tr.
+#' ind$mass <- c(12.1, 9.8)
+#' build_hazard_data(ind, path, "interval", covariates = "mass", Tr = 15, checks = checks)
+#' @export
+build_hazard_data <- function(ind, path, observation = c("interval", "continuous", "mixed"),
+                              covariates = character(0), Tr = NULL, checks = NULL,
+                              grid_dt = NULL) {
+  # match.arg() keeps the partial matching and defaulting, but its own error is a
+  # plain stop(); rethrow it as a cli condition so it matches the rest of the package.
+  observation_choices <- c("interval", "continuous", "mixed")
+  observation <- tryCatch(
+    match.arg(observation, observation_choices),
+    error = function(e) {
+      choices <- cli::cli_vec(observation_choices, list("vec-last" = ", or "))
+      cli::cli_abort(c(
+        "{.arg observation} must be one of {.val {choices}}.",
+        "x" = "You supplied {.val {observation}}."
+      ), class = "rTFT_bad_observation")
+    }
+  )
+
+  # Fail on a missing input column, rather than letting a NULL slip into an
+  # approxfun() call: approxfun(time, NULL) does not error, it silently
+  # reinterprets its arguments and returns garbage temperatures.
+  need_cols <- function(df, cols, arg) {
+    miss <- setdiff(cols, names(df))
+    if (length(miss))
+      cli::cli_abort("{.arg {arg}} is missing column{?s} {.field {miss}}.",
+                     class = "rTFT_missing_column")
+  }
+  need_cols(ind, c("id", "path_id", "event"), "ind")
+  need_cols(path, c("path_id", "time", "temp"), "path")
+  if (!is.null(checks)) need_cols(checks, c("path_id", "time"), "checks")
+
+  # In the two non-mixed modes, the observation mode fixes a single timing column
+  # for the whole table: `t_upper` for interval, `t_event` for continuous. Guard it
+  # the same way as the input columns above: a missing column reads back as NULL, and
+  # findInterval() on it then returns a single at-risk interval rather than erroring. Mixed
+  # mode carries a column per level and is guarded separately below.
+  if (observation != "mixed") {
+    timing <- c(interval = "t_upper", continuous = "t_event")[[observation]]
+    need_cols(ind, timing, "ind")
+    if (!all(is.finite(ind[[timing]])))
+      cli::cli_abort(
+        "{.arg ind} column {.field {timing}} is not finite for {sum(!is.finite(ind[[timing]]))} of {nrow(ind)} individual{?s}.",
+        class = "rTFT_nonfinite_timing")
+  }
+
+  # Reference temperature defaults to the coldest point in the trajectories, which
+  # keeps `Ta - Tr` positive for the log/power forms. A form aware check that a
+  # user-supplied Tr is not above the data (needed only for zeroexp/power/zeropower)
+  # belongs in the formula assembly step, which knows the function used.
+  if (is.null(Tr)) Tr <- min(path$temp)
+
+  # In mixed mode, each individual has its own scheme in `obs_type`. Guard the
+  # levels explicitly, because build_one() reads that string twice and the two
+  # reads disagree on anything but the exact levels "interval" and "continuous".
+  # It picks the integration grid with `type == "interval"` (so any other value
+  # takes the continuous grid, built from t_event) but sets the likelihood's
+  # `exact` flag with `type == "continuous"` (so any other value comes out 0, i.e.
+  # interval-censored). A typo or NA level would thus get a continuous grid while
+  # being flagged interval-censored (two observation schemes for one animal, with
+  # nothing to signal it). Rejecting unknown levels here keeps them aligned.
+  if (observation == "mixed") {
+    if (!"obs_type" %in% names(ind))
+      cli::cli_abort(c(
+        "{.arg observation} = {.val mixed} needs an {.field obs_type} column on {.arg ind}.",
+        "i" = "It holds {.val interval} or {.val continuous} for each individual."
+      ), class = "rTFT_missing_obs_type")
+    ot  <- as.character(ind[["obs_type"]])
+    ok  <- c("interval", "continuous")
+    bad <- setdiff(unique(ot), ok)
+    if (length(bad))
+      cli::cli_abort(c(
+        "Unrecognised {.field obs_type}: {.val {bad}}.",
+        "i" = "The accepted levels are {.val interval} and {.val continuous}."
+      ), class = "rTFT_bad_obs_type")
+    needs <- c(interval = "t_upper", continuous = "t_event")
+    for (lv in intersect(ok, unique(ot))) {
+      col <- needs[[lv]]
+      if (!col %in% names(ind))
+        cli::cli_abort(
+          "{.field obs_type} == {.val {lv}} reads column {.field {col}}, which {.arg ind} lacks.",
+          class = "rTFT_missing_timing_col")
+      have <- ind[[col]][ot == lv]
+      if (!all(is.finite(have)))
+        cli::cli_abort(
+          "{.field obs_type} == {.val {lv}} reads {.field {col}}, but it is not finite for {sum(!is.finite(have))} of {length(have)} such individual{?s}.",
+          class = "rTFT_nonfinite_timing")
+    }
+  }
+
+  interp_of <- split(path, path$path_id) |>
+    purrr::map(\(d) stats::approxfun(d$time, d$temp, rule = 2))
+  chk_src   <- if (is.null(checks)) path else checks
+  checks_of <- split(chk_src, chk_src$path_id) |>
+    purrr::map(\(d) sort(unique(d$time)))
+
+  # One individual's rows. `type` is "interval" or "continuous" (per individual in
+  # mixed mode via obs_type; otherwise the global observation mode).
+  build_one <- function(r, type) {
+    pid <- as.character(r$path_id)
+    f   <- interp_of[[pid]]
+    ck  <- checks_of[[pid]]
+    if (type == "interval") {
+      kD <- max(findInterval(r$t_upper - 1e-9, ck), 1)   # failure in [ck[kD], ck[kD+1]]
+      ts <- ck[seq_len(kD)]; te <- ck[seq_len(kD) + 1]   # failure row = full interval
+    } else {
+      td    <- r$t_event
+      nodes <- if (is.null(grid_dt)) sort(unique(c(0, ck[ck > 0 & ck < td], td)))
+               else { g <- seq(0, td, by = grid_dt); sort(unique(c(g, td))) }
+      ts <- nodes[-length(nodes)]; te <- nodes[-1]       # failure row ends exactly at td
+    }
+    n   <- length(ts)
+    # `tau` and `Ta` are taken at the midpoint of every at-risk interval, the
+    # failure interval included: they are the node of the midpoint rule that
+    # integrates the cumulative hazard over the interval, not the event time. A
+    # known-time failure is exact in the interval boundary (te = t_event, hence
+    # `exposure`), not in where the hazard is sampled.
+    mid <- (ts + te) / 2
+    tibble::tibble(id = r$id, path_id = r$path_id, tau = mid, exposure = te - ts,
+                   Ta = f(mid), failed = as.integer(seq_len(n) == n & r$event == 1),
+                   exact = as.integer(type == "continuous"))
+  }
+
+  type_of <- function(r) if (observation == "mixed") as.character(r$obs_type) else observation
+  long <- purrr::map(seq_len(nrow(ind)),
+                     \(i) { r <- ind[i, , drop = FALSE]; build_one(r, type_of(r)) }) |>
+    purrr::list_rbind()
+
+  cov_tbl <- dplyr::select(ind, id, dplyr::all_of(covariates))
+  out <- long |>
+    dplyr::left_join(cov_tbl, by = "id") |>
+    dplyr::mutate(Tr = Tr, log_tau = log(tau), log_exposure = log(exposure))
+
+  # The response is the same 0/1 failure indicator in every mode, named `failed`
+  # throughout; only the family (and, for mixed, the `exact` flag) differs.
+  if (observation != "mixed") out$exact <- NULL
+  dplyr::relocate(out, id, dplyr::all_of(covariates))
+}
