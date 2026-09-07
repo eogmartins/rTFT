@@ -19,7 +19,7 @@ build_hazard_data(
 into \code{path}), \code{event} (1 = failed, 0 = right-censored), plus the covariate
 columns referenced in the model. Timing depends on how the failure was
 observed: interval-censored individuals have \code{t_upper} (the check at which
-failure was found, or a survivor's last observed check); exactly timed ones
+failure was found, or a survivor's last observed check); known-time ones
 have \code{t_event} (the exact failure or censoring time). For
 \code{observation = "mixed"} the data also needs an \code{obs_type} column per
 individual (\code{"interval"} or \code{"continuous"}), and each type supplies its own
@@ -47,8 +47,12 @@ response family the table is fitted with, and whether the \code{exact} flag is
 added; the response column is \code{failed} in every mode.}
 
 \item{covariates}{A character vector of column names in \code{ind} to carry through
-onto every row of the output table, so they are available as predictors when
-the model is fitted.}
+onto every row of the output table, so they are available in the model formula
+as fixed-effect predictors or as grouping factors for random effects. A trial
+identifier is the common case: include it here, then place a trial-level random
+intercept on a parameter in \link{build_hazard_spec}, e.g.
+\code{dpar_formulas = list(loga = ~ 1 + (1 | trial))}. The individual identifier \code{id}
+is always kept, so an individual-level grouping term needs no entry here.}
 
 \item{Tr}{The reference temperature, written to a constant \code{Tr} column so the
 functions can form \code{Ta - Tr}. It is a single model reference, not the
@@ -82,7 +86,7 @@ flag the family branches on.
 \description{
 Reshapes one row per individual, together with a temperature trajectory, into
 one row per individual and at-risk interval. An interval-censored failure
-gives the failure its whole censoring interval; an exactly timed one truncates
+gives the failure its whole censoring interval; a known-time one truncates
 the final at-risk interval at the recorded time. The cumulative hazard is
 integrated numerically over the at-risk intervals, with the failure-check times
 serving as the integration nodes. For a known-time failure, the fit integrates

@@ -128,7 +128,7 @@ test_that("the family stays finite where the naive inverse-cloglog underflows", 
 
 
 # ===========================================================================
-# 0b. Unified family for mixed interval-censored + known-time endpoints
+# 0b. Unified family for mixed interval-censored + known-time failures
 # ===========================================================================
 
 # Mixed interval-censored and known-time response ------------------------------
@@ -139,8 +139,8 @@ test_that("the family stays finite where the naive inverse-cloglog underflows", 
 
 # The Stan log-mass and density definition, written out in R as this family's
 # reference. Three branches, keyed on the survived indicator y and the known-time
-# flag kt: a survived interval contributes -Lambda, an interval-censored endpoint
-# log(1 - exp(-Lambda)), and a known-time endpoint the log density mu - Lambda,
+# flag kt: a survived interval contributes -Lambda, an interval-censored failure
+# log(1 - exp(-Lambda)), and a known-time failure the log density mu - Lambda,
 # with Lambda = exp(mu).
 ref_loglik_mixed <- function(mu, y, kt) {
   lam <- exp(mu)
@@ -160,7 +160,7 @@ test_that("hazard_mixed_family() is the family brms is given", {
   expect_equal(fam$lb$mu, "0")
   expect_equal(fam$ub$mu, "1")
   # The per-row known-time flag travels as an integer vint, which is what lets one
-  # fit contain both kinds of endpoint.
+  # fit contain both kinds of failure.
   expect_true(any(grepl("vint1", fam$vars)))
 })
 
@@ -180,7 +180,7 @@ test_that(".hazard_mixed_stanvars adds hazard_mixed_lpmf to Stan's functions blo
 test_that("log_lik_hazard_mixed reproduces the survived, interval, and known-time branches", {
   set.seed(4)
   mu <- matrix(rnorm(200 * 3), nrow = 200)   # 200 draws, 3 observations
-  y  <- c(0, 1, 1)                           # survived, endpoint, endpoint
+  y  <- c(0, 1, 1)                           # survived, failure, failure
   kt <- c(0, 0, 1)                           # kt is ignored for the survived row
   prep <- stub_prep(mu, y, vint1 = kt)
 
@@ -192,18 +192,18 @@ test_that("log_lik_hazard_mixed reproduces the survived, interval, and known-tim
 })
 
 
-test_that("vint1 selects the endpoint term, and is ignored when the animal survived", {
+test_that("vint1 selects the failure term, and is ignored when the animal survived", {
   set.seed(5)
   mu  <- matrix(rnorm(50), nrow = 50, ncol = 1)   # 50 draws, 1 observation
   lam <- exp(mu[, 1])
 
-  # On an endpoint row (y = 1) the flag picks interval vs known-time, and they differ.
+  # On a failure row (y = 1) the flag picks interval vs known-time, and they differ.
   ll_interval <- log_lik_hazard_mixed(1L, stub_prep(mu, y = 1, vint1 = 0))
   ll_known    <- log_lik_hazard_mixed(1L, stub_prep(mu, y = 1, vint1 = 1))
   expect_equal(ll_interval, log(1 - exp(-lam)))    # interval-censored term
   expect_equal(ll_known,    mu[, 1] - lam)         # known-time term
   expect_false(isTRUE(all.equal(ll_interval, ll_known)))
-  # The interval-censored term is exactly the cloglog family's endpoint term.
+  # The interval-censored term is exactly the cloglog family's failure term.
   expect_equal(ll_interval, log_lik_cloglog_bern(1L, stub_prep(mu, y = 1)))
 
   # On a survived row (y = 0) the flag makes no difference: both give -lam.
@@ -533,4 +533,128 @@ test_that("mixed mode guards obs_type and its per-level timing columns", {
                    t_upper = NA_real_)
   expect_error(build_hazard_data(m4, ramp_path, "mixed"),
                class = "rTFT_nonfinite_timing")
+})
+
+
+# ===========================================================================
+# 3. Formula and family builder (build_hazard_spec)
+# ===========================================================================
+
+# build_hazard_spec() assembles a nonlinear brms formula and a family without
+# fitting, so the checks read the pieces off the returned object: the main formula's
+# right-hand side (the linear predictor), the per-parameter sub-formulas, and the
+# family. The expected linear predictors are written out by hand from the KU and
+# baseline strings, so the test checks the assembly -- paste order, log_exposure, the
+# k_sw substitution, the response and the vint() flag -- rather than re-running the
+# function's own logic.
+
+# The RHS of the assembled main formula, as a language object (spacing-independent),
+# and a family's name whether it is a custom family (`name`) or a built-in (`family`).
+main_rhs <- function(ff) ff$formula$formula[[3]]
+main_lhs <- function(ff) deparse1(ff$formula$formula[[2]])
+fam_name <- function(ff) if (!is.null(ff$family$name)) ff$family$name else ff$family$family
+
+
+test_that("the linear predictor is log h0 + log M + log_exposure, in that order", {
+  # mem contributes no baseline term, so the predictor is log M + log_exposure
+  eta_exp_mem <- "loga + exp(logb) * (Ta - Tr) + log_exposure"
+  expect_equal(main_rhs(build_hazard_spec("exp", "mem")), str2lang(eta_exp_mem))
+
+  # a weibull baseline prepends its log h0; exp_threshold contributes its gate with
+  # the catalogue k_sw = 50 substituted in for the placeholder
+  eta_thr_wb <- paste(
+    "logshape - logscale + (exp(logshape) - 1) * (log_tau - logscale)",
+    "+ loga + exp(logb) * (Ta - Tc) - log1p(exp(-50 * (Ta - Tc)))",
+    "+ log_exposure")
+  expect_equal(main_rhs(build_hazard_spec("exp_threshold", "weibull")),
+               str2lang(eta_thr_wb))
+})
+
+
+test_that("a memoryless baseline contributes no term to the predictor", {
+  d_mem <- deparse1(main_rhs(build_hazard_spec("exp", "mem")))
+  expect_false(grepl("log_tau", d_mem, fixed = TRUE))     # no baseline-hazard term
+  expect_true(grepl("log_exposure", d_mem, fixed = TRUE)) # but still the exposure term
+  # a weibull baseline, by contrast, brings in a log_tau term
+  expect_true(grepl("log_tau", deparse1(main_rhs(build_hazard_spec("exp", "weibull"))),
+                    fixed = TRUE))
+})
+
+
+test_that("k_sw defaults to the catalogue value, and an override substitutes for it", {
+  d <- deparse1(main_rhs(build_hazard_spec("exp_threshold")))
+  expect_true(grepl("-50 * (Ta - Tc)", d, fixed = TRUE))  # catalogue default
+  expect_false(grepl("k_sw", d, fixed = TRUE))            # the placeholder is gone
+
+  o <- deparse1(main_rhs(build_hazard_spec("exp_threshold", k_sw = 20)))
+  expect_true(grepl("-20 * (Ta - Tc)", o, fixed = TRUE))  # the override
+  expect_false(grepl("-50", o, fixed = TRUE))
+})
+
+
+test_that("k_sw on a threshold-less function is ignored, with a warning", {
+  expect_warning(build_hazard_spec("exp", k_sw = 20), class = "rTFT_k_sw_ignored")
+  f <- suppressWarnings(build_hazard_spec("exp", k_sw = 20))
+  expect_false(grepl("20", deparse1(main_rhs(f)), fixed = TRUE))  # predictor unchanged
+})
+
+
+test_that("a non-positive or non-scalar k_sw errors", {
+  expect_error(build_hazard_spec("exp_threshold", k_sw = -5), class = "rTFT_bad_k_sw")
+  expect_error(build_hazard_spec("exp_threshold", k_sw = 0),  class = "rTFT_bad_k_sw")
+  expect_error(build_hazard_spec("exp_threshold", k_sw = c(10, 20)), class = "rTFT_bad_k_sw")
+})
+
+
+test_that("observation sets the response LHS and the family", {
+  fi <- build_hazard_spec("exp", observation = "interval")
+  expect_equal(fi$observation, "interval")
+  expect_equal(fam_name(fi), "cloglog_bern")
+  expect_equal(main_lhs(fi), "failed")
+
+  fc <- build_hazard_spec("exp", observation = "continuous")
+  expect_equal(fam_name(fc), "poisson")           # Poisson piecewise-exponential
+  expect_equal(fc$family$link, "log")
+  expect_equal(main_lhs(fc), "failed")
+
+  fm <- build_hazard_spec("exp", observation = "mixed")
+  expect_equal(fam_name(fm), "hazard_mixed")
+  expect_equal(main_lhs(fm), "failed | vint(exact)")  # the per-row known-time flag
+})
+
+
+test_that("each needed parameter gets a sub-formula, defaulting to intercept-only", {
+  f <- build_hazard_spec("exp_threshold", "weibull")
+  # exp_threshold needs loga, logb, Tc; weibull adds logshape, logscale
+  expect_setequal(names(f$formula$pforms), c("loga", "logb", "Tc", "logshape", "logscale"))
+  # every parameter defaults to ~ 1 (RHS is the bare intercept)
+  expect_true(all(vapply(f$formula$pforms, \(p) deparse1(p[[3]]) == "1", logical(1))))
+})
+
+
+test_that("dpar_formulas put covariates on a parameter, and extras warn", {
+  f <- build_hazard_spec("exp",
+         dpar_formulas = list(loga = ~ 1 + acclim + (1 | trial)))
+  expect_equal(deparse1(f$formula$pforms$loga[[3]]), "1 + acclim + (1 | trial)")
+  expect_equal(deparse1(f$formula$pforms$logb[[3]]), "1")   # untouched -> intercept only
+
+  # a formula for a parameter the chosen functions do not use is dropped with a warning
+  expect_warning(build_hazard_spec("exp", dpar_formulas = list(Tc = ~ 1 + acclim)),
+                 class = "rTFT_unused_dpar_formulas")
+})
+
+
+test_that("unknown m_form, baseline, or observation error with their condition classes", {
+  expect_error(build_hazard_spec("nope"), class = "rTFT_unknown_m_form")
+  expect_error(build_hazard_spec("exp", baseline = "nope"), class = "rTFT_unknown_baseline")
+  expect_error(build_hazard_spec("exp", observation = "nope"), class = "rTFT_bad_observation")
+})
+
+
+test_that("build_hazard_spec returns the formula, family, and observation", {
+  f <- build_hazard_spec("exp")
+  expect_named(f, c("formula", "family", "observation"))
+  expect_s3_class(f$formula, "brmsformula")
+  expect_s3_class(f$family, "brmsfamily")
+  expect_true(isTRUE(attr(f$formula$formula, "nl")))   # a nonlinear formula
 })

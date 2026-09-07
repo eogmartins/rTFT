@@ -415,7 +415,7 @@ brms_log_h0 <- list(
 #'
 #' Reshapes one row per individual, together with a temperature trajectory, into
 #' one row per individual and at-risk interval. An interval-censored failure
-#' gives the failure its whole censoring interval; an exactly timed one truncates
+#' gives the failure its whole censoring interval; a known-time one truncates
 #' the final at-risk interval at the recorded time. The cumulative hazard is
 #' integrated numerically over the at-risk intervals, with the failure-check times
 #' serving as the integration nodes. For a known-time failure, the fit integrates
@@ -426,7 +426,7 @@ brms_log_h0 <- list(
 #'   into `path`), `event` (1 = failed, 0 = right-censored), plus the covariate
 #'   columns referenced in the model. Timing depends on how the failure was
 #'   observed: interval-censored individuals have `t_upper` (the check at which
-#'   failure was found, or a survivor's last observed check); exactly timed ones
+#'   failure was found, or a survivor's last observed check); known-time ones
 #'   have `t_event` (the exact failure or censoring time). For
 #'   `observation = "mixed"` the data also needs an `obs_type` column per
 #'   individual (`"interval"` or `"continuous"`), and each type supplies its own
@@ -451,8 +451,12 @@ brms_log_h0 <- list(
 #'   response family the table is fitted with, and whether the `exact` flag is
 #'   added; the response column is `failed` in every mode.
 #' @param covariates A character vector of column names in `ind` to carry through
-#'   onto every row of the output table, so they are available as predictors when
-#'   the model is fitted.
+#'   onto every row of the output table, so they are available in the model formula
+#'   as fixed-effect predictors or as grouping factors for random effects. A trial
+#'   identifier is the common case: include it here, then place a trial-level random
+#'   intercept on a parameter in [build_hazard_spec], e.g.
+#'   `dpar_formulas = list(loga = ~ 1 + (1 | trial))`. The individual identifier `id`
+#'   is always kept, so an individual-level grouping term needs no entry here.
 #' @param Tr The reference temperature, written to a constant `Tr` column so the
 #'   functions can form `Ta - Tr`. It is a single model reference, not the
 #'   per-trial starting temperature (see [M_catalogue]); the per-trial starts live
@@ -641,4 +645,167 @@ build_hazard_data <- function(ind, path, observation = c("interval", "continuous
   # throughout; only the family (and, for mixed, the `exact` flag) differs.
   if (observation != "mixed") out$exact <- NULL
   dplyr::relocate(out, id, dplyr::all_of(covariates))
+}
+
+
+# ===========================================================================
+# 3. Formula and family builder
+# ===========================================================================
+
+# .rhs_str() -------------------------------------------------------------------
+
+# The right-hand side of a one-sided formula, as a string:
+#   ~ 1 + species + (1 | trial)  ->  "1 + species + (1 | trial)"
+# Used to attach a user's covariate formula to a parameter's sub-formula.
+.rhs_str <- function(f) paste(deparse(f[[length(f)]]), collapse = " ")
+
+
+# build_hazard_spec() --------------------------------------------------------
+
+#' Assemble the brms formula and family for a failure-rate hazard model
+#'
+#' Builds a nonlinear brms formula whose linear predictor is the log failure rate
+#' log M(T), plus (unless the baseline is memoryless) the log baseline hazard
+#' log h0(tau), plus the log exposure of each at-risk interval. The failure rate
+#' and baseline are named by their keys in [M_catalogue] and [h0_catalogue], and
+#' their log-scale expression strings ([brms_log_M], [brms_log_h0]) are pasted
+#' straight into the predictor, so the formula fitted here is the same expression
+#' [build_hazard_data] assumes and that reporting later evaluates.
+#'
+#' Each parameter the chosen functions need (`loga`, `logb`, `Tc`, and so on) gets
+#' its own sub-formula, an intercept only (`~ 1`) by default. Pass a one-sided
+#' formula in `dpar_formulas` to put covariates on a parameter; a formula named for
+#' a parameter the chosen functions do not use is ignored with a warning.
+#'
+#' @param m_form A character string denoting a key of [M_catalogue] (e.g. `"exp"` or
+#'   `"exp_threshold"`).
+#' @param baseline A character string denoting a key of [h0_catalogue]: `"mem"`
+#'   (default), `"weibull"`, `"llogis"` or `"gompertz"`.
+#' @param dpar_formulas A named list of one-sided formulas, one per parameter you
+#'   want covariates on. A parameter the functions need but you omit defaults to
+#'   `~ 1` (intercept only); a name not among the parameters is ignored with a warning.
+#'   For example, `list(loga = ~ 1 + acclim + (1 | trial), logb = ~ 1 + (1 | trial))`.
+#' @param observation A character string denoting how each failure time was observed,
+#'   as in [build_hazard_data]: `"interval"` (the [cloglog_bern_family]), `"continuous"`
+#'   (a Poisson piecewise-exponential), or `"mixed"` (the [hazard_mixed_family], which
+#'   reads the per-row `exact` flag through `vint()`).
+#' @param k_sw An optional positive numeric representing the softening steepness of a
+#'   threshold function's gate, in inverse temperature units (the transition band is
+#'   roughly its reciprocal). This is an advanced override: leave `NULL` (the default)
+#'   to use the value in [M_catalogue] (50), which suits most fOK its. A larger value is
+#'   a sharper switch over a narrower band, but too large returns the sampler to the
+#'   hard step geometry, where the critical temperature `Tc` mixes poorly (low
+#'   effective sample size, sometimes divergences). This is a sampling-geometry
+#'   effect, separate from identifiability: `Tc` is poorly identified whenever the
+#'   observed temperatures do not bracket it, whatever `k_sw` is. Ignored, with a
+#'   warning, for a function that has no threshold.
+#' @return A named list with the brms `formula`, the `family`, and the `observation`
+#'   mode.
+#' @examples
+#' # An exponential failure rate and memoryless baseline, with interval-censored
+#' # observation (the default).
+#' build_hazard_spec("exp")
+#'
+#' # An exponential-threshold failure rate with a Weibull baseline hazard in elapsed
+#' # exposure time.
+#' build_hazard_spec("exp_threshold", baseline = "weibull")
+#'
+#' # A different structure per parameter: acclim as a fixed covariate on the
+#' # amplitude loga, and a trial-level random intercept on both loga and the
+#' # temperature sensitivity logb (`acclim` and `trial` are carried through by
+#' # build_hazard_data()).
+#' build_hazard_spec("exp",
+#'   dpar_formulas = list(loga = ~ 1 + acclim + (1 | trial), logb = ~ 1 + (1 | trial)))
+#'
+#' # Mixed interval-censored and known-time failures: the response holds the per-row
+#' # `exact` flag through vint().
+#' build_hazard_spec("exp", observation = "mixed")
+#'
+#' # Advanced: a gentler threshold switch than the catalogue default.
+#' build_hazard_spec("exp_threshold", k_sw = 20)
+#' @export
+build_hazard_spec <- function(m_form, baseline = "mem", dpar_formulas = list(),
+                                observation = c("interval", "continuous", "mixed"),
+                                k_sw = NULL) {
+  observation_choices <- c("interval", "continuous", "mixed")
+  observation <- tryCatch(
+    match.arg(observation, observation_choices),
+    error = function(e) {
+      choices <- cli::cli_vec(observation_choices, list("vec-last" = ", or "))
+      cli::cli_abort(c(
+        "{.arg observation} must be one of {.val {choices}}.",
+        "x" = "You supplied {.val {observation}}."
+      ), class = "rTFT_bad_observation")
+    }
+  )
+
+  m_spec  <- M_catalogue[[m_form]]
+  h0_spec <- h0_catalogue[[baseline]]
+  if (is.null(m_spec))
+    cli::cli_abort(c(
+      "Unknown {.arg m_form}: {.val {m_form}}.",
+      "i" = "It must be a key of {.code M_catalogue}: {.val {names(M_catalogue)}}."
+    ), class = "rTFT_unknown_m_form")
+  if (is.null(h0_spec))
+    cli::cli_abort(c(
+      "Unknown {.arg baseline}: {.val {baseline}}.",
+      "i" = "It must be a key of {.code h0_catalogue}: {.val {names(h0_catalogue)}}."
+    ), class = "rTFT_unknown_baseline")
+
+  needed <- c(m_spec$dpars, h0_spec$dpars)
+
+  is_threshold <- m_spec$k_sw != 0
+  if (!is.null(k_sw)) {
+    if (!is.numeric(k_sw) || length(k_sw) != 1L || !is.finite(k_sw) || k_sw <= 0)
+      cli::cli_abort(c(
+        "{.arg k_sw} must be a single positive number.",
+        "x" = "You supplied {.val {k_sw}}."
+      ), class = "rTFT_bad_k_sw")
+    if (!is_threshold)
+      cli::cli_warn(c(
+        "!" = "{.arg k_sw} is ignored for {.val {m_form}}, which has no threshold to soften.",
+        "i" = "It applies only to the threshold functions: {.val {names(M_catalogue)[vapply(M_catalogue, function(x) x$k_sw != 0, logical(1))]}}."
+      ), class = "rTFT_k_sw_ignored")
+  }
+  k_sw_used <- if (!is.null(k_sw) && is_threshold) k_sw else m_spec$k_sw
+
+  # Paste the stored log-scale strings into the linear predictor: log M(T), the log
+  # baseline hazard (unless memoryless, whose string is empty), and the log exposure
+  # of the interval. The threshold `k_sw` placeholder is substituted here so the
+  # steepness stays a value, not a symbol the sampler would try to estimate.
+  # build_hazard_data() supplies Ta, Tr, tau, log_tau and log_exposure; the
+  # parameters (loga, logb, Tc, ...) are what the model estimates.
+  log_M <- brms_log_M[[m_form]]
+  if (is_threshold)
+    log_M <- gsub("k_sw", format(k_sw_used, scientific = FALSE), log_M, fixed = TRUE)
+  log_h0 <- brms_log_h0[[baseline]]
+
+  eta  <- if (nzchar(log_h0)) paste(log_h0, "+", log_M, "+ log_exposure")
+          else                paste(log_M, "+ log_exposure")
+  lhs  <- if (observation == "mixed") "failed | vint(exact)" else "failed"
+  main <- stats::as.formula(paste(lhs, "~", eta))
+
+  extra <- setdiff(names(dpar_formulas), needed)
+  if (length(extra))
+    cli::cli_warn(c(
+      "!" = "Ignoring {.arg dpar_formulas} not used by {.val {m_form}} + {.val {baseline}}: {.val {extra}}.",
+      "i" = "The parameters in play are {.val {needed}}."
+    ), class = "rTFT_unused_dpar_formulas")
+
+  # One sub-formula per parameter: the user's covariate formula if given, else an
+  # intercept. do.call(brms::bf, ...) assembles the nonlinear formula (nl = TRUE),
+  # in which the main predictor is an expression in these parameters and the data.
+  dp_fmls <- purrr::map(needed, \(dp) {
+    rhs   <- dpar_formulas[[dp]]
+    rhs_s <- if (is.null(rhs)) "1" else .rhs_str(rhs)
+    stats::as.formula(paste(dp, "~", rhs_s))
+  })
+
+  bf_obj <- do.call(brms::bf, c(list(main, nl = TRUE), dp_fmls))
+  fam <- switch(observation,
+                interval   = cloglog_bern_family(),
+                continuous = brms::brmsfamily("poisson", link = "log"),
+                mixed      = hazard_mixed_family())
+
+  list(formula = bf_obj, family = fam, observation = observation)
 }
