@@ -1092,3 +1092,45 @@ fit_hazard <- function(long, m_form, baseline = "mem", dpar_formulas = list(),
                            intercept_priors, slope_prior, sd_prior)
   do.call(brms::brm, c(args, list(...)))
 }
+
+
+# ===========================================================================
+# 6. Fixed-ramp helper
+# ===========================================================================
+
+# ramp_path() ------------------------------------------------------------------
+
+#' Build a linear ramp temperature trajectory
+#'
+#' A convenience function for the `path` argument of [build_hazard_data], useful when
+#' there is no logged temperature series: when temperature follows a controlled linear
+#' ramp, `temp(t) = T_start + rate * t`, the nominal ramp stands in for a logged
+#' trace. It is vectorised over its arguments: give several ramps at once and it
+#' stacks them into one table keyed by `path_id`.
+#'
+#' @param path_id,T_start,rate,t_max The ramp specification, one value per ramp:
+#'   `path_id` the identifier, `T_start` the start temperature, `rate` in degrees
+#'   per time unit, and `t_max` the duration. The four are recycled together, so
+#'   equal-length vectors describe several ramps and a length-one argument is reused
+#'   across all of them.
+#' @param by An optional numeric giving the sampling step in time. When `NULL` (the
+#'   default) the path is just its two endpoints, which the linear interpolation in
+#'   [build_hazard_data] reproduces exactly. A value such as `by = 5` creates a row
+#'   every `by` time units, which then serves as the check schedule in interval mode
+#'   or a ready-made integration grid in continuous mode.
+#' @return A data frame with `path_id`, `time` and `temp`, ready to pass to
+#'   [build_hazard_data] as its `path`.
+#' @examples
+#' # One ramp: 20 -> 35 degrees over 60 minutes, as a two-point path.
+#' ramp_path("A", T_start = 20, rate = 0.25, t_max = 60)
+#'
+#' # Two ramps at different rates, each sampled every 10 minutes (T_start recycled).
+#' ramp_path(c("slow", "fast"), T_start = 20, rate = c(0.2, 0.4),
+#'           t_max = c(75, 40), by = 10)
+#' @export
+ramp_path <- function(path_id, T_start, rate, t_max, by = NULL) {
+  purrr::pmap(list(path_id, T_start, rate, t_max), function(pid, Ts, rr, tm) {
+    t <- if (is.null(by)) c(0, tm) else sort(unique(c(seq(0, tm, by = by), tm)))
+    tibble::tibble(path_id = pid, time = t, temp = Ts + rr * t)
+  }) |> purrr::list_rbind()
+}

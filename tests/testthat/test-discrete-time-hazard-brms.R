@@ -371,14 +371,14 @@ test_that("brms_log_h0 reproduces the baseline hazards, and llogis is the hazard
 # midpoint is 20 + 0.25 * mid, and with checks every 10 minutes each interval is 10
 # wide with midpoints at the odd multiples of 5.
 
-ramp_path   <- data.frame(path_id = "A", time = c(0, 60), temp = c(20, 35))
+ramp_traj   <- data.frame(path_id = "A", time = c(0, 60), temp = c(20, 35))
 ramp_temp   <- function(t) 20 + 0.25 * t                # the ramp
 ramp_checks <- data.frame(path_id = "A", time = seq(0, 60, by = 10))
 
 
 test_that("interval mode gives one row per at-risk interval up to the failure check", {
   ind <- data.frame(id = 1, path_id = "A", event = 1, t_upper = 30)
-  out <- build_hazard_data(ind, ramp_path, "interval", checks = ramp_checks)
+  out <- build_hazard_data(ind, ramp_traj, "interval", checks = ramp_checks)
 
   # Failure found at the 30-min check -> intervals [0,10], [10,20], [20,30].
   expect_equal(nrow(out), 3L)
@@ -393,7 +393,7 @@ test_that("a failure found at a check lands in the interval ending there, not th
   # t_upper is exactly the 30-min check. The -1e-9 nudge keeps the failure in
   # [20,30], the interval ENDING at 30, rather than [30,40], the one starting there.
   ind <- data.frame(id = 1, path_id = "A", event = 1, t_upper = 30)
-  out <- build_hazard_data(ind, ramp_path, "interval", checks = ramp_checks)
+  out <- build_hazard_data(ind, ramp_traj, "interval", checks = ramp_checks)
   fail_row <- out[out$failed == 1, ]
   expect_equal(nrow(fail_row), 1L)
   expect_equal(fail_row$tau, 25)                        # midpoint of [20,30]
@@ -402,7 +402,7 @@ test_that("a failure found at a check lands in the interval ending there, not th
 
 test_that("a right-censored survivor never fails and runs to its last check", {
   ind <- data.frame(id = 2, path_id = "A", event = 0, t_upper = 60)
-  out <- build_hazard_data(ind, ramp_path, "interval", checks = ramp_checks)
+  out <- build_hazard_data(ind, ramp_traj, "interval", checks = ramp_checks)
   expect_equal(nrow(out), 6L)                           # [0,10] .. [50,60]
   expect_true(all(out$failed == 0L))                    # event = 0 -> no failure row
   expect_equal(max(out$tau), 55)                        # last interval midpoint
@@ -411,7 +411,7 @@ test_that("a right-censored survivor never fails and runs to its last check", {
 
 test_that("the output columns and their derived quantities are correct", {
   ind <- data.frame(id = 1, path_id = "A", event = 1, t_upper = 30)
-  out <- build_hazard_data(ind, ramp_path, "interval", checks = ramp_checks)
+  out <- build_hazard_data(ind, ramp_traj, "interval", checks = ramp_checks)
 
   expect_setequal(names(out),
                   c("id", "path_id", "tau", "exposure", "Ta", "failed",
@@ -424,17 +424,17 @@ test_that("the output columns and their derived quantities are correct", {
 
 test_that("Tr defaults to the coldest path temperature and can be overridden", {
   ind <- data.frame(id = 1, path_id = "A", event = 1, t_upper = 30)
-  out_def <- build_hazard_data(ind, ramp_path, "interval", checks = ramp_checks)
-  expect_true(all(out_def$Tr == 20))                    # min(ramp_path$temp)
+  out_def <- build_hazard_data(ind, ramp_traj, "interval", checks = ramp_checks)
+  expect_true(all(out_def$Tr == 20))                    # min(ramp_traj$temp)
 
-  out_15 <- build_hazard_data(ind, ramp_path, "interval", checks = ramp_checks, Tr = 15)
+  out_15 <- build_hazard_data(ind, ramp_traj, "interval", checks = ramp_checks, Tr = 15)
   expect_true(all(out_15$Tr == 15))                     # a constant column at the set value
 })
 
 
 test_that("covariates are replicated onto every row and moved to the front", {
   ind <- data.frame(id = 1, path_id = "A", event = 1, t_upper = 30, mass = 12.1)
-  out <- build_hazard_data(ind, ramp_path, "interval", checks = ramp_checks,
+  out <- build_hazard_data(ind, ramp_traj, "interval", checks = ramp_checks,
                            covariates = "mass")
   expect_true(all(out$mass == 12.1))                    # the per-individual value, on each row
   expect_equal(names(out)[1:2], c("id", "mass"))        # id then covariates lead the table
@@ -443,7 +443,7 @@ test_that("covariates are replicated onto every row and moved to the front", {
 
 test_that("continuous mode truncates the final interval at the exact failure time", {
   ind <- data.frame(id = 1, path_id = "A", event = 1, t_event = 42)
-  out <- build_hazard_data(ind, ramp_path, "continuous", checks = ramp_checks)
+  out <- build_hazard_data(ind, ramp_traj, "continuous", checks = ramp_checks)
 
   # nodes 0,10,20,30,40,42 -> five intervals, the last [40,42].
   expect_equal(nrow(out), 5L)
@@ -455,7 +455,7 @@ test_that("continuous mode truncates the final interval at the exact failure tim
 
 test_that("grid_dt integrates a known-time failure on a regular grid ending at the failure time", {
   ind <- data.frame(id = 1, path_id = "A", event = 1, t_event = 42)
-  out <- build_hazard_data(ind, ramp_path, "continuous", grid_dt = 5)
+  out <- build_hazard_data(ind, ramp_traj, "continuous", grid_dt = 5)
 
   # seq(0, 42, 5) = 0,5,..,40, plus the exact 42 -> nine intervals, the last [40,42].
   expect_equal(nrow(out), 9L)
@@ -468,7 +468,7 @@ test_that("mixed mode sets exact per obs_type and keeps a single `failed` respon
   ind <- data.frame(id = 1:2, path_id = "A", event = 1,
                     obs_type = c("interval", "continuous"),
                     t_upper = c(30, NA), t_event = c(NA, 42))
-  out <- build_hazard_data(ind, ramp_path, "mixed", checks = ramp_checks)
+  out <- build_hazard_data(ind, ramp_traj, "mixed", checks = ramp_checks)
 
   expect_true("exact" %in% names(out))
   expect_true("failed" %in% names(out))                 # one response name in every mode
@@ -498,7 +498,7 @@ test_that("build_hazard_data errors loudly, with cli condition classes, on malfo
   ok_ind <- data.frame(id = 1, path_id = "A", event = 1, t_upper = 30)
 
   # an unknown observation mode
-  expect_error(build_hazard_data(ok_ind, ramp_path, observation = "nope"),
+  expect_error(build_hazard_data(ok_ind, ramp_traj, observation = "nope"),
                class = "rTFT_bad_observation")
   # a missing required input column (path lacks temp)
   bad_path <- data.frame(path_id = "A", time = c(0, 60))
@@ -506,11 +506,11 @@ test_that("build_hazard_data errors loudly, with cli condition classes, on malfo
                class = "rTFT_missing_column")
   # the non-mixed timing column absent (interval needs t_upper)
   no_time <- data.frame(id = 1, path_id = "A", event = 1)
-  expect_error(build_hazard_data(no_time, ramp_path, "interval"),
+  expect_error(build_hazard_data(no_time, ramp_traj, "interval"),
                class = "rTFT_missing_column")
   # a non-finite timing value
   na_time <- data.frame(id = 1, path_id = "A", event = 1, t_upper = NA_real_)
-  expect_error(build_hazard_data(na_time, ramp_path, "interval"),
+  expect_error(build_hazard_data(na_time, ramp_traj, "interval"),
                class = "rTFT_nonfinite_timing")
 })
 
@@ -518,20 +518,20 @@ test_that("build_hazard_data errors loudly, with cli condition classes, on malfo
 test_that("mixed mode guards obs_type and its per-level timing columns", {
   # obs_type missing entirely
   m1 <- data.frame(id = 1, path_id = "A", event = 1, t_upper = 30)
-  expect_error(build_hazard_data(m1, ramp_path, "mixed"),
+  expect_error(build_hazard_data(m1, ramp_traj, "mixed"),
                class = "rTFT_missing_obs_type")
   # an unrecognised obs_type level
   m2 <- data.frame(id = 1, path_id = "A", event = 1, obs_type = "typo", t_upper = 30)
-  expect_error(build_hazard_data(m2, ramp_path, "mixed"),
+  expect_error(build_hazard_data(m2, ramp_traj, "mixed"),
                class = "rTFT_bad_obs_type")
   # a valid level whose timing column is absent
   m3 <- data.frame(id = 1, path_id = "A", event = 1, obs_type = "continuous")
-  expect_error(build_hazard_data(m3, ramp_path, "mixed"),
+  expect_error(build_hazard_data(m3, ramp_traj, "mixed"),
                class = "rTFT_missing_timing_col")
   # a valid level whose timing value is non-finite
   m4 <- data.frame(id = 1, path_id = "A", event = 1, obs_type = "interval",
                    t_upper = NA_real_)
-  expect_error(build_hazard_data(m4, ramp_path, "mixed"),
+  expect_error(build_hazard_data(m4, ramp_traj, "mixed"),
                class = "rTFT_nonfinite_timing")
 })
 
@@ -781,12 +781,12 @@ test_that("a grouping helper term with inner parentheses is still one random eff
 # ===========================================================================
 
 # fit_hazard() itself calls brms::brm(), which compiles a model and cannot run under
-# R CMD check, so the checks target .hazard_brm_args() -- everything fit_hazard does
-# except the fit -- and the .check_Tr() guard. A minimal interval table stands in for
-# real data; nothing here fits a model.
+# R CMD check, so the checks target .hazard_brm_args(), which includes everything
+# fit_hazard does except the fit, and the .check_Tr() guard. A minimal interval table
+# stands in for real data; nothing here fits a model.
 
 fit_ind  <- data.frame(id = 1:2, path_id = "A", event = c(1, 0), t_upper = c(30, 60))
-long_int <- build_hazard_data(fit_ind, ramp_path, "interval", checks = ramp_checks)
+long_int <- build_hazard_data(fit_ind, ramp_traj, "interval", checks = ramp_checks)
 
 
 test_that(".hazard_brm_args assembles the formula, data, family, prior and stanvars", {
@@ -803,7 +803,7 @@ test_that(".hazard_brm_args assembles the formula, data, family, prior and stanv
 test_that("the family and stanvars follow the observation mode", {
   # continuous -> built-in Poisson, no stanvars
   long_c <- build_hazard_data(data.frame(id = 1, path_id = "A", event = 1, t_event = 42),
-                              ramp_path, "continuous", checks = ramp_checks)
+                              ramp_traj, "continuous", checks = ramp_checks)
   ac <- .hazard_brm_args(long_c, "exp", observation = "continuous")
   expect_equal(ac$family$family, "poisson")
   expect_null(ac$stanvars)
@@ -812,7 +812,7 @@ test_that("the family and stanvars follow the observation mode", {
   long_m <- build_hazard_data(
     data.frame(id = 1:2, path_id = "A", event = 1, obs_type = c("interval", "continuous"),
                t_upper = c(30, NA), t_event = c(NA, 42)),
-    ramp_path, "mixed", checks = ramp_checks)
+    ramp_traj, "mixed", checks = ramp_checks)
   am <- .hazard_brm_args(long_m, "exp", observation = "mixed")
   expect_equal(am$family$name, "hazard_mixed")
   expect_identical(am$stanvars, .hazard_mixed_stanvars)
@@ -844,7 +844,7 @@ test_that("prior-override arguments are forwarded to build_hazard_prior", {
 
 test_that(".check_Tr stops the forms that need Ta above Tr, and passes the others", {
   # Tr set above the data, so the log / fractional-power forms are undefined
-  hot <- build_hazard_data(fit_ind, ramp_path, "interval", checks = ramp_checks, Tr = 25)
+  hot <- build_hazard_data(fit_ind, ramp_traj, "interval", checks = ramp_checks, Tr = 25)
   for (m in c("zeroexp", "zeropower", "power"))
     expect_error(.check_Tr(hot, m), class = "rTFT_Tr_below_data")
   # forms without a logarithm or fractional power of (Ta - Tr) are unaffected
@@ -860,4 +860,50 @@ test_that(".check_Tr is strict for zeroexp/zeropower but allows power at Ta == T
   expect_error(.check_Tr(eq, "zeroexp"),   class = "rTFT_Tr_below_data")       # -Inf at equality
   expect_error(.check_Tr(eq, "zeropower"), class = "rTFT_Tr_below_data")
   expect_silent(.check_Tr(eq, "power"))                                        # 0^b = 0 is fine
+})
+
+
+# ===========================================================================
+# 6. Fixed-ramp helper (ramp_path)
+# ===========================================================================
+
+# ramp_path() builds a linear ramp trajectory to stand in for the `path` argument.
+# Expected temperatures are written out from temp(t) = T_start + rate * t.
+
+test_that("ramp_path builds a two-point linear path by default", {
+  p <- ramp_path("A", T_start = 20, rate = 0.25, t_max = 60)
+  expect_equal(names(p), c("path_id", "time", "temp"))
+  expect_equal(p$time, c(0, 60))                     # just the endpoints
+  expect_equal(p$temp, c(20, 35))                    # 20 + 0.25 * c(0, 60)
+  expect_true(all(p$path_id == "A"))
+})
+
+
+test_that("a `by` step samples the ramp and always closes on t_max", {
+  p <- ramp_path("A", T_start = 20, rate = 0.2, t_max = 75, by = 10)
+  # seq(0, 75, 10) = 0..70, plus the exact 75 (not a multiple of the step)
+  expect_equal(p$time, c(seq(0, 70, 10), 75))
+  expect_equal(p$temp, 20 + 0.2 * p$time)            # linear throughout
+})
+
+
+test_that("ramp_path is vectorised over several ramps and recycles a length-one arg", {
+  p <- ramp_path(c("slow", "fast"), T_start = 20, rate = c(0.2, 0.4),
+                 t_max = c(75, 40), by = 10)
+  expect_setequal(unique(p$path_id), c("slow", "fast"))
+  expect_equal(nrow(p), 14L)                         # slow: 0..70,75 (9); fast: 0..40 (5)
+  # T_start = 20 was recycled to both ramps
+  expect_equal(p$temp[p$path_id == "slow"][1], 20)
+  expect_equal(p$temp[p$path_id == "fast"][1], 20)
+  # each ramp carries its own realised slope
+  expect_equal(coef(lm(temp ~ time, p[p$path_id == "slow", ]))[["time"]], 0.2)
+})
+
+
+test_that("a ramp_path output feeds build_hazard_data and reproduces the ramp temperature", {
+  p    <- ramp_path("A", T_start = 20, rate = 0.25, t_max = 60, by = 10)
+  ind  <- data.frame(id = 1, path_id = "A", event = 1, t_upper = 30)
+  long <- build_hazard_data(ind, p, "interval")      # p's `by` grid is the check schedule
+  # the failure interval [20, 30] has midpoint 25; the ramp gives 20 + 0.25 * 25 = 26.25
+  expect_equal(long$Ta[long$tau == 25], 26.25)
 })
