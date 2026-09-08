@@ -1095,7 +1095,7 @@ fit_hazard <- function(long, m_form, baseline = "mem", dpar_formulas = list(),
 
 
 # ===========================================================================
-# 6. Fixed-ramp helper
+# 6. Fixed-ramp helpers
 # ===========================================================================
 
 # ramp_path() ------------------------------------------------------------------
@@ -1132,5 +1132,78 @@ ramp_path <- function(path_id, T_start, rate, t_max, by = NULL) {
   purrr::pmap(list(path_id, T_start, rate, t_max), function(pid, Ts, rr, tm) {
     t <- if (is.null(by)) c(0, tm) else sort(unique(c(seq(0, tm, by = by), tm)))
     tibble::tibble(path_id = pid, time = t, temp = Ts + rr * t)
+  }) |> purrr::list_rbind()
+}
+
+
+# assess_ramp_linearity() ------------------------------------------------------
+
+#' Assess how linear a logged temperature trace is
+#'
+#' A pre-fitting diagnostic with two uses. As quality control on the ramp, it fits
+#' `temp ~ time` per path and reports the realised start and rate, the fit
+#' (`r_squared`), and, given `nominal`, the `rate_bias` against the setpoint, so
+#' you can see whether the controller held a linear ramp at the intended rate. And
+#' as a check on whether a dense or noisy log can be simplified for fitting: a finely
+#' sampled temperature series turns every reading into an at-risk-interval boundary in
+#' [build_hazard_data], so a linear one can be replaced by a clean two-point ramp
+#' from [ramp_path] (exact under the linear interpolation, free of sensor jitter,
+#' and far fewer rows). A faithful series is otherwise best fitted directly; this only
+#' judges that faithfulness.
+#'
+#' As a rule of thumb, a series is linear enough to simplify when its deviations (and
+#' especially `max_dev_hot`, the worst deviation in the upper temperature quartile,
+#' where the failure rate M(T) is steepest) are small relative to `log(10) / b`, the
+#' number of degrees for a tenfold change in an exponential M(T): half that distance
+#' already multiplies M(T) by `sqrt(10)`, about threefold.
+#'
+#' @param path A data frame with `path_id`, `time` and `temp` -- the logged
+#'   temperature trace(s).
+#' @param nominal An optional named numeric of setpoint rates (names matching
+#'   `path_id`). When given, adds `rate_nominal` and `rate_bias` (realised minus
+#'   nominal), the controller's rate error.
+#' @return A tibble, one row per `path_id`, with `n` (the number of readings), the
+#'   realised `T_start` and `rate`, `r_squared`, `rmse`, `max_abs_dev`, and
+#'   `max_dev_hot` (the worst absolute deviation in the hot quartile); plus
+#'   `rate_nominal` and `rate_bias` when `nominal` is supplied.
+#' @examples
+#' # A logged temperature series close to a 0.3 degree/min ramp, with a small mid-run wobble.
+#' path <- data.frame(path_id = "r1", time = 0:20,
+#'                    temp = 20 + 0.3 * (0:20) + c(rep(0, 8), 0.4, 0.5, 0.3, rep(0, 10)))
+#' assess_ramp_linearity(path)
+#'
+#' # With the setpoint rate, to see the controller's rate bias.
+#' assess_ramp_linearity(path, nominal = c(r1 = 0.3))
+#' @export
+assess_ramp_linearity <- function(path, nominal = NULL) {
+  miss <- setdiff(c("path_id", "time", "temp"), names(path))
+  if (length(miss))
+    cli::cli_abort("{.arg path} is missing column{?s} {.field {miss}}.",
+                   class = "rTFT_missing_column")
+
+  purrr::imap(split(path, path$path_id), function(d, pid) {
+    d   <- d[order(d$time), ]
+    m   <- stats::lm(temp ~ time, data = d)
+    dev  <- stats::residuals(m)
+    ss_t <- sum((d$temp - mean(d$temp))^2)           # total sum of squares
+    hot  <- d$temp >= stats::quantile(d$temp, 0.75)  # the upper temperature quartile
+    out <- tibble::tibble(
+      path_id     = pid,
+      n           = nrow(d),
+      T_start     = unname(stats::coef(m)[1]),
+      rate        = unname(stats::coef(m)[2]),
+      # R^2 computed directly rather than via summary.lm(), which warns "essentially
+      # perfect fit" on an exactly linear trace (e.g. a ramp_path() output). NA when
+      # temp is constant (no variation to explain).
+      r_squared   = if (ss_t > 0) 1 - sum(dev^2) / ss_t else NA_real_,
+      rmse        = sqrt(mean(dev^2)),
+      max_abs_dev = max(abs(dev)),
+      max_dev_hot = max(abs(dev[hot]))
+    )
+    if (!is.null(nominal) && pid %in% names(nominal)) {
+      out$rate_nominal <- nominal[[pid]]
+      out$rate_bias    <- out$rate - nominal[[pid]]
+    }
+    out
   }) |> purrr::list_rbind()
 }

@@ -907,3 +907,64 @@ test_that("a ramp_path output feeds build_hazard_data and reproduces the ramp te
   # the failure interval [20, 30] has midpoint 25; the ramp gives 20 + 0.25 * 25 = 26.25
   expect_equal(long$Ta[long$tau == 25], 26.25)
 })
+
+
+# ===========================================================================
+# 7. assess_ramp_linearity
+# ===========================================================================
+
+# assess_ramp_linearity() regresses temp ~ time per path and reports the realised
+# ramp and its deviations. Expected values come from the line temp = T_start +
+# rate * time written out by hand; the deviation summaries are checked by their
+# qualitative signature (a cold-end vs a hot-end departure), which needs no fitted
+# residuals.
+
+test_that("a perfectly linear trace recovers the ramp and shows no deviation", {
+  p <- data.frame(path_id = "r1", time = 0:20, temp = 20 + 0.3 * (0:20))
+  a <- assess_ramp_linearity(p)
+  expect_equal(nrow(a), 1L)
+  expect_equal(a$T_start, 20)
+  expect_equal(a$rate, 0.3)
+  expect_equal(a$r_squared, 1)
+  expect_true(a$rmse < 1e-8)
+  expect_true(a$max_abs_dev < 1e-8)
+})
+
+
+test_that("nominal adds the realised-minus-nominal rate bias", {
+  p <- data.frame(path_id = "r1", time = 0:20, temp = 20 + 0.3 * (0:20))
+  a <- assess_ramp_linearity(p, nominal = c(r1 = 0.25))
+  expect_equal(a$rate_nominal, 0.25)
+  expect_equal(a$rate_bias, 0.05)              # 0.30 realised - 0.25 nominal
+})
+
+
+test_that("max_dev_hot isolates the hot quartile from a cold-end departure", {
+  base <- 20 + 0.3 * (0:20)
+  cold <- base; cold[3] <- cold[3] + 2         # a bump at t = 2, in the cold quarter
+  a <- assess_ramp_linearity(data.frame(path_id = "r1", time = 0:20, temp = cold))
+  expect_lt(a$r_squared, 1)                    # no longer a perfect line
+  expect_lt(a$max_dev_hot, a$max_abs_dev)      # the worst deviation is cold, not hot
+
+  hot <- base; hot[21] <- hot[21] + 2          # a bump at t = 20, the hottest point
+  b <- assess_ramp_linearity(data.frame(path_id = "r1", time = 0:20, temp = hot))
+  expect_equal(b$max_dev_hot, b$max_abs_dev)   # the worst deviation is in the hot quartile
+})
+
+
+test_that("one row per path, and nominal fills only the paths it names", {
+  p <- rbind(
+    data.frame(path_id = "a", time = 0:10, temp = 20 + 0.3 * (0:10)),
+    data.frame(path_id = "b", time = 0:10, temp = 22 + 0.5 * (0:10))
+  )
+  a <- assess_ramp_linearity(p, nominal = c(a = 0.3))   # only "a" has a nominal rate
+  expect_setequal(a$path_id, c("a", "b"))
+  expect_equal(a$rate_bias[a$path_id == "a"], 0)        # 0.3 realised - 0.3 nominal
+  expect_true(is.na(a$rate_bias[a$path_id == "b"]))     # no nominal for "b"
+})
+
+
+test_that("assess_ramp_linearity errors on a missing column", {
+  expect_error(assess_ramp_linearity(data.frame(path_id = "a", time = 0:5)),
+               class = "rTFT_missing_column")
+})
