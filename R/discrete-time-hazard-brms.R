@@ -6,7 +6,8 @@
 
 # The built-in bernoulli(link = "cloglog") forms p = inv_cloglog(eta), which
 # underflows to 1 for eta > ~3.6 and returns -Inf log-lik for survived
-# intervals. This family computes the log-lik straight from eta.
+# intervals. This family computes the log-lik straight from eta. (Continuous
+# mode does not need this -- brms's built-in poisson() is stable.)
 
 # cloglog_bern_family() --------------------------------------------------
 
@@ -22,7 +23,7 @@
 #' This family keeps the predictor on the identity link and forms the log
 #' density from it directly, which is numerically stable across the whole range.
 #'
-#' @return A `customfamily` for use with the rTFT package.
+#' @return A `customfamily` for use with [fit_hazard()].
 #' @export
 cloglog_bern_family <- function() {
   brms::custom_family(
@@ -124,7 +125,7 @@ posterior_epred_cloglog_bern <- function(prep) {
 #' to brms through `vint()`, tells the model which of the two to use, so a single
 #' fit can contain animals whose failures were recorded as either kind.
 #'
-#' @return A `customfamily` for use with the rTFT package.
+#' @return A `customfamily` for use with [fit_hazard()].
 #' @export
 hazard_mixed_family <- function() {
   brms::custom_family(
@@ -882,7 +883,7 @@ build_hazard_spec <- function(m_form, baseline = "mem", dpar_formulas = list(),
 #' those terms, so brms raises no "no parameter" warning. Override the centre of any
 #' parameter through `intercept_priors`, or the shared slope and random-effect
 #' standard-deviation priors through `slope_prior` and `sd_prior`; or replace the
-#' whole set with your own `prior` when fitting.
+#' whole set with your own `prior` when fitting with [fit_hazard()].
 #'
 #' The default intercept priors, all weakly-informative and meant to be changed to
 #' suit your study, are:
@@ -978,4 +979,116 @@ build_hazard_prior <- function(m_form, baseline = "mem", dpar_formulas = list(),
       plist <- c(plist, list(brms::set_prior(sd_prior, class = "sd", nlpar = dp)))
   }
   do.call(c, plist)
+}
+
+
+# ===========================================================================
+# 5. Model fitting
+# ===========================================================================
+
+# .check_Tr() ------------------------------------------------------------------
+
+# Fail before fitting if the temperature reaches the reference Tr for a failure
+# rate that takes a logarithm or fractional power of (Ta - Tr). `zeroexp` and
+# `zeropower` are -Inf exactly at Ta == Tr (log of zero), so they need min(Ta)
+# strictly above Tr; `power` is fine at Ta == Tr (0^b = 0) but NaN below it, so it
+# needs min(Ta) at or above Tr. The other forms have no such constraint.
+.check_Tr <- function(long, m_form) {
+  needs_strict <- c("zeroexp", "zeropower")
+  needs_ge     <- c("power")
+  if (!m_form %in% c(needs_strict, needs_ge)) return(invisible(NULL))
+  if (!all(c("Ta", "Tr") %in% names(long)))   return(invisible(NULL))  # the formula will complain
+  Tr <- long$Tr[1]
+  min_Ta <- min(long$Ta)
+  strict <- m_form %in% needs_strict
+  too_low <- if (strict) min_Ta <= Tr else min_Ta < Tr
+  if (too_low) {
+    rel <- if (strict) "above" else "at or above"
+    cli::cli_abort(c(
+      "The {.val {m_form}} failure rate requires the temperature to stay {rel} the reference {.arg Tr}.",
+      "x" = "min(Ta) = {.val {min_Ta}}, Tr = {.val {Tr}}.",
+      "i" = "Set a lower {.arg Tr} in {.fn build_hazard_data}, or use a form without a logarithm or fractional power of (Ta - Tr)."
+    ), class = "rTFT_Tr_below_data")
+  }
+}
+
+# .hazard_brm_args() -----------------------------------------------------------
+
+# Assemble the argument list for brms::brm(), everything fit_hazard() does except
+# the fit itself, so the wiring (formula, family, prior, stanvars, the Tr guard) can
+# be checked without compiling a model.
+.hazard_brm_args <- function(long, m_form, baseline = "mem", dpar_formulas = list(),
+                             observation = "interval", prior = NULL,
+                             intercept_priors = list(), slope_prior = NULL,
+                             sd_prior = NULL) {
+  observation <- .match_observation(observation)
+  .check_Tr(long, m_form)
+  spec <- build_hazard_spec(m_form, baseline, dpar_formulas, observation)
+
+  # Build the default prior only when none is supplied, forwarding the override
+  # arguments; slope_prior / sd_prior are passed on only when set, so their default
+  # strings stay defined in one place (build_hazard_prior).
+  if (is.null(prior)) {
+    pa <- list(m_form = m_form, baseline = baseline, dpar_formulas = dpar_formulas,
+               intercept_priors = intercept_priors)
+    if (!is.null(slope_prior)) pa$slope_prior <- slope_prior
+    if (!is.null(sd_prior))    pa$sd_prior    <- sd_prior
+    prior <- do.call(build_hazard_prior, pa)
+  }
+
+  args <- list(formula = spec$formula, data = long, family = spec$family, prior = prior)
+  # The custom families need their Stan log-mass functions; continuous mode uses the
+  # built-in Poisson and needs none.
+  if (observation == "interval") args$stanvars <- .cloglog_bern_stanvars
+  if (observation == "mixed")    args$stanvars <- .hazard_mixed_stanvars
+  args
+}
+
+# fit_hazard() -----------------------------------------------------------------
+
+#' Fit a failure-rate hazard model with brms
+#'
+#' Assembles the formula and family with [build_hazard_spec], the default prior with
+#' [build_hazard_prior] (unless you supply your own), selects the Stan code the custom
+#' families need, and hands it all to [brms::brm]. Anything in `...` is forwarded to
+#' `brm` (chains, iterations, cores, backend, initial values, and so on).
+#'
+#' Before fitting, the temperature is checked against the reference `Tr` for the
+#' failure rates that take a logarithm or fractional power of `Ta - Tr` (`zeroexp`,
+#' `power`, `zeropower`): these are undefined where the temperature reaches `Tr`
+#' (`zeroexp`, `zeropower`) or drops below it (`power`), so a run that would hit
+#' that is stopped with a clear error rather than a cryptic sampler failure.
+#'
+#' @param long A data frame, the row-per-interval table from [build_hazard_data].
+#' @param m_form,baseline,dpar_formulas,observation As in [build_hazard_spec].
+#' @param prior An optional `brmsprior` for full manual control. When `NULL` (the
+#'   default) a weakly-informative prior is built with [build_hazard_prior]. A
+#'   supplied prior is used as given, in place of that default rather than merged
+#'   with it, so any coefficient it leaves out falls back to brms's own default, not
+#'   the weakly-informative one. To adjust only some priors and keep the rest, use
+#'   `intercept_priors` / `slope_prior` / `sd_prior` instead of this.
+#' @param intercept_priors,slope_prior,sd_prior As in [build_hazard_prior],
+#'   forwarded when the default prior is built (ignored if you supply `prior`). Each
+#'   changes only the priors it names and leaves the rest at their defaults, so a
+#'   user who only calls `fit_hazard` can retune without building a prior by hand.
+#' @param ... Further arguments forwarded to [brms::brm]. Any argument it accepts
+#'   (e.g. `chains`, `iter`, `cores`, `backend`, `init`), except `formula`, `data`,
+#'   `family`, `prior` and `stanvars`, which `fit_hazard` sets itself. See
+#'   [brms::brm] for the full set.
+#' @return A `brmsfit`.
+#' @examples
+#' \dontrun{
+#' path <- data.frame(path_id = "A", time = c(0, 60), temp = c(20, 35))
+#' ind  <- data.frame(id = 1:20, path_id = "A", event = 1,
+#'                    t_upper = sample(seq(10, 60, 10), 20, replace = TRUE))
+#' long <- build_hazard_data(ind, path, "interval")
+#' fit  <- fit_hazard(long, "exp", chains = 4, iter = 2000, cores = 4)
+#' }
+#' @export
+fit_hazard <- function(long, m_form, baseline = "mem", dpar_formulas = list(),
+                       observation = c("interval", "continuous", "mixed"), prior = NULL,
+                       intercept_priors = list(), slope_prior = NULL, sd_prior = NULL, ...) {
+  args <- .hazard_brm_args(long, m_form, baseline, dpar_formulas, observation, prior,
+                           intercept_priors, slope_prior, sd_prior)
+  do.call(brms::brm, c(args, list(...)))
 }

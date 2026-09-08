@@ -774,3 +774,90 @@ test_that("a grouping helper term with inner parentheses is still one random eff
   expect_equal(sd_of(p, "loga"), "exponential(2)")
   expect_equal(slope_of(p, "loga"), "normal(0, 1)")
 })
+
+
+# ===========================================================================
+# 5. Model fitting (fit_hazard: the assembled brm() arguments and the Tr guard)
+# ===========================================================================
+
+# fit_hazard() itself calls brms::brm(), which compiles a model and cannot run under
+# R CMD check, so the checks target .hazard_brm_args() -- everything fit_hazard does
+# except the fit -- and the .check_Tr() guard. A minimal interval table stands in for
+# real data; nothing here fits a model.
+
+fit_ind  <- data.frame(id = 1:2, path_id = "A", event = c(1, 0), t_upper = c(30, 60))
+long_int <- build_hazard_data(fit_ind, ramp_path, "interval", checks = ramp_checks)
+
+
+test_that(".hazard_brm_args assembles the formula, data, family, prior and stanvars", {
+  a <- .hazard_brm_args(long_int, "exp", observation = "interval")
+  expect_setequal(names(a), c("formula", "data", "family", "prior", "stanvars"))
+  expect_s3_class(a$formula, "brmsformula")
+  expect_identical(a$data, long_int)                     # the data is passed through unchanged
+  expect_equal(a$family$name, "cloglog_bern")
+  expect_s3_class(a$prior, "brmsprior")
+  expect_identical(a$stanvars, .cloglog_bern_stanvars)   # the interval family's Stan code
+})
+
+
+test_that("the family and stanvars follow the observation mode", {
+  # continuous -> built-in Poisson, no stanvars
+  long_c <- build_hazard_data(data.frame(id = 1, path_id = "A", event = 1, t_event = 42),
+                              ramp_path, "continuous", checks = ramp_checks)
+  ac <- .hazard_brm_args(long_c, "exp", observation = "continuous")
+  expect_equal(ac$family$family, "poisson")
+  expect_null(ac$stanvars)
+
+  # mixed -> the hazard_mixed family and its Stan code
+  long_m <- build_hazard_data(
+    data.frame(id = 1:2, path_id = "A", event = 1, obs_type = c("interval", "continuous"),
+               t_upper = c(30, NA), t_event = c(NA, 42)),
+    ramp_path, "mixed", checks = ramp_checks)
+  am <- .hazard_brm_args(long_m, "exp", observation = "mixed")
+  expect_equal(am$family$name, "hazard_mixed")
+  expect_identical(am$stanvars, .hazard_mixed_stanvars)
+})
+
+
+test_that("the default prior is built when none is supplied, and a supplied prior is used as-is", {
+  a <- .hazard_brm_args(long_int, "exp")                 # default prior built
+  expect_equal(a$prior$prior[a$prior$nlpar == "loga" & a$prior$coef == "Intercept"],
+               "normal(-5, 2)")
+
+  mine <- brms::set_prior("normal(-3, 1)", class = "b", coef = "Intercept", nlpar = "loga")
+  a2 <- .hazard_brm_args(long_int, "exp", prior = mine)  # supplied prior passed straight through
+  expect_identical(a2$prior, mine)
+})
+
+
+test_that("prior-override arguments are forwarded to build_hazard_prior", {
+  a <- .hazard_brm_args(long_int, "exp",
+         dpar_formulas = list(loga = ~ 1 + acclim),
+         intercept_priors = list(loga = "normal(-6, 1)"),
+         slope_prior = "normal(0, 0.5)")
+  expect_equal(a$prior$prior[a$prior$nlpar == "loga" & a$prior$coef == "Intercept"],
+               "normal(-6, 1)")
+  expect_equal(a$prior$prior[a$prior$nlpar == "loga" & a$prior$coef == ""],
+               "normal(0, 0.5)")
+})
+
+
+test_that(".check_Tr stops the forms that need Ta above Tr, and passes the others", {
+  # Tr set above the data, so the log / fractional-power forms are undefined
+  hot <- build_hazard_data(fit_ind, ramp_path, "interval", checks = ramp_checks, Tr = 25)
+  for (m in c("zeroexp", "zeropower", "power"))
+    expect_error(.check_Tr(hot, m), class = "rTFT_Tr_below_data")
+  # forms without a logarithm or fractional power of (Ta - Tr) are unaffected
+  for (m in c("exp", "const", "exp_threshold"))
+    expect_silent(.check_Tr(hot, m))
+})
+
+
+test_that(".check_Tr is strict for zeroexp/zeropower but allows power at Ta == Tr", {
+  # a flat cold start so the coldest interval midpoint equals the default Tr
+  flat <- data.frame(path_id = "A", time = c(0, 25, 60), temp = c(20, 20, 35))
+  eq   <- build_hazard_data(fit_ind, flat, "interval", checks = ramp_checks)  # min(Ta) == Tr == 20
+  expect_error(.check_Tr(eq, "zeroexp"),   class = "rTFT_Tr_below_data")       # -Inf at equality
+  expect_error(.check_Tr(eq, "zeropower"), class = "rTFT_Tr_below_data")
+  expect_silent(.check_Tr(eq, "power"))                                        # 0^b = 0 is fine
+})

@@ -7,7 +7,7 @@
 cloglog_bern_family()
 }
 \value{
-A \code{customfamily} for use with the rTFT package.
+A \code{customfamily} for use with \code{\link[=fit_hazard]{fit_hazard()}}.
 }
 \description{
 The response distribution for interval-censored failures. brms's own

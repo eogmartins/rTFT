@@ -7,7 +7,7 @@
 hazard_mixed_family()
 }
 \value{
-A \code{customfamily} for use with the rTFT package.
+A \code{customfamily} for use with \code{\link[=fit_hazard]{fit_hazard()}}.
 }
 \description{
 Some failures are known only to have fallen within an interval, others at a

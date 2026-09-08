@@ -50,7 +50,7 @@ slope and random-effect priors are added only when the parameter actually has
 those terms, so brms raises no "no parameter" warning. Override the centre of any
 parameter through \code{intercept_priors}, or the shared slope and random-effect
 standard-deviation priors through \code{slope_prior} and \code{sd_prior}; or replace the
-whole set with your own \code{prior} when fitting.
+whole set with your own \code{prior} when fitting with \code{\link[=fit_hazard]{fit_hazard()}}.
 }
 \details{
 The default intercept priors, all weakly-informative and meant to be changed to
