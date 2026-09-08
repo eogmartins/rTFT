@@ -658,3 +658,119 @@ test_that("build_hazard_spec returns the formula, family, and observation", {
   expect_s3_class(f$family, "brmsfamily")
   expect_true(isTRUE(attr(f$formula$formula, "nl")))   # a nonlinear formula
 })
+
+
+# ===========================================================================
+# 4. Prior builder (build_hazard_prior) and its formula helpers
+# ===========================================================================
+
+# build_hazard_prior() returns a brmsprior without fitting, so the checks read the
+# rows off it. The expected prior strings are written out by hand, so the test
+# checks the defaults and the override wiring rather than re-running the builder.
+# The tree helpers (.has_re / .has_slopes) that decide which slope and
+# standard-deviation priors are added are tested directly, including a grouping-
+# helper term with inner parentheses.
+
+# The prior string for a parameter's intercept, covariate slope, or random-effect sd
+# (an intercept has coef "Intercept"; a slope and an sd have the empty coef).
+icpt_of  <- function(p, dp) p$prior[p$class == "b"  & p$coef == "Intercept" & p$nlpar == dp]
+slope_of <- function(p, dp) p$prior[p$class == "b"  & p$coef == ""          & p$nlpar == dp]
+sd_of    <- function(p, dp) p$prior[p$class == "sd" & p$nlpar == dp]
+
+
+test_that("build_hazard_prior returns a brmsprior with an intercept per needed parameter", {
+  p <- build_hazard_prior("exp", "mem")
+  expect_s3_class(p, "brmsprior")
+  # exp + mem needs loga and logb, and nothing else
+  ib <- p[p$class == "b" & p$coef == "Intercept", ]
+  expect_setequal(ib$nlpar, c("loga", "logb"))
+})
+
+
+test_that("the default intercept priors match the documented values", {
+  p1 <- build_hazard_prior("power", "mem")               # loga, logb, logc
+  expect_equal(icpt_of(p1, "loga"), "normal(-5, 2)")
+  expect_equal(icpt_of(p1, "logb"), "normal(-0.7, 1)")
+  expect_equal(icpt_of(p1, "logc"), "normal(-5, 2)")
+
+  p2 <- build_hazard_prior("exp_threshold", "weibull")   # + Tc, logshape, logscale
+  expect_equal(icpt_of(p2, "Tc"), "normal(30, 3)")
+  expect_equal(icpt_of(p2, "logshape"), "normal(0, 1)")
+  expect_equal(icpt_of(p2, "logscale"), "normal(4.094, 1)")   # normal(log(60), 1)
+
+  p3 <- build_hazard_prior("const", "gompertz")          # loga, gam
+  expect_equal(icpt_of(p3, "gam"), "normal(0, 1)")
+})
+
+
+test_that("slope and sd priors are added only when the parameter has those terms", {
+  p <- build_hazard_prior("exp", "mem",
+         dpar_formulas = list(loga = ~ 1 + acclim, logb = ~ 1 + (1 | trial)))
+  # loga has a covariate: a slope prior, no sd prior
+  expect_equal(slope_of(p, "loga"), "normal(0, 1)")
+  expect_length(sd_of(p, "loga"), 0)
+  # logb has a random intercept: an sd prior, no slope prior
+  expect_equal(sd_of(p, "logb"), "exponential(2)")
+  expect_length(slope_of(p, "logb"), 0)
+  # with neither, there are no slope or sd rows at all (only intercepts)
+  p0 <- build_hazard_prior("exp", "mem")
+  expect_equal(nrow(p0[p0$coef == "" & p0$class %in% c("b", "sd"), ]), 0L)
+})
+
+
+test_that("intercept_priors override the named centres and leave the rest default", {
+  p <- build_hazard_prior("exp_threshold", "weibull",
+         intercept_priors = list(Tc = "normal(26, 4)", loga = "normal(-6, 1.5)"))
+  expect_equal(icpt_of(p, "Tc"),   "normal(26, 4)")       # overridden
+  expect_equal(icpt_of(p, "loga"), "normal(-6, 1.5)")     # overridden
+  expect_equal(icpt_of(p, "logb"), "normal(-0.7, 1)")     # untouched default
+  expect_equal(icpt_of(p, "logscale"), "normal(4.094, 1)")# untouched default
+})
+
+
+test_that("slope_prior and sd_prior override the generic slope and sd priors", {
+  p <- build_hazard_prior("exp", "mem",
+         dpar_formulas = list(loga = ~ 1 + acclim, logb = ~ 1 + (1 | trial)),
+         slope_prior = "normal(0, 0.5)", sd_prior = "exponential(3)")
+  expect_equal(slope_of(p, "loga"), "normal(0, 0.5)")
+  expect_equal(sd_of(p, "logb"), "exponential(3)")
+})
+
+
+test_that("intercept_priors is validated: unnamed errors, an unused name warns", {
+  expect_error(build_hazard_prior("exp", intercept_priors = list("normal(0, 1)")),
+               class = "rTFT_bad_intercept_priors")
+  # Tc is not a parameter of the plain exponential form
+  expect_warning(build_hazard_prior("exp", intercept_priors = list(Tc = "normal(1, 1)")),
+                 class = "rTFT_unused_intercept_prior")
+})
+
+
+test_that("build_hazard_prior rejects an unknown m_form or baseline", {
+  expect_error(build_hazard_prior("nope"), class = "rTFT_unknown_m_form")
+  expect_error(build_hazard_prior("exp", baseline = "nope"), class = "rTFT_unknown_baseline")
+})
+
+
+test_that(".has_re and .has_slopes read the formula parse tree, not its text", {
+  expect_true(.has_slopes(~ 1 + a + b))            # several predictors
+  expect_false(.has_slopes(~ 1))                   # intercept only
+  expect_false(.has_slopes(~ 1 + (1 | g)))         # random effect only, no fixed slope
+  expect_true(.has_slopes(~ 1 + a * b))            # an interaction is a slope
+  expect_true(.has_re(~ 1 + (1 | g) + (1 | h)))    # several random effects
+  expect_false(.has_re(~ 1 + a))
+  expect_false(.has_re(NULL))
+  expect_false(.has_slopes(NULL))
+})
+
+
+test_that("a grouping helper term with inner parentheses is still one random effect", {
+  # (1 | gr(site, cor = TRUE)) has an inner ")" that stopping at the first ")" would trip on.
+  f <- ~ 1 + acclim + (1 | gr(site, cor = TRUE))
+  expect_true(.has_re(f))                          # the group is recognised
+  expect_true(.has_slopes(f))                      # acclim is still a fixed slope
+  # and it flows through to the prior: both an sd prior and the slope prior appear
+  p <- build_hazard_prior("exp", dpar_formulas = list(loga = f))
+  expect_equal(sd_of(p, "loga"), "exponential(2)")
+  expect_equal(slope_of(p, "loga"), "normal(0, 1)")
+})

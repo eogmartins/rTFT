@@ -406,6 +406,53 @@ brms_log_h0 <- list(
 
 
 # ===========================================================================
+# Internal helpers: argument validation
+# ===========================================================================
+
+# Shared by the functions below so the checks (and their cli condition classes) are
+# defined once. Each validates a user argument against the catalogues and, on a bad
+# value, raises the same cli error the rest of the package uses.
+
+# Resolve the observation mode, keeping match.arg()'s partial matching and
+# defaulting but rethrowing its plain stop() as a cli condition.
+.match_observation <- function(observation) {
+  choices <- c("interval", "continuous", "mixed")
+  tryCatch(
+    match.arg(observation, choices),
+    error = function(e) {
+      show <- cli::cli_vec(choices, list("vec-last" = ", or "))
+      cli::cli_abort(c(
+        "{.arg observation} must be one of {.val {show}}.",
+        "x" = "You supplied {.val {observation}}."
+      ), class = "rTFT_bad_observation")
+    }
+  )
+}
+
+# The M_catalogue entry for a failure-rate function, or a cli error naming the keys.
+.m_form_spec <- function(m_form) {
+  spec <- M_catalogue[[m_form]]
+  if (is.null(spec))
+    cli::cli_abort(c(
+      "Unknown {.arg m_form}: {.val {m_form}}.",
+      "i" = "It must be a key of {.code M_catalogue}: {.val {names(M_catalogue)}}."
+    ), class = "rTFT_unknown_m_form")
+  spec
+}
+
+# The h0_catalogue entry for a baseline function, or a cli error naming the keys.
+.baseline_spec <- function(baseline) {
+  spec <- h0_catalogue[[baseline]]
+  if (is.null(spec))
+    cli::cli_abort(c(
+      "Unknown {.arg baseline}: {.val {baseline}}.",
+      "i" = "It must be a key of {.code h0_catalogue}: {.val {names(h0_catalogue)}}."
+    ), class = "rTFT_unknown_baseline")
+  spec
+}
+
+
+# ===========================================================================
 # 2. Build the row-per-interval long table
 # ===========================================================================
 
@@ -513,19 +560,7 @@ brms_log_h0 <- list(
 build_hazard_data <- function(ind, path, observation = c("interval", "continuous", "mixed"),
                               covariates = character(0), Tr = NULL, checks = NULL,
                               grid_dt = NULL) {
-  # match.arg() keeps the partial matching and defaulting, but its own error is a
-  # plain stop(); rethrow it as a cli condition so it matches the rest of the package.
-  observation_choices <- c("interval", "continuous", "mixed")
-  observation <- tryCatch(
-    match.arg(observation, observation_choices),
-    error = function(e) {
-      choices <- cli::cli_vec(observation_choices, list("vec-last" = ", or "))
-      cli::cli_abort(c(
-        "{.arg observation} must be one of {.val {choices}}.",
-        "x" = "You supplied {.val {observation}}."
-      ), class = "rTFT_bad_observation")
-    }
-  )
+  observation <- .match_observation(observation)
 
   # Fail on a missing input column, rather than letting a NULL slip into an
   # approxfun() call: approxfun(time, NULL) does not error, it silently
@@ -727,30 +762,9 @@ build_hazard_data <- function(ind, path, observation = c("interval", "continuous
 build_hazard_spec <- function(m_form, baseline = "mem", dpar_formulas = list(),
                                 observation = c("interval", "continuous", "mixed"),
                                 k_sw = NULL) {
-  observation_choices <- c("interval", "continuous", "mixed")
-  observation <- tryCatch(
-    match.arg(observation, observation_choices),
-    error = function(e) {
-      choices <- cli::cli_vec(observation_choices, list("vec-last" = ", or "))
-      cli::cli_abort(c(
-        "{.arg observation} must be one of {.val {choices}}.",
-        "x" = "You supplied {.val {observation}}."
-      ), class = "rTFT_bad_observation")
-    }
-  )
-
-  m_spec  <- M_catalogue[[m_form]]
-  h0_spec <- h0_catalogue[[baseline]]
-  if (is.null(m_spec))
-    cli::cli_abort(c(
-      "Unknown {.arg m_form}: {.val {m_form}}.",
-      "i" = "It must be a key of {.code M_catalogue}: {.val {names(M_catalogue)}}."
-    ), class = "rTFT_unknown_m_form")
-  if (is.null(h0_spec))
-    cli::cli_abort(c(
-      "Unknown {.arg baseline}: {.val {baseline}}.",
-      "i" = "It must be a key of {.code h0_catalogue}: {.val {names(h0_catalogue)}}."
-    ), class = "rTFT_unknown_baseline")
+  observation <- .match_observation(observation)
+  m_spec  <- .m_form_spec(m_form)
+  h0_spec <- .baseline_spec(baseline)
 
   needed <- c(m_spec$dpars, h0_spec$dpars)
 
@@ -808,4 +822,160 @@ build_hazard_spec <- function(m_form, baseline = "mem", dpar_formulas = list(),
                 mixed      = hazard_mixed_family())
 
   list(formula = bf_obj, family = fam, observation = observation)
+}
+
+
+# ===========================================================================
+# 4. Prior builder
+# ===========================================================================
+
+# .rhs_terms() / .is_bar() / .has_re() / .has_slopes() -------------------------
+
+# Whether a parameter's one-sided formula carries fixed slopes and/or a random
+# effect decides which extra priors build_hazard_prior() adds. Both read the
+# formula's parse tree rather than its text, so a `(a | b)` group with inner
+# parentheses (e.g., a brms grouping helper such as `(1 | gr(site, cor = TRUE))`)
+# is still recognised as a single random-effect term.
+
+# The additive terms of a one-sided formula's RHS, split on top-level `+` only, so a
+# `(a | b)` group stays whole.
+.rhs_terms <- function(f) {
+  split_plus <- function(e)
+    if (is.call(e) && identical(e[[1]], quote(`+`)))
+      c(split_plus(e[[2]]), split_plus(e[[3]]))
+    else list(e)
+  split_plus(f[[length(f)]])
+}
+
+# Checks if a term is a random effect group `(... | ...)`: a group parses as a parenthesis
+# call wrapping a `|` call.
+.is_bar <- function(term)
+  is.call(term) && identical(term[[1]], quote(`(`)) &&
+    is.call(term[[2]]) && identical(term[[2]][[1]], quote(`|`))
+
+# Checks if a one-sided formula contain a random effect term
+.has_re <- function(f)
+  !is.null(f) && any(vapply(.rhs_terms(f), .is_bar, logical(1)))
+
+# Checks if the formula has a fixed predictor beyond the intercept. Random effect terms
+# are dropped, and the intercept indicators (the numeric 0 / 1) do not count, so only a
+# named covariate or an interaction reads as a slope.
+.has_slopes <- function(f) {
+  if (is.null(f)) return(FALSE)
+  terms <- .rhs_terms(f)
+  fixed <- terms[!vapply(terms, .is_bar, logical(1))]
+  any(!vapply(fixed, is.numeric, logical(1)))
+}
+
+
+# build_hazard_prior() ---------------------------------------------------------
+
+#' Weakly-informative default priors for a failure-rate hazard model
+#'
+#' Supplies a sensible starting prior for the model [build_hazard_spec] assembles,
+#' keyed to each parameter's intercept and robust to whatever covariates the
+#' `dpar_formulas` add. For every parameter the chosen functions need, it sets a
+#' weakly-informative prior on the intercept (the parameter's value at the reference
+#' temperature and start of exposure), a generic Normal(0, 1) on any covariate
+#' slopes, and an Exponential(2) on the standard deviation of any random effect. The
+#' slope and random-effect priors are added only when the parameter actually has
+#' those terms, so brms raises no "no parameter" warning. Override the centre of any
+#' parameter through `intercept_priors`, or the shared slope and random-effect
+#' standard-deviation priors through `slope_prior` and `sd_prior`; or replace the
+#' whole set with your own `prior` when fitting.
+#'
+#' The default intercept priors, all weakly-informative and meant to be changed to
+#' suit your study, are:
+#'
+#' * `loga ~ normal(-5, 2)` -- log amplitude (the failure rate at the reference `Tr`)
+#' * `logb ~ normal(-0.7, 1)` -- log temperature sensitivity
+#' * `logc ~ normal(-5, 2)` -- log baseline term of the power form
+#' * `Tc ~ normal(30, 3)` -- critical temperature
+#' * `logshape ~ normal(0, 1)` -- log Weibull / log-logistic shape
+#' * `logscale ~ normal(log(60), 1)` -- log Weibull / log-logistic scale
+#' * `gam ~ normal(0, 1)` -- Gompertz rate
+#'
+#' with `normal(0, 1)` on any covariate slope and `exponential(2)` on any
+#' random-effect standard deviation.
+#'
+#' Prior values for `loga` and `logscale` assume exposure time is measured in minutes
+#' (a small failure rate per minute, and a trial about an hour long), so rescale them
+#' for other time units. `Tc` assumes a temperature near many ectotherms' critical range.
+#' `gam` is centred at zero, the memoryless case where the baseline hazard is flat in 
+#' elapsed exposure time, so unless the data show a trend the fit stays near that flat 
+#' baseline rather than assuming the hazard rises or falls over time.
+#'
+#' @param m_form A character string denoting a key of [M_catalogue] (e.g. `"exp"` or
+#'   `"exp_threshold"`).
+#' @param baseline A character string denoting a key of [h0_catalogue]: `"mem"`
+#'   (default), `"weibull"`, `"llogis"` or `"gompertz"`.
+#' @param dpar_formulas A named list of one-sided formulas, one per parameter, as in
+#'   [build_hazard_spec]. A parameter's fixed and random terms decide which slope and
+#'   standard-deviation priors are added.
+#' @param intercept_priors A named list of prior strings, one per parameter, that
+#'   replace the default intercept (centre) for those parameters, e.g.
+#'   `list(Tc = "normal(26, 4)")`. A parameter left out keeps its default; a name
+#'   that is not a parameter of the chosen functions is ignored with a warning.
+#' @param slope_prior A single prior string for every covariate slope (a
+#'   population-level effect beyond the intercept), applied to each parameter that
+#'   has one. Defaults to `"normal(0, 1)"`.
+#' @param sd_prior A single prior string for every random-effect standard deviation,
+#'   applied to each parameter that has one. Defaults to `"exponential(2)"`.
+#' @return A `brmsprior`.
+#' @examples
+#' # Default weakly-informative priors for an exponential-threshold + Weibull model.
+#' build_hazard_prior("exp_threshold", baseline = "weibull")
+#'
+#' # Override a couple of priors (a cooler species, a tighter amplitude) and narrow
+#' # the covariate-slope prior; every other parameter keeps its default.
+#' build_hazard_prior("exp_threshold", baseline = "weibull",
+#'   dpar_formulas = list(loga = ~ 1 + acclim),
+#'   intercept_priors = list(Tc = "normal(26, 4)", loga = "normal(-6, 1.5)"),
+#'   slope_prior = "normal(0, 0.5)")
+#' @export
+build_hazard_prior <- function(m_form, baseline = "mem", dpar_formulas = list(),
+                               intercept_priors = list(),
+                               slope_prior = "normal(0, 1)",
+                               sd_prior = "exponential(2)") {
+  m_spec  <- .m_form_spec(m_form)
+  h0_spec <- .baseline_spec(baseline)
+  needed  <- c(m_spec$dpars, h0_spec$dpars)
+
+  # Intercept prior per parameter, on the parameter's own scale (the log-scale
+  # parameters carry priors in log units).
+  icpt <- c(loga = "normal(-5, 2)", logb = "normal(-0.7, 1)", Tc = "normal(30, 3)",
+            logc = "normal(-5, 2)", logshape = "normal(0, 1)",
+            logscale = paste0("normal(", round(log(60), 3), ", 1)"),
+            gam = "normal(0, 1)")
+
+  # A user's intercept overrides replace entries in that lookup, so anything left
+  # unnamed keeps its default. Warn (rather than silently ignore) an override for a
+  # parameter the chosen functions do not use.
+  if (length(intercept_priors)) {
+    if (is.null(names(intercept_priors)) || any(names(intercept_priors) == ""))
+      cli::cli_abort("{.arg intercept_priors} must be a named list, one prior per parameter.",
+                     class = "rTFT_bad_intercept_priors")
+    unused <- setdiff(names(intercept_priors), needed)
+    if (length(unused))
+      cli::cli_warn(c(
+        "!" = "Ignoring {.arg intercept_priors} not used by {.val {m_form}} + {.val {baseline}}: {.val {unused}}.",
+        "i" = "The parameters in play are {.val {needed}}."
+      ), class = "rTFT_unused_intercept_prior")
+    icpt[names(intercept_priors)] <- unlist(intercept_priors)
+  }
+
+  # Accumulate in a list and combine once with do.call(c, ...), which uses the
+  # brmsprior method for c() and preserves the class. The slope and
+  # standard-deviation priors are the same string across parameters (each
+  # overridable through slope_prior / sd_prior).
+  plist <- list()
+  for (dp in needed) {
+    plist <- c(plist, list(brms::set_prior(icpt[[dp]], class = "b",
+                                           coef = "Intercept", nlpar = dp)))
+    if (.has_slopes(dpar_formulas[[dp]]))
+      plist <- c(plist, list(brms::set_prior(slope_prior, class = "b", nlpar = dp)))
+    if (.has_re(dpar_formulas[[dp]]))
+      plist <- c(plist, list(brms::set_prior(sd_prior, class = "sd", nlpar = dp)))
+  }
+  do.call(c, plist)
 }
