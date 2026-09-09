@@ -9,7 +9,8 @@ build_hazard_spec(
   baseline = "mem",
   dpar_formulas = list(),
   observation = c("interval", "continuous", "mixed"),
-  k_sw = NULL
+  k_sw = NULL,
+  costressors = list()
 )
 }
 \arguments{
@@ -32,13 +33,19 @@ reads the per-row \code{exact} flag through \code{vint()}).}
 \item{k_sw}{An optional positive numeric representing the softening steepness of a
 threshold function's gate, in inverse temperature units (the transition band is
 roughly its reciprocal). This is an advanced override: leave \code{NULL} (the default)
-to use the value in \link{M_catalogue} (50), which suits most fOK its. A larger value is
+to use the value in \link{M_catalogue} (50), which suits most fits. A larger value is
 a sharper switch over a narrower band, but too large returns the sampler to the
 hard step geometry, where the critical temperature \code{Tc} mixes poorly (low
 effective sample size, sometimes divergences). This is a sampling-geometry
 effect, separate from identifiability: \code{Tc} is poorly identified whenever the
 observed temperatures do not bracket it, whatever \code{k_sw} is. Ignored, with a
 warning, for a function that has no threshold.}
+
+\item{costressors}{An optional list of \link{costressor} objects. Each appends its
+terms to log M(T) (a main effect \verb{c<name>}, and unless switched off a
+temperature interaction \verb{dT<name>}), so the failure rate becomes a surface
+M(T, Z). Their coefficients join the parameters getting a sub-formula, so a
+\code{dpar_formulas} entry can put covariates on one. Defaults to none.}
 }
 \value{
 A named list with the brms \code{formula}, the \code{family}, and the \code{observation}
@@ -78,6 +85,11 @@ build_hazard_spec("exp",
 # Mixed interval-censored and known-time failures: the response holds the per-row
 # `exact` flag through vint().
 build_hazard_spec("exp", observation = "mixed")
+
+# A crossed temperature-by-oxygen design: dissolved oxygen enters log M as a main
+# effect (cDO) and a temperature interaction (dTDO).
+do <- costressor("DO", column = "do", ref = 8.5, scale = 1, direction = -1)
+build_hazard_spec("exp", costressors = list(do))
 
 # Advanced: a gentler threshold switch than the catalogue default.
 build_hazard_spec("exp_threshold", k_sw = 20)

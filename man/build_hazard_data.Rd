@@ -11,7 +11,8 @@ build_hazard_data(
   covariates = character(0),
   Tr = NULL,
   checks = NULL,
-  grid_dt = NULL
+  grid_dt = NULL,
+  costressors = list()
 )
 }
 \arguments{
@@ -75,13 +76,19 @@ known-time failure, a regular grid can be used instead (see \code{grid_dt}).}
 this step, from \code{t = 0} to the failure time, instead of on \code{checks}, providing
 a finer cumulative hazard at the cost of more rows. Defaults to \code{NULL} (integrate
 on the checks).}
+
+\item{costressors}{An optional list of \link{costressor} objects declaring
+non-temperature stressors (dissolved oxygen and the like). Each adds a
+standardised column \verb{z_<name>}, read from its own trajectory (interpolated to
+the interval midpoints) or, for a stressor held fixed within a trial, from a
+column of \code{ind}. Defaults to none.}
 }
 \value{
 A long-format data frame, one row per individual and at-risk interval,
 holding the identifiers \code{id} and \code{path_id}; the model columns \code{Ta}, \code{Tr},
-\code{tau}, \code{log_tau}, \code{exposure}, \code{log_exposure}; the carried covariates; the
-0/1 response column \code{failed}; and, for mixed observation, the integer \code{exact}
-flag the family branches on.
+\code{tau}, \code{log_tau}, \code{exposure}, \code{log_exposure}; the carried covariates; one
+\verb{z_<name>} column per co-stressor; the 0/1 response column \code{failed}; and, for
+mixed observation, the integer \code{exact} flag the family branches on.
 }
 \description{
 Reshapes one row per individual, together with a temperature trajectory, into

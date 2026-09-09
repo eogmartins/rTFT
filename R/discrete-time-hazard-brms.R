@@ -1,5 +1,27 @@
 # discrete-time-hazard-brms.R
 
+# Functions to fit thermal failure times (i.e., the time at which an individual fails 
+# under a thermal exposure) as discrete-time complementary log-log survival models 
+# in brms, following the failure-rate framework of Kingsolver and Umbanhowar (2018). Each
+# at-risk interval of a trial contributes a Bernoulli failure indicator whose hazard
+# is h0(tau) * M(T): a failure rate M(T) set by the current temperature, and a
+# baseline hazard h0(tau) in elapsed exposure. The failure rate takes one of a
+# catalogue of forms (M_catalogue) and the baseline one of a catalogue of shapes
+# (h0_catalogue). Both are written once as log-scale expression strings (brms_log_M,
+# brms_log_h0) that fitting, simulation and reporting all read, so the model has a
+# single definition.
+#
+# The path is build_hazard_data() -> build_hazard_spec() -> build_hazard_prior() ->
+# fit_hazard(): reshape one row per individual into one row per at-risk interval,
+# assemble the nonlinear formula and its response family, supply weakly-informative
+# default priors, and hand it to brms. Failure times may be interval-censored,
+# observed at a known time, or a mix of the two; each has its own response
+# family (the numerically stable cloglog Bernoulli family here, brms's Poisson, or
+# the unified mixed family). A non-temperature co-stressor Z (e.g., dissolved oxygen, pH)
+# enters through costressor(), turning the failure rate into a surface
+# M(T, Z). ramp_path() and assess_ramp_linearity() help when the exposure is a
+# controlled linear temperature ramp.
+
 # ===========================================================================
 # 0a. Numerically stable cloglog Bernoulli family (interval mode)
 # ===========================================================================
@@ -454,6 +476,269 @@ brms_log_h0 <- list(
 
 
 # ===========================================================================
+# Co-stressor declarations
+# ===========================================================================
+
+# costressor() -----------------------------------------------------------------
+
+#' Declare a co-stressor for a failure-rate hazard model
+#'
+#' Describes one non-temperature environmental variable (Z) the animal is exposed to
+#' and that co-determines the failure rate: dissolved oxygen, salinity, pH, a
+#' toxicant concentration, or, for a terrestrial ectotherm, humidity. The failure
+#' rate then becomes a surface M(T, Z). The co-stressor enters log M(T) as its own
+#' term plus, by default, an interaction with temperature, so a crossed
+#' temperature-by-stressor design (a ramp run at two or more stressor levels) can
+#' estimate how the stressor changes the thermal response. Build one for each
+#' co-stressor and pass them together, as a list, to [build_hazard_data],
+#' [build_hazard_spec], [build_hazard_prior] and [fit_hazard], so all four read the
+#' same declaration.
+#'
+#' The raw measurement `X` becomes a standardised column
+#' z = direction * (X - ref) / scale, which is zero at the benign reference. There
+#' the failure rate reduces to the pure thermal M(T): the amplitude `loga` and
+#' critical temperature `Tc` keep their unstressed meaning, and a model with the
+#' co-stressor held at its reference is the same as one without it. This follows
+#' from centring the column at a chosen reference rather than at the sample mean.
+#' 
+#' The three pieces the standardisation needs (a reference, a scale, and a
+#' direction) are all required, as none has a safe default. A domain-chosen scale
+#' (per mg/L of oxygen, per unit concentration) is preferred to a data standard
+#' deviation, which is unstable with only two or three treatment levels. As an 
+#' example, for dissolved oxygen with a reference at air-saturation (ref = 8.5 mg/L), 
+#' a scale of 1 mg/L (scale = 1), and less oxygen meaning more stress (direction = -1),
+#' z = -1 * (X - 8.5) / 1 = 8.5 - X, the oxygen deficit is: z = 0 at
+#' saturation and z = 2.5 at 6 mg/L (below saturation). The direction re-orients every
+#' stressor onto a common axis on which a larger z always means more stress, so the
+#' main effect `c<name>` has the same sign meaning for every stressor: a positive value
+#' is a hazard that rises under stress.
+#'
+#' This signed-linear column assumes the stressor harm runs one way. For a stressor that is
+#' harmful in either direction (salinity or pH, where a departure above or below the
+#' optimum both add stress), supply a `transform` function so z measures distance from the
+#' reference rather than a signed deficit: a squared standardised deviation,
+#' transform = function(u) u^2, makes z = ((X - ref) / scale)^2, zero at the optimum
+#' and rising on both sides. The `direction` then no longer applies, since z is
+#' symmetric.
+#'
+#' The co-stressor contributes two parameters, named from `name`. The main effect
+#' `c<name>` is the change in the log failure rate per `scale` of stressor beyond
+#' the reference, and the interaction `dT<name>` (kept unless switched off) is how
+#' that change varies with temperature. These are the names brms estimates and that
+#' [build_hazard_prior] sets priors on. `c<name>` is a continuous dose term: with
+#' three or more stressor levels it is a per-`scale` slope through them, but with
+#' only two it cannot be told apart from a per-treatment shift of the amplitude
+#' `loga`. A main effect on its own is in fact just that shift: it is equivalent to
+#' a covariate on the amplitude, `loga ~ 1 + z` in [build_hazard_spec]'s
+#' `dpar_formulas`. The additive `dT<name>` term is not: no `dpar_formulas` entry
+#' reproduces it, so it is the part `costressor()` supplies. A temperature
+#' interaction of a different shape can still be had through `dpar_formulas` (the
+#' multiplicative form in \sQuote{Two kinds of temperature interaction} below); what
+#' is unique to `costressor()` is this particular additive term.
+#'
+#' Because `c<name>` and `dT<name>` are ordinary parameters, `dpar_formulas` in
+#' [build_hazard_spec] can put covariates on either, so the stressor's effect can
+#' itself vary: `cDO = ~ 1 + acclim` lets the oxygen sensitivity depend on
+#' acclimation (a stressor-by-covariate interaction), and the same on `dT<name>`
+#' lets the temperature interaction vary. These are higher-order terms, so they need
+#' a design that varies temperature, the stressor and the covariate together enough
+#' to identify them; the formula is built either way, but a thin design shows up as
+#' poor mixing rather than a clean fit.
+#'
+#' @section Categorical stressor treatments:
+#' `costressor()` expects a stressor measured on a numeric scale, so `ref`, `scale`
+#' and `direction` mean something. Quantitative treatment levels belong here even
+#' though they are "treatments": dissolved oxygen dosed at 8.5, 5 and 2 mg/L is
+#' numeric, so pass the measured level as `column`. A genuinely unordered
+#' categorical stressor, with no scale on which a reference and a per-unit step make
+#' sense, does not. Model it through `dpar_formulas` in [build_hazard_spec] instead:
+#' a factor on the amplitude `loga` gives a per-treatment level shift, the same as a
+#' stressor main effect. To let the treatment effect vary with temperature, put the
+#' factor on the parameter that governs the temperature response (`logb` for the
+#' exponential forms, `Tc` for the threshold forms). That is a genuine
+#' temperature-by-treatment interaction, though a different parameterisation from the
+#' co-stressor's `dT<name>` term, as it scales the temperature slope rather than adding
+#' to it (see \sQuote{Two kinds of temperature interaction} below). A two-level 
+#' treatment can instead be encoded 0/1 and passed to `costressor()`, which then gives
+#' the co-stressor's own main and interaction terms.
+#'
+#' @section Two kinds of temperature interaction:
+#' The default `dT<name>` interaction is additive on the temperature slope: it adds
+#' `dT<name> * (Ta - Tr) * z` to log M, so the per-degree effect shifts by a constant
+#' amount per unit of stressor. This is the standard temperature-by-stressor
+#' interaction, it works the same on every M(T) function, and it lets the slope
+#' change sign, so a stressor can in principle flatten or reverse the thermal
+#' effect. The sign of `dT<name>` then reads as the synergy or antagonism of
+#' temperature and the stressor (on the proportional-hazards scale): positive
+#' steepens the thermal slope, negative flattens it, and a large enough negative
+#' value reverses it (an antagonistic crossover where warming becomes protective
+#' under severe harm caused by the co-stressor). The alternative is to let the 
+#' stressor rescale thermal sensitivity by a proportion, which keeps it positive: 
+#' set `interaction = FALSE` (so the co-stressor adds only its main effect and the
+#' `z_<name>` column) and put that column on the sensitivity parameter through 
+#' `dpar_formulas` instead: `logb ~ 1 + z_<name>` for the exponential forms (for the 
+#' threshold forms a factor on `Tc` shifts the threshold location, a different effect).
+#' Choose the additive form for a conventional interaction and the freedom for the
+#' slope to change sign (e.g., an antagonistic crossover), the multiplicative form 
+#' when the biology is a proportional change in sensitivity that should stay positive
+#' (it can attenuate the thermal slope but not reverse it).
+#'
+#' @param name A character string, a short name for the co-stressor, used to name
+#'   its column (`z_<name>`) and its parameters (`c<name>`, `dT<name>`). Letters and
+#'   digits only, starting with a letter, because brms allows no dot or underscore
+#'   in a parameter name. For example `"DO"` gives the column `z_DO` and the
+#'   parameters `cDO` and `dTDO`.
+#' @param column A character string naming the column that holds the raw measurement
+#'   `X`: a column of `ind` (one value per individual) for a stressor held fixed
+#'   within a trial, or a column of `trajectory` for one that changes over the trial.
+#' @param ref The benign, no-additional-stress reference level of the raw
+#'   measurement (air-saturation for dissolved oxygen, zero for a toxicant, the
+#'   control level for salinity or pH). The failure rate reduces to the pure M(T) here.
+#' @param scale A single positive number, the unit a coefficient is expressed per
+#'   (per mg/L or per kPa for oxygen, per unit concentration for a toxicant).
+#' @param direction Either `1` or `-1`, set so that a positive `z` always means more
+#'   stress: `-1` for dissolved oxygen (less oxygen is more stress), `1` for a
+#'   toxicant (more is more stress).
+#' @param interaction A single logical value. When `TRUE` (the default) the
+#'   co-stressor also enters through a temperature interaction `dT<name>`, so it can
+#'   change the temperature slope of log M; when `FALSE` it enters through its main
+#'   effect alone. For a multiplicative alternative that rescales thermal sensitivity
+#'   instead, see \sQuote{Two kinds of temperature interaction} below.
+#' @param trajectory An optional data frame giving the co-stressor over time, with
+#'   columns `path_id`, `time` and the `column` named above, in the shape of the
+#'   `path` argument of [build_hazard_data]. Supply it for a stressor that changes
+#'   during a trial; it is interpolated to the same interval midpoints as temperature.
+#'   Leave `NULL` for a stressor held fixed within a trial, which is then read from `ind`.
+#' @param transform An optional function of the standardised deviation
+#'   (X - ref) / scale that returns the column `z`. Use it for a stressor whose harm
+#'   is not signed-linear, for example a squared deviation for a U-shaped response to
+#'   salinity or pH, where a departure either way is harmful. When `NULL` (the
+#'   default) the signed-linear deficit direction * (X - ref) / scale is used.
+#' @return A `costressor` object: a named list holding the declaration, for the
+#'   `costressors` argument of [build_hazard_data], [build_hazard_spec],
+#'   [build_hazard_prior] and [fit_hazard].
+#' @examples
+#' # Dissolved oxygen held at a fixed level per trial: benign at air-saturation
+#' # (about 8.5 mg/L), expressed per mg/L, with less oxygen meaning more stress.
+#' costressor("DO", column = "do", ref = 8.5, scale = 1, direction = -1)
+#'
+#' # A toxicant that changes over the trial, supplied as its own trajectory, and
+#' # entering through its main effect alone (no temperature interaction).
+#' tox_path <- data.frame(path_id = "A", time = c(0, 60), conc = c(0, 4))
+#' costressor("Tox", column = "conc", ref = 0, scale = 1, direction = 1,
+#'            interaction = FALSE, trajectory = tox_path)
+#'
+#' # Salinity, harmful above or below an optimum: a squared standardised deviation
+#' # makes z measure distance from the optimum (about 15 PSU, per 5 PSU) in either
+#' # direction. With a transform supplied, `direction` no longer applies.
+#' costressor("Sal", column = "sal", ref = 15, scale = 5, direction = 1,
+#'            transform = function(u) u^2)
+#' @export
+costressor <- function(name, column, ref, scale, direction,
+                       interaction = TRUE, trajectory = NULL, transform = NULL) {
+  if (!is.character(name) || length(name) != 1L || is.na(name) ||
+      !grepl("^[A-Za-z][A-Za-z0-9]*$", name))
+    cli::cli_abort(c(
+      "{.arg name} must be a single name of letters and digits, starting with a letter.",
+      "x" = "You supplied {.val {name}}.",
+      "i" = "It names the parameters {.code c<name>} and {.code dT<name>}, and brms allows no dot or underscore there."
+    ), class = "rTFT_bad_costressor_name")
+
+  if (!is.character(column) || length(column) != 1L || is.na(column) || !nzchar(column))
+    cli::cli_abort(c(
+      "{.arg column} must be a single column name.",
+      "x" = "You supplied {.val {column}}."
+    ), class = "rTFT_bad_costressor_column")
+
+  # A single finite number, optionally strictly positive.
+  chk_num1 <- function(x, arg, cls, positive = FALSE) {
+    ok <- is.numeric(x) && length(x) == 1L && is.finite(x) && (!positive || x > 0)
+    if (!ok)
+      cli::cli_abort(c(
+        "{.arg {arg}} must be a single {if (positive) 'positive ' else ''}number.",
+        "x" = "You supplied {.val {x}}."
+      ), class = cls)
+  }
+  chk_num1(ref,   "ref",   "rTFT_bad_costressor_ref")
+  chk_num1(scale, "scale", "rTFT_bad_costressor_scale", positive = TRUE)
+
+  if (!is.numeric(direction) || length(direction) != 1L || !direction %in% c(-1, 1))
+    cli::cli_abort(c(
+      "{.arg direction} must be either {.val {1}} or {.val {-1}}.",
+      "x" = "You supplied {.val {direction}}.",
+      "i" = "Set it so a positive {.code z} always means more stress."
+    ), class = "rTFT_bad_costressor_direction")
+
+  if (!is.logical(interaction) || length(interaction) != 1L || is.na(interaction))
+    cli::cli_abort("{.arg interaction} must be a single {.code TRUE} or {.code FALSE}.",
+                   class = "rTFT_bad_costressor_interaction")
+
+  if (!is.null(trajectory) && !is.data.frame(trajectory))
+    cli::cli_abort("{.arg trajectory} must be a data frame or {.code NULL}.",
+                   class = "rTFT_bad_costressor_trajectory")
+
+  if (!is.null(transform) && !is.function(transform))
+    cli::cli_abort("{.arg transform} must be a function or {.code NULL}.",
+                   class = "rTFT_bad_costressor_transform")
+
+  structure(
+    list(name = name, column = column, ref = ref, scale = scale,
+         direction = direction, interaction = interaction,
+         trajectory = trajectory, transform = transform),
+    class = "rTFT_costressor"
+  )
+}
+
+
+# .check_costressors() / .costressor_dpars() / .costressor_logM() --------------
+
+# Validate the `costressors` list argument shared by the fitting path: a list of
+# costressor() objects with distinct names. Returns invisibly so it can guard a
+# function's entry.
+.check_costressors <- function(costressors) {
+  if (!length(costressors)) return(invisible(costressors))
+  if (!is.list(costressors) ||
+      !all(vapply(costressors, inherits, logical(1), "rTFT_costressor")))
+    cli::cli_abort(c(
+      "{.arg costressors} must be a list of {.fn costressor} objects.",
+      "i" = "Build each one with {.fn costressor}."
+    ), class = "rTFT_bad_costressors")
+  nms <- vapply(costressors, `[[`, character(1), "name")
+  dup <- unique(nms[duplicated(nms)])
+  if (length(dup))
+    cli::cli_abort(c(
+      "Each co-stressor needs a distinct {.arg name}.",
+      "x" = "Repeated: {.val {dup}}."
+    ), class = "rTFT_duplicate_costressor")
+  invisible(costressors)
+}
+
+# The nonlinear parameters a set of co-stressors adds: the main effect `c<name>`
+# for each, plus the interaction `dT<name>` for those keeping the temperature
+# interaction. build_hazard_spec adds these to the parameters needing a sub-formula
+# and build_hazard_prior to those needing an intercept prior, so both read one source.
+.costressor_dpars <- function(costressors) {
+  if (!length(costressors)) return(character(0))
+  unlist(purrr::map(costressors, \(cs)
+    c(paste0("c", cs$name), if (cs$interaction) paste0("dT", cs$name))),
+    use.names = FALSE)
+}
+
+# The terms a set of co-stressors appends to log M(T), as one expression string
+# (empty when there are none): the main effect `c<name> * z_<name>` and, when the
+# interaction is kept, `dT<name> * (Ta - Tr) * z_<name>`.
+.costressor_logM <- function(costressors) {
+  if (!length(costressors)) return("")
+  terms <- unlist(purrr::map(costressors, \(cs) {
+    z    <- paste0("z_", cs$name)
+    main <- paste0("c", cs$name, " * ", z)
+    if (cs$interaction) c(main, paste0("dT", cs$name, " * (Ta - Tr) * ", z)) else main
+  }), use.names = FALSE)
+  paste(terms, collapse = " + ")
+}
+
+
+# ===========================================================================
 # 2. Build the row-per-interval long table
 # ===========================================================================
 
@@ -524,11 +809,16 @@ brms_log_h0 <- list(
 #'   this step, from `t = 0` to the failure time, instead of on `checks`, providing 
 #'   a finer cumulative hazard at the cost of more rows. Defaults to `NULL` (integrate
 #'   on the checks).
+#' @param costressors An optional list of [costressor] objects declaring
+#'   non-temperature stressors (dissolved oxygen and the like). Each adds a
+#'   standardised column `z_<name>`, read from its own trajectory (interpolated to
+#'   the interval midpoints) or, for a stressor held fixed within a trial, from a
+#'   column of `ind`. Defaults to none.
 #' @return A long-format data frame, one row per individual and at-risk interval,
 #'   holding the identifiers `id` and `path_id`; the model columns `Ta`, `Tr`,
-#'   `tau`, `log_tau`, `exposure`, `log_exposure`; the carried covariates; the
-#'   0/1 response column `failed`; and, for mixed observation, the integer `exact`
-#'   flag the family branches on.
+#'   `tau`, `log_tau`, `exposure`, `log_exposure`; the carried covariates; one
+#'   `z_<name>` column per co-stressor; the 0/1 response column `failed`; and, for
+#'   mixed observation, the integer `exact` flag the family branches on.
 #' @examples
 #' # A single linear ramp encoded as two points: 20 -> 35 degrees over 60 minutes,
 #' # with failure checked for every 10 minutes.
@@ -560,8 +850,9 @@ brms_log_h0 <- list(
 #' @export
 build_hazard_data <- function(ind, path, observation = c("interval", "continuous", "mixed"),
                               covariates = character(0), Tr = NULL, checks = NULL,
-                              grid_dt = NULL) {
+                              grid_dt = NULL, costressors = list()) {
   observation <- .match_observation(observation)
+  .check_costressors(costressors)
 
   # Fail on a missing input column, rather than letting a NULL slip into an
   # approxfun() call: approxfun(time, NULL) does not error, it silently
@@ -677,6 +968,37 @@ build_hazard_data <- function(ind, path, observation = c("interval", "continuous
     dplyr::left_join(cov_tbl, by = "id") |>
     dplyr::mutate(Tr = Tr, log_tau = log(tau), log_exposure = log(exposure))
 
+  # One standardised column per co-stressor, z = direction * (X - ref) / scale (or
+  # the supplied transform). The raw measurement X is read from the co-stressor's
+  # own trajectory, interpolated to the interval midpoints exactly as temperature is
+  # (the midpoint is already carried as `tau`), or, when no trajectory is given,
+  # from a column of `ind` held fixed within a trial and broadcast to its rows.
+  for (cs in costressors) {
+    if (!is.null(cs$trajectory)) {
+      tr <- cs$trajectory
+      need_cols(tr, c("path_id", "time", cs$column),
+                paste0("costressor(\"", cs$name, "\") trajectory"))
+      f_of <- split(tr, tr$path_id) |>
+        purrr::map(\(d) stats::approxfun(d$time, d[[cs$column]], rule = 2))
+      X <- rep(NA_real_, nrow(out))
+      for (pid in unique(out$path_id)) {
+        fp <- f_of[[as.character(pid)]]
+        if (is.null(fp))
+          cli::cli_abort(
+            "Co-stressor {.val {cs$name}} has no trajectory for path {.val {pid}}.",
+            class = "rTFT_missing_costressor_path")
+        at <- out$path_id == pid
+        X[at] <- fp(out$tau[at])
+      }
+    } else {
+      need_cols(ind, cs$column, paste0("ind (co-stressor ", cs$name, ")"))
+      X <- ind[[cs$column]][match(out$id, ind$id)]
+    }
+    u <- (X - cs$ref) / cs$scale
+    out[[paste0("z_", cs$name)]] <- if (is.null(cs$transform)) cs$direction * u
+                                    else                       cs$transform(u)
+  }
+
   # The response is the same 0/1 failure indicator in every mode, named `failed`
   # throughout; only the family (and, for mixed, the `exact` flag) differs.
   if (observation != "mixed") out$exact <- NULL
@@ -728,13 +1050,18 @@ build_hazard_data <- function(ind, path, observation = c("interval", "continuous
 #' @param k_sw An optional positive numeric representing the softening steepness of a
 #'   threshold function's gate, in inverse temperature units (the transition band is
 #'   roughly its reciprocal). This is an advanced override: leave `NULL` (the default)
-#'   to use the value in [M_catalogue] (50), which suits most fOK its. A larger value is
+#'   to use the value in [M_catalogue] (50), which suits most fits. A larger value is
 #'   a sharper switch over a narrower band, but too large returns the sampler to the
 #'   hard step geometry, where the critical temperature `Tc` mixes poorly (low
 #'   effective sample size, sometimes divergences). This is a sampling-geometry
 #'   effect, separate from identifiability: `Tc` is poorly identified whenever the
 #'   observed temperatures do not bracket it, whatever `k_sw` is. Ignored, with a
 #'   warning, for a function that has no threshold.
+#' @param costressors An optional list of [costressor] objects. Each appends its
+#'   terms to log M(T) (a main effect `c<name>`, and unless switched off a
+#'   temperature interaction `dT<name>`), so the failure rate becomes a surface
+#'   M(T, Z). Their coefficients join the parameters getting a sub-formula, so a
+#'   `dpar_formulas` entry can put covariates on one. Defaults to none.
 #' @return A named list with the brms `formula`, the `family`, and the `observation`
 #'   mode.
 #' @examples
@@ -757,17 +1084,23 @@ build_hazard_data <- function(ind, path, observation = c("interval", "continuous
 #' # `exact` flag through vint().
 #' build_hazard_spec("exp", observation = "mixed")
 #'
+#' # A crossed temperature-by-oxygen design: dissolved oxygen enters log M as a main
+#' # effect (cDO) and a temperature interaction (dTDO).
+#' do <- costressor("DO", column = "do", ref = 8.5, scale = 1, direction = -1)
+#' build_hazard_spec("exp", costressors = list(do))
+#'
 #' # Advanced: a gentler threshold switch than the catalogue default.
 #' build_hazard_spec("exp_threshold", k_sw = 20)
 #' @export
 build_hazard_spec <- function(m_form, baseline = "mem", dpar_formulas = list(),
                                 observation = c("interval", "continuous", "mixed"),
-                                k_sw = NULL) {
+                                k_sw = NULL, costressors = list()) {
   observation <- .match_observation(observation)
   m_spec  <- .m_form_spec(m_form)
   h0_spec <- .baseline_spec(baseline)
+  .check_costressors(costressors)
 
-  needed <- c(m_spec$dpars, h0_spec$dpars)
+  needed <- c(m_spec$dpars, h0_spec$dpars, .costressor_dpars(costressors))
 
   is_threshold <- m_spec$k_sw != 0
   if (!is.null(k_sw)) {
@@ -793,6 +1126,10 @@ build_hazard_spec <- function(m_form, baseline = "mem", dpar_formulas = list(),
   log_M <- brms_log_M[[m_form]]
   if (is_threshold)
     log_M <- gsub("k_sw", format(k_sw_used, scientific = FALSE), log_M, fixed = TRUE)
+  # Each co-stressor appends its main effect (and, unless switched off, its
+  # temperature interaction) to log M(T), so the rate becomes a surface M(T, Z).
+  cs_add <- .costressor_logM(costressors)
+  if (nzchar(cs_add)) log_M <- paste(log_M, "+", cs_add)
   log_h0 <- brms_log_h0[[baseline]]
 
   eta  <- if (nzchar(log_h0)) paste(log_h0, "+", log_M, "+ log_exposure")
@@ -897,7 +1234,9 @@ build_hazard_spec <- function(m_form, baseline = "mem", dpar_formulas = list(),
 #' * `gam ~ normal(0, 1)` -- Gompertz rate
 #'
 #' with `normal(0, 1)` on any covariate slope and `exponential(2)` on any
-#' random-effect standard deviation.
+#' random-effect standard deviation. Each co-stressor in `costressors` adds a
+#' `normal(0, 1)` on its main effect `c<name>` and a tighter `normal(0, 0.5)` on its
+#' temperature interaction `dT<name>`, both overridable through `intercept_priors`.
 #'
 #' Prior values for `loga` and `logscale` assume exposure time is measured in minutes
 #' (a small failure rate per minute, and a trial about an hour long), so rescale them
@@ -922,6 +1261,9 @@ build_hazard_spec <- function(m_form, baseline = "mem", dpar_formulas = list(),
 #'   has one. Defaults to `"normal(0, 1)"`.
 #' @param sd_prior A single prior string for every random-effect standard deviation,
 #'   applied to each parameter that has one. Defaults to `"exponential(2)"`.
+#' @param costressors An optional list of [costressor] objects, as in
+#'   [build_hazard_spec]. Each adds an intercept prior for its main effect and, when
+#'   the temperature interaction is kept, its interaction coefficient. Defaults to none.
 #' @return A `brmsprior`.
 #' @examples
 #' # Default weakly-informative priors for an exponential-threshold + Weibull model.
@@ -937,10 +1279,12 @@ build_hazard_spec <- function(m_form, baseline = "mem", dpar_formulas = list(),
 build_hazard_prior <- function(m_form, baseline = "mem", dpar_formulas = list(),
                                intercept_priors = list(),
                                slope_prior = "normal(0, 1)",
-                               sd_prior = "exponential(2)") {
+                               sd_prior = "exponential(2)",
+                               costressors = list()) {
   m_spec  <- .m_form_spec(m_form)
   h0_spec <- .baseline_spec(baseline)
-  needed  <- c(m_spec$dpars, h0_spec$dpars)
+  .check_costressors(costressors)
+  needed  <- c(m_spec$dpars, h0_spec$dpars, .costressor_dpars(costressors))
 
   # Intercept prior per parameter, on the parameter's own scale (the log-scale
   # parameters carry priors in log units).
@@ -948,6 +1292,15 @@ build_hazard_prior <- function(m_form, baseline = "mem", dpar_formulas = list(),
             logc = "normal(-5, 2)", logshape = "normal(0, 1)",
             logscale = paste0("normal(", round(log(60), 3), ", 1)"),
             gam = "normal(0, 1)")
+
+  # Each co-stressor's coefficients get a weakly-informative prior: the main effect
+  # `c<name>` a wider Normal, the temperature interaction `dT<name>` a tighter one,
+  # since the interaction is the part harder to identify. Both are overridable
+  # through `intercept_priors`.
+  for (cs in costressors) {
+    icpt[[paste0("c", cs$name)]] <- "normal(0, 1)"
+    if (cs$interaction) icpt[[paste0("dT", cs$name)]] <- "normal(0, 0.5)"
+  }
 
   # A user's intercept overrides replace entries in that lookup, so anything left
   # unnamed keeps its default. Warn (rather than silently ignore) an override for a
@@ -1020,17 +1373,18 @@ build_hazard_prior <- function(m_form, baseline = "mem", dpar_formulas = list(),
 .hazard_brm_args <- function(long, m_form, baseline = "mem", dpar_formulas = list(),
                              observation = "interval", prior = NULL,
                              intercept_priors = list(), slope_prior = NULL,
-                             sd_prior = NULL) {
+                             sd_prior = NULL, costressors = list()) {
   observation <- .match_observation(observation)
   .check_Tr(long, m_form)
-  spec <- build_hazard_spec(m_form, baseline, dpar_formulas, observation)
+  spec <- build_hazard_spec(m_form, baseline, dpar_formulas, observation,
+                            costressors = costressors)
 
   # Build the default prior only when none is supplied, forwarding the override
   # arguments; slope_prior / sd_prior are passed on only when set, so their default
   # strings stay defined in one place (build_hazard_prior).
   if (is.null(prior)) {
     pa <- list(m_form = m_form, baseline = baseline, dpar_formulas = dpar_formulas,
-               intercept_priors = intercept_priors)
+               intercept_priors = intercept_priors, costressors = costressors)
     if (!is.null(slope_prior)) pa$slope_prior <- slope_prior
     if (!is.null(sd_prior))    pa$sd_prior    <- sd_prior
     prior <- do.call(build_hazard_prior, pa)
@@ -1071,6 +1425,10 @@ build_hazard_prior <- function(m_form, baseline = "mem", dpar_formulas = list(),
 #'   forwarded when the default prior is built (ignored if you supply `prior`). Each
 #'   changes only the priors it names and leaves the rest at their defaults, so a
 #'   user who only calls `fit_hazard` can retune without building a prior by hand.
+#' @param costressors An optional list of [costressor] objects, as in
+#'   [build_hazard_spec], forwarded to both the formula and the default prior. The
+#'   same list must have been passed to [build_hazard_data], so `long` carries the
+#'   `z_<name>` columns the formula reads. Defaults to none.
 #' @param ... Further arguments forwarded to [brms::brm]. Any argument it accepts
 #'   (e.g. `chains`, `iter`, `cores`, `backend`, `init`), except `formula`, `data`,
 #'   `family`, `prior` and `stanvars`, which `fit_hazard` sets itself. See
@@ -1087,9 +1445,10 @@ build_hazard_prior <- function(m_form, baseline = "mem", dpar_formulas = list(),
 #' @export
 fit_hazard <- function(long, m_form, baseline = "mem", dpar_formulas = list(),
                        observation = c("interval", "continuous", "mixed"), prior = NULL,
-                       intercept_priors = list(), slope_prior = NULL, sd_prior = NULL, ...) {
+                       intercept_priors = list(), slope_prior = NULL, sd_prior = NULL,
+                       costressors = list(), ...) {
   args <- .hazard_brm_args(long, m_form, baseline, dpar_formulas, observation, prior,
-                           intercept_priors, slope_prior, sd_prior)
+                           intercept_priors, slope_prior, sd_prior, costressors)
   do.call(brms::brm, c(args, list(...)))
 }
 

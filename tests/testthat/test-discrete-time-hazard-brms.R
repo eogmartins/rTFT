@@ -968,3 +968,173 @@ test_that("assess_ramp_linearity errors on a missing column", {
   expect_error(assess_ramp_linearity(data.frame(path_id = "a", time = 0:5)),
                class = "rTFT_missing_column")
 })
+
+
+# ===========================================================================
+# 8. Co-stressor layer (costressor and its wiring)
+# ===========================================================================
+
+# costressor() declares a non-temperature stressor once; the same object flows
+# into build_hazard_data (which adds the standardised column z_<name>),
+# build_hazard_spec (which appends c<name> and dT<name> to log M), and
+# build_hazard_prior (which sets their priors). Dissolved oxygen is the worked
+# case: z_DO = -(do - 8.5), so a fully oxygenated trial (do = 8.5) sits at z = 0
+# and reduces to the pure M(T). Expected z values and predictor strings are written
+# out by hand, not read back from the function.
+
+do_cs <- costressor("DO", column = "do", ref = 8.5, scale = 1, direction = -1)
+
+
+test_that("costressor stores the declaration and carries its class", {
+  expect_s3_class(do_cs, "rTFT_costressor")
+  expect_equal(do_cs$name, "DO")
+  expect_equal(do_cs$column, "do")
+  expect_equal(do_cs$ref, 8.5)
+  expect_equal(do_cs$scale, 1)
+  expect_equal(do_cs$direction, -1)
+  expect_true(do_cs$interaction)            # temperature interaction on by default
+  expect_null(do_cs$trajectory)
+  expect_null(do_cs$transform)
+})
+
+
+test_that("costressor validates each field with its own condition class", {
+  ok <- list(column = "do", ref = 8.5, scale = 1, direction = -1)
+  expect_error(costressor("D_O", "do", 8.5, 1, -1), class = "rTFT_bad_costressor_name")
+  expect_error(costressor("2do", "do", 8.5, 1, -1), class = "rTFT_bad_costressor_name")
+  expect_error(costressor(c("a", "b"), "do", 8.5, 1, -1), class = "rTFT_bad_costressor_name")
+  expect_error(costressor("DO", "", 8.5, 1, -1), class = "rTFT_bad_costressor_column")
+  expect_error(costressor("DO", "do", NA_real_, 1, -1), class = "rTFT_bad_costressor_ref")
+  expect_error(costressor("DO", "do", 8.5, 0, -1), class = "rTFT_bad_costressor_scale")
+  expect_error(costressor("DO", "do", 8.5, -1, -1), class = "rTFT_bad_costressor_scale")
+  expect_error(costressor("DO", "do", 8.5, 1, 2), class = "rTFT_bad_costressor_direction")
+  expect_error(costressor("DO", "do", 8.5, 1, -1, interaction = NA), class = "rTFT_bad_costressor_interaction")
+  expect_error(costressor("DO", "do", 8.5, 1, -1, trajectory = 1:3), class = "rTFT_bad_costressor_trajectory")
+  expect_error(costressor("DO", "do", 8.5, 1, -1, transform = "sq"), class = "rTFT_bad_costressor_transform")
+})
+
+
+test_that(".check_costressors rejects a non-costressor list and duplicate names", {
+  expect_error(.check_costressors(list(list(name = "DO"))), class = "rTFT_bad_costressors")
+  do2 <- costressor("DO", "do2", 8.5, 1, -1)
+  expect_error(.check_costressors(list(do_cs, do2)), class = "rTFT_duplicate_costressor")
+  expect_silent(.check_costressors(list()))          # none is fine
+})
+
+
+test_that(".costressor_dpars and .costressor_logM emit the parameters and terms", {
+  # main effect plus interaction by default
+  expect_equal(.costressor_dpars(list(do_cs)), c("cDO", "dTDO"))
+  expect_equal(.costressor_logM(list(do_cs)),
+               "cDO * z_DO + dTDO * (Ta - Tr) * z_DO")
+  # interaction off drops the dT term and its parameter
+  do_noint <- costressor("DO", "do", 8.5, 1, -1, interaction = FALSE)
+  expect_equal(.costressor_dpars(list(do_noint)), "cDO")
+  expect_equal(.costressor_logM(list(do_noint)), "cDO * z_DO")
+  # two stressors accumulate
+  sal <- costressor("Sal", "sal", 0, 5, 1)
+  expect_equal(.costressor_dpars(list(do_cs, sal)), c("cDO", "dTDO", "cSal", "dTSal"))
+  # empty
+  expect_equal(.costressor_dpars(list()), character(0))
+  expect_equal(.costressor_logM(list()), "")
+})
+
+
+test_that("build_hazard_data adds z_<name> for a fixed-per-trial co-stressor", {
+  ind  <- data.frame(id = 1:2, path_id = "A", event = c(1, 0),
+                     t_upper = c(30, 60), do = c(6, 8.5))
+  out  <- build_hazard_data(ind, ramp_traj, "interval", checks = ramp_checks,
+                            costressors = list(do_cs))
+  expect_true("z_DO" %in% names(out))
+  # z = -(do - 8.5): individual 1 (do = 6) -> 2.5 on every row; individual 2 -> 0
+  expect_true(all(out$z_DO[out$id == 1] == 2.5))
+  expect_true(all(out$z_DO[out$id == 2] == 0))       # a fully oxygenated trial sits at z = 0
+})
+
+
+test_that("build_hazard_data interpolates a time-varying co-stressor at the midpoints", {
+  # dissolved oxygen falls linearly from 9 to 5 over the hour: do(t) = 9 - (4/60) t
+  do_path <- data.frame(path_id = "A", time = c(0, 60), do = c(9, 5))
+  ind     <- data.frame(id = 1, path_id = "A", event = 1, t_upper = 30)
+  cs_tv   <- costressor("DO", "do", ref = 8.5, scale = 1, direction = -1,
+                        trajectory = do_path)
+  out     <- build_hazard_data(ind, ramp_traj, "interval", checks = ramp_checks,
+                               costressors = list(cs_tv))
+  # z at each midpoint, computed a second way with approx()
+  do_mid  <- stats::approx(do_path$time, do_path$do, xout = out$tau)$y
+  expect_equal(out$z_DO, -(do_mid - 8.5))
+})
+
+
+test_that("build_hazard_data applies a supplied transform in place of the signed-linear map", {
+  ind  <- data.frame(id = 1, path_id = "A", event = 1, t_upper = 30, sal = 10)
+  # a U-shaped salinity response: the squared standardised deviation
+  cs_u <- costressor("Sal", "sal", ref = 5, scale = 5, direction = 1,
+                     transform = function(u) u^2)
+  out  <- build_hazard_data(ind, ramp_traj, "interval", checks = ramp_checks,
+                            costressors = list(cs_u))
+  expect_true(all(out$z_Sal == ((10 - 5) / 5)^2))    # ((X - ref)/scale)^2 = 1
+})
+
+
+test_that("build_hazard_data errors on a missing co-stressor column or trajectory path", {
+  ind <- data.frame(id = 1, path_id = "A", event = 1, t_upper = 30)   # no `do` column
+  expect_error(build_hazard_data(ind, ramp_traj, "interval", checks = ramp_checks,
+                                 costressors = list(do_cs)),
+               class = "rTFT_missing_column")
+  # a trajectory that names a path the data never visits
+  do_path <- data.frame(path_id = "B", time = c(0, 60), do = c(9, 5))
+  cs_tv   <- costressor("DO", "do", 8.5, 1, -1, trajectory = do_path)
+  expect_error(build_hazard_data(ind, ramp_traj, "interval", checks = ramp_checks,
+                                 costressors = list(cs_tv)),
+               class = "rTFT_missing_costressor_path")
+})
+
+
+test_that("build_hazard_spec appends the co-stressor terms to the predictor", {
+  eta <- "loga + exp(logb) * (Ta - Tr) + cDO * z_DO + dTDO * (Ta - Tr) * z_DO + log_exposure"
+  expect_equal(main_rhs(build_hazard_spec("exp", costressors = list(do_cs))),
+               str2lang(eta))
+  # interaction off leaves only the main effect
+  do_noint <- costressor("DO", "do", 8.5, 1, -1, interaction = FALSE)
+  eta0 <- "loga + exp(logb) * (Ta - Tr) + cDO * z_DO + log_exposure"
+  expect_equal(main_rhs(build_hazard_spec("exp", costressors = list(do_noint))),
+               str2lang(eta0))
+})
+
+
+test_that("co-stressor coefficients get a sub-formula, and dpar_formulas can target one", {
+  f <- build_hazard_spec("exp", costressors = list(do_cs))
+  expect_setequal(names(f$formula$pforms), c("loga", "logb", "cDO", "dTDO"))
+  # a covariate on the oxygen main effect, carried through without a warning
+  f2 <- build_hazard_spec("exp", costressors = list(do_cs),
+                          dpar_formulas = list(cDO = ~ 1 + acclim))
+  expect_equal(deparse1(f2$formula$pforms$cDO[[3]]), "1 + acclim")
+})
+
+
+test_that("build_hazard_prior sets the co-stressor coefficient priors", {
+  p <- build_hazard_prior("exp", costressors = list(do_cs))
+  expect_equal(icpt_of(p, "cDO"), "normal(0, 1)")      # main effect, wider
+  expect_equal(icpt_of(p, "dTDO"), "normal(0, 0.5)")   # interaction, tighter
+  # interaction off: no dTDO prior at all
+  do_noint <- costressor("DO", "do", 8.5, 1, -1, interaction = FALSE)
+  p0 <- build_hazard_prior("exp", costressors = list(do_noint))
+  expect_length(icpt_of(p0, "dTDO"), 0)
+  # and intercept_priors overrides a co-stressor coefficient
+  p2 <- build_hazard_prior("exp", costressors = list(do_cs),
+                           intercept_priors = list(cDO = "normal(0, 2)"))
+  expect_equal(icpt_of(p2, "cDO"), "normal(0, 2)")
+})
+
+
+test_that(".hazard_brm_args threads a co-stressor into the formula and the default prior", {
+  ind  <- data.frame(id = 1:2, path_id = "A", event = c(1, 0),
+                     t_upper = c(30, 60), do = c(6, 8.5))
+  long <- build_hazard_data(ind, ramp_traj, "interval", checks = ramp_checks,
+                            costressors = list(do_cs))
+  a    <- .hazard_brm_args(long, "exp", costressors = list(do_cs))
+  expect_true(grepl("cDO * z_DO", deparse1(main_rhs(a)), fixed = TRUE))
+  expect_equal(a$prior$prior[a$prior$nlpar == "cDO" & a$prior$coef == "Intercept"],
+               "normal(0, 1)")
+})

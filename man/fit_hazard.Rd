@@ -14,6 +14,7 @@ fit_hazard(
   intercept_priors = list(),
   slope_prior = NULL,
   sd_prior = NULL,
+  costressors = list(),
   ...
 )
 }
@@ -33,6 +34,11 @@ the weakly-informative one. To adjust only some priors and keep the rest, use
 forwarded when the default prior is built (ignored if you supply \code{prior}). Each
 changes only the priors it names and leaves the rest at their defaults, so a
 user who only calls \code{fit_hazard} can retune without building a prior by hand.}
+
+\item{costressors}{An optional list of \link{costressor} objects, as in
+\link{build_hazard_spec}, forwarded to both the formula and the default prior. The
+same list must have been passed to \link{build_hazard_data}, so \code{long} carries the
+\verb{z_<name>} columns the formula reads. Defaults to none.}
 
 \item{...}{Further arguments forwarded to \link[brms:brm]{brms::brm}. Any argument it accepts
 (e.g. \code{chains}, \code{iter}, \code{cores}, \code{backend}, \code{init}), except \code{formula}, \code{data},

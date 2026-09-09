@@ -10,7 +10,8 @@ build_hazard_prior(
   dpar_formulas = list(),
   intercept_priors = list(),
   slope_prior = "normal(0, 1)",
-  sd_prior = "exponential(2)"
+  sd_prior = "exponential(2)",
+  costressors = list()
 )
 }
 \arguments{
@@ -35,6 +36,10 @@ has one. Defaults to \code{"normal(0, 1)"}.}
 
 \item{sd_prior}{A single prior string for every random-effect standard deviation,
 applied to each parameter that has one. Defaults to \code{"exponential(2)"}.}
+
+\item{costressors}{An optional list of \link{costressor} objects, as in
+\link{build_hazard_spec}. Each adds an intercept prior for its main effect and, when
+the temperature interaction is kept, its interaction coefficient. Defaults to none.}
 }
 \value{
 A \code{brmsprior}.
@@ -66,7 +71,9 @@ suit your study, are:
 }
 
 with \code{normal(0, 1)} on any covariate slope and \code{exponential(2)} on any
-random-effect standard deviation.
+random-effect standard deviation. Each co-stressor in \code{costressors} adds a
+\code{normal(0, 1)} on its main effect \verb{c<name>} and a tighter \code{normal(0, 0.5)} on its
+temperature interaction \verb{dT<name>}, both overridable through \code{intercept_priors}.
 
 Prior values for \code{loga} and \code{logscale} assume exposure time is measured in minutes
 (a small failure rate per minute, and a trial about an hour long), so rescale them
