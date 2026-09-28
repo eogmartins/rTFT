@@ -1,2 +1,3 @@
 file,expectations
 test-discrete-time-hazard-brms.R,313
+test-derive-tdt-ttl.R,24
