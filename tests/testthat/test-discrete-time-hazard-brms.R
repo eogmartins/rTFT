@@ -1138,3 +1138,12 @@ test_that(".hazard_brm_args threads a co-stressor into the formula and the defau
   expect_equal(a$prior$prior[a$prior$nlpar == "cDO" & a$prior$coef == "Intercept"],
                "normal(0, 1)")
 })
+
+
+test_that("fit_hazard passes a custom k_sw into the formula", {
+  # A steepness set on fit_hazard() must reach the model, not be forwarded to
+  # brms::brm() through `...`.
+  expect_true("k_sw" %in% names(formals(fit_hazard)))
+  a <- .hazard_brm_args(long_int, "exp_threshold", k_sw = 20)
+  expect_true(grepl("-20 * (Ta - Tc)", deparse1(main_rhs(a)), fixed = TRUE))
+})

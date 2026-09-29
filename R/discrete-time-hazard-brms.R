@@ -474,6 +474,44 @@ brms_log_h0 <- list(
   spec
 }
 
+# Choose the softening steepness a failure-rate function is fitted and reported
+# with: the user's `k_sw` when one is given, otherwise the catalogue value. Only the
+# threshold functions have a gate to soften, so a `k_sw` given for any other function
+# is ignored with a warning. Fitting and reporting both call this, so a model fitted
+# with a custom steepness is also reported with it.
+.resolve_k_sw <- function(m_form, k_sw = NULL) {
+  m_spec <- .m_form_spec(m_form)
+  is_threshold <- m_spec$k_sw != 0
+  if (!is.null(k_sw)) {
+    if (!is.numeric(k_sw) || length(k_sw) != 1L || !is.finite(k_sw) || k_sw <= 0)
+      cli::cli_abort(c(
+        "{.arg k_sw} must be a single positive number.",
+        "x" = "You supplied {.val {k_sw}}."
+      ), class = "rTFT_bad_k_sw")
+    if (!is_threshold)
+      cli::cli_warn(c(
+        "!" = "{.arg k_sw} is ignored for {.val {m_form}}, which has no threshold to soften.",
+        "i" = "It applies only to the threshold functions: {.val {names(M_catalogue)[vapply(M_catalogue, function(x) x$k_sw != 0, logical(1))]}}."
+      ), class = "rTFT_k_sw_ignored")
+  }
+  if (!is.null(k_sw) && is_threshold) k_sw else m_spec$k_sw
+}
+
+# Build log M(T) as one expression string: the catalogue string for the failure-rate
+# function, with the softening steepness written in as a number (so it stays a
+# value, not a symbol the sampler would try to estimate), and each co-stressor's
+# main effect and temperature interaction appended, which turns the rate into a
+# surface M(T, Z). The model formula and every rate reported from a fit are built
+# from this one string.
+.log_M_string <- function(m_form, k_sw_used, costressors = list()) {
+  log_M <- brms_log_M[[m_form]]
+  if (.m_form_spec(m_form)$k_sw != 0)
+    log_M <- gsub("k_sw", format(k_sw_used, scientific = FALSE), log_M, fixed = TRUE)
+  cs_add <- .costressor_logM(costressors)
+  if (nzchar(cs_add)) log_M <- paste(log_M, "+", cs_add)
+  log_M
+}
+
 
 # ===========================================================================
 # Co-stressor declarations
@@ -737,6 +775,15 @@ costressor <- function(name, column, ref, scale, direction,
   paste(terms, collapse = " + ")
 }
 
+# Standardise raw co-stressor measurements X to z: the signed-linear deficit
+# direction * (X - ref) / scale, or the supplied transform of (X - ref) / scale.
+# build_hazard_data() uses it to build the z_<name> column the model is fitted to,
+# and the reporting functions to place a chosen level on the same scale.
+.costressor_z <- function(cs, X) {
+  u <- (X - cs$ref) / cs$scale
+  if (is.null(cs$transform)) cs$direction * u else cs$transform(u)
+}
+
 
 # ===========================================================================
 # 2. Build the row-per-interval long table
@@ -994,9 +1041,7 @@ build_hazard_data <- function(ind, path, observation = c("interval", "continuous
       need_cols(ind, cs$column, paste0("ind (co-stressor ", cs$name, ")"))
       X <- ind[[cs$column]][match(out$id, ind$id)]
     }
-    u <- (X - cs$ref) / cs$scale
-    out[[paste0("z_", cs$name)]] <- if (is.null(cs$transform)) cs$direction * u
-                                    else                       cs$transform(u)
+    out[[paste0("z_", cs$name)]] <- .costressor_z(cs, X)
   }
 
   # The response is the same 0/1 failure indicator in every mode, named `failed`
@@ -1102,35 +1147,14 @@ build_hazard_spec <- function(m_form, baseline = "mem", dpar_formulas = list(),
 
   needed <- c(m_spec$dpars, h0_spec$dpars, .costressor_dpars(costressors))
 
-  is_threshold <- m_spec$k_sw != 0
-  if (!is.null(k_sw)) {
-    if (!is.numeric(k_sw) || length(k_sw) != 1L || !is.finite(k_sw) || k_sw <= 0)
-      cli::cli_abort(c(
-        "{.arg k_sw} must be a single positive number.",
-        "x" = "You supplied {.val {k_sw}}."
-      ), class = "rTFT_bad_k_sw")
-    if (!is_threshold)
-      cli::cli_warn(c(
-        "!" = "{.arg k_sw} is ignored for {.val {m_form}}, which has no threshold to soften.",
-        "i" = "It applies only to the threshold functions: {.val {names(M_catalogue)[vapply(M_catalogue, function(x) x$k_sw != 0, logical(1))]}}."
-      ), class = "rTFT_k_sw_ignored")
-  }
-  k_sw_used <- if (!is.null(k_sw) && is_threshold) k_sw else m_spec$k_sw
-
-  # Paste the stored log-scale strings into the linear predictor: log M(T), the log
+  # Paste the stored log-scale strings into the linear predictor: log M(T) (with
+  # the softening steepness written in and any co-stressor terms appended), the log
   # baseline hazard (unless memoryless, whose string is empty), and the log exposure
-  # of the interval. The threshold `k_sw` placeholder is substituted here so the
-  # steepness stays a value, not a symbol the sampler would try to estimate.
-  # build_hazard_data() supplies Ta, Tr, tau, log_tau and log_exposure; the
-  # parameters (loga, logb, Tc, ...) are what the model estimates.
-  log_M <- brms_log_M[[m_form]]
-  if (is_threshold)
-    log_M <- gsub("k_sw", format(k_sw_used, scientific = FALSE), log_M, fixed = TRUE)
-  # Each co-stressor appends its main effect (and, unless switched off, its
-  # temperature interaction) to log M(T), so the rate becomes a surface M(T, Z).
-  cs_add <- .costressor_logM(costressors)
-  if (nzchar(cs_add)) log_M <- paste(log_M, "+", cs_add)
-  log_h0 <- brms_log_h0[[baseline]]
+  # of the interval. build_hazard_data() supplies Ta, Tr, tau, log_tau and
+  # log_exposure; the parameters (loga, logb, Tc, ...) are what the model estimates.
+  k_sw_used <- .resolve_k_sw(m_form, k_sw)   # validates k_sw, even where it is unused
+  log_M     <- .log_M_string(m_form, k_sw_used, costressors)
+  log_h0    <- brms_log_h0[[baseline]]
 
   eta  <- if (nzchar(log_h0)) paste(log_h0, "+", log_M, "+ log_exposure")
           else                paste(log_M, "+ log_exposure")
@@ -1373,11 +1397,11 @@ build_hazard_prior <- function(m_form, baseline = "mem", dpar_formulas = list(),
 .hazard_brm_args <- function(long, m_form, baseline = "mem", dpar_formulas = list(),
                              observation = "interval", prior = NULL,
                              intercept_priors = list(), slope_prior = NULL,
-                             sd_prior = NULL, costressors = list()) {
+                             sd_prior = NULL, costressors = list(), k_sw = NULL) {
   observation <- .match_observation(observation)
   .check_Tr(long, m_form)
   spec <- build_hazard_spec(m_form, baseline, dpar_formulas, observation,
-                            costressors = costressors)
+                            k_sw = k_sw, costressors = costressors)
 
   # Build the default prior only when none is supplied, forwarding the override
   # arguments; slope_prior / sd_prior are passed on only when set, so their default
@@ -1429,6 +1453,10 @@ build_hazard_prior <- function(m_form, baseline = "mem", dpar_formulas = list(),
 #'   [build_hazard_spec], forwarded to both the formula and the default prior. The
 #'   same list must have been passed to [build_hazard_data], so `long` carries the
 #'   `z_<name>` columns the formula reads. Defaults to none.
+#' @param k_sw An optional softening steepness for a threshold function's gate, as
+#'   in [build_hazard_spec]. An advanced override: leave `NULL` (the default) to use
+#'   the value in [M_catalogue]. A fit made with a custom value must be reported with
+#'   the same one.
 #' @param ... Further arguments forwarded to [brms::brm]. Any argument it accepts
 #'   (e.g. `chains`, `iter`, `cores`, `backend`, `init`), except `formula`, `data`,
 #'   `family`, `prior` and `stanvars`, which `fit_hazard` sets itself. See
@@ -1446,9 +1474,9 @@ build_hazard_prior <- function(m_form, baseline = "mem", dpar_formulas = list(),
 fit_hazard <- function(long, m_form, baseline = "mem", dpar_formulas = list(),
                        observation = c("interval", "continuous", "mixed"), prior = NULL,
                        intercept_priors = list(), slope_prior = NULL, sd_prior = NULL,
-                       costressors = list(), ...) {
+                       costressors = list(), k_sw = NULL, ...) {
   args <- .hazard_brm_args(long, m_form, baseline, dpar_formulas, observation, prior,
-                           intercept_priors, slope_prior, sd_prior, costressors)
+                           intercept_priors, slope_prior, sd_prior, costressors, k_sw)
   do.call(brms::brm, c(args, list(...)))
 }
 

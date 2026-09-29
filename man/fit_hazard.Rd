@@ -15,6 +15,7 @@ fit_hazard(
   slope_prior = NULL,
   sd_prior = NULL,
   costressors = list(),
+  k_sw = NULL,
   ...
 )
 }
@@ -39,6 +40,11 @@ user who only calls \code{fit_hazard} can retune without building a prior by han
 \link{build_hazard_spec}, forwarded to both the formula and the default prior. The
 same list must have been passed to \link{build_hazard_data}, so \code{long} carries the
 \verb{z_<name>} columns the formula reads. Defaults to none.}
+
+\item{k_sw}{An optional softening steepness for a threshold function's gate, as
+in \link{build_hazard_spec}. An advanced override: leave \code{NULL} (the default) to use
+the value in \link{M_catalogue}. A fit made with a custom value must be reported with
+the same one.}
 
 \item{...}{Further arguments forwarded to \link[brms:brm]{brms::brm}. Any argument it accepts
 (e.g. \code{chains}, \code{iter}, \code{cores}, \code{backend}, \code{init}), except \code{formula}, \code{data},
