@@ -221,3 +221,64 @@ test_that(".M_draws reports the rate the model formula fits", {
                costressors = list(do_cs), levels = c(DO = 6))   # z_DO = 2.5 at 6 mg/L
   expect_equal(eta, as.vector(log(M)) + log_exposure)
 })
+
+
+# ===========================================================================
+# 3. Posterior summaries (.draw_summary)
+# ===========================================================================
+
+test_that(".draw_summary gives the median and 95% equal-tailed interval", {
+  x   <- c(3, 1, 4, 1, 5, 9, 2, 6, 5, 3)
+  out <- .draw_summary(x)
+  expect_equal(c(out$median, out$lower, out$upper),
+               unname(stats::quantile(x, c(0.5, 0.025, 0.975))))
+  expect_equal(c(out$n_draws, out$n_unreached), c(10L, 0L))
+})
+
+
+test_that(".draw_summary takes the interval's coverage from prob", {
+  x <- 1:101                                             # quantiles fall on draws
+  expect_equal(c(.draw_summary(x, prob = 0.5)$lower, .draw_summary(x, prob = 0.5)$upper),
+               c(26, 76))                                # the middle 50%
+  expect_equal(c(.draw_summary(x, prob = 0.9)$lower, .draw_summary(x, prob = 0.9)$upper),
+               c(6, 96))                                 # the middle 90%
+  expect_equal(.draw_summary(x, prob = 0.8)$prob, 0.8)   # the coverage is recorded
+  for (bad in list(0, 1, 1.5, c(0.5, 0.9), NA_real_, "0.9"))
+    expect_error(.draw_summary(x, prob = bad), class = "rTFT_bad_prob")
+})
+
+
+test_that("draws beyond reach are kept, not dropped", {
+  # 40 of 100 draws never reach the quantity. Kept, the median is 50.5; dropped,
+  # it would be 30.5, the median of only the draws where it was reached.
+  x   <- c(1:60, rep(Inf, 40))
+  out <- .draw_summary(x)
+  expect_equal(out$median, 50.5)
+  expect_equal(out$upper, Inf)                           # no upper bound
+  expect_equal(out$n_unreached, 40L)
+})
+
+
+test_that("the bounds and median turn infinite as the share beyond grows", {
+  few  <- .draw_summary(c(1:999, Inf))                   # 0.1% beyond
+  most <- .draw_summary(c(1:40, rep(Inf, 60)))           # 60% beyond
+  expect_true(is.finite(few$upper))                      # under 2.5%: still bounded
+  expect_equal(most$median, Inf)                         # half or more: no median
+})
+
+
+test_that("draws beyond on both sides do not produce NaN", {
+  # Half unattainable below and half above, nothing finite between: interpolating
+  # would give Inf - Inf; the nearest draw is taken instead.
+  out <- .draw_summary(c(rep(-Inf, 50), rep(Inf, 50)))
+  expect_false(anyNA(c(out$median, out$lower, out$upper)))
+  expect_equal(c(out$lower, out$upper), c(-Inf, Inf))
+})
+
+
+test_that("a missing draw is a fault, not something to drop", {
+  expect_error(.draw_summary(c(1, 2, NA)),  class = "rTFT_missing_draw_values")
+  expect_error(.draw_summary(c(1, 2, NaN)), class = "rTFT_missing_draw_values")
+  expect_error(.draw_summary(numeric(0)),   class = "rTFT_bad_summary_draws")
+  expect_error(.draw_summary("a"),          class = "rTFT_bad_summary_draws")
+})

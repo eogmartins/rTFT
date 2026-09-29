@@ -254,3 +254,51 @@ H0inv_of <- function(baseline) {
   log_M <- str2lang(.log_M_string(m_form, k_sw_used, costressors))
   exp(eval(log_M, env, enclos = baseenv()))
 }
+
+
+# ===========================================================================
+# 3. Posterior summaries
+# ===========================================================================
+
+# .draw_summary() --------------------------------------------------------------
+
+# Summarise one quantity's posterior draws as a median and an equal-tailed credible
+# interval of coverage `prob` (95% by default), with the number of draws and how
+# many of them never reach the quantity. Every quantity the package reports is
+# summarised here, so all are summarised alike.
+#
+# A draw for which the quantity is never reached (a thermal death time under a
+# cure fraction, a CTmax the rate cannot attain) arrives as +Inf or -Inf and is
+# kept. Dropping it would summarise only the draws where the quantity was reached,
+# pulling the result towards earlier times and lower temperatures than the
+# posterior implies. Kept, it enters the quantiles honestly: while fewer than
+# (1 - prob) / 2 of the draws never reach the quantity (2.5% for a 95% interval),
+# both bounds stay finite; above that share the outer bound is infinite, and from
+# half onwards the median is. `n_unreached` counts these draws.
+#
+# Since a quantity that is not reached must arrive as +Inf or -Inf, a missing value
+# (NA or NaN) can only mean a fault, and stops here rather than being dropped.
+.draw_summary <- function(x, prob = 0.95) {
+  if (!is.numeric(prob) || length(prob) != 1L || !is.finite(prob) || prob <= 0 || prob >= 1)
+    cli::cli_abort(c(
+      "{.arg prob} must be a single number between 0 and 1, the interval's coverage.",
+      "x" = "You supplied {.val {prob}}."
+    ), class = "rTFT_bad_prob")
+  if (!is.numeric(x) || !length(x))
+    cli::cli_abort("{.arg x} must be a non-empty numeric vector of draws.",
+                   class = "rTFT_bad_summary_draws")
+  if (anyNA(x))
+    cli::cli_abort(c(
+      "{sum(is.na(x))} of {length(x)} draws {?is/are} missing (NA or NaN).",
+      "i" = "A quantity that is never reached should be passed as {.code Inf} or {.code -Inf}."
+    ), class = "rTFT_missing_draw_values")
+
+  probs <- c(0.5, (1 - prob) / 2, 1 - (1 - prob) / 2)
+  q <- stats::quantile(x, probs, names = FALSE)
+  # Interpolating between a -Inf draw and a +Inf draw gives NaN. Only then, take the
+  # nearest draw instead.
+  if (anyNA(q)) q[is.na(q)] <- stats::quantile(x, probs[is.na(q)], names = FALSE, type = 1)
+
+  tibble::tibble(median = q[1], lower = q[2], upper = q[3], prob = prob,
+                 n_draws = length(x), n_unreached = sum(is.infinite(x)))
+}
