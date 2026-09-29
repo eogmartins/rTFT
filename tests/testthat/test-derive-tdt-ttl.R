@@ -84,3 +84,140 @@ test_that("an unknown baseline errors with the shared condition class", {
   expect_error(H0_of("nope"), class = "rTFT_unknown_baseline")
   expect_error(H0inv_of("nope"), class = "rTFT_unknown_baseline")
 })
+
+
+# ===========================================================================
+# 2. The failure rate for each posterior draw (.M_draws)
+# ===========================================================================
+
+# Expected rates are written out by hand from the M(T) formulas, so the tests pin
+# the arithmetic rather than re-evaluating the package's own strings.
+
+test_that(".M_draws gives the exponential rate for every draw and temperature", {
+  draws <- list(loga = c(-5, -4), logb = log(c(0.5, 0.2)))
+  Ta <- c(30, 32, 35)
+  out <- .M_draws("exp", draws, Ta = Ta, Tr = 30)
+  expect_equal(dim(out), c(2L, 3L))                      # draws x temperatures
+  # M = exp(loga + b * (Ta - Tr)), row by row
+  expect_equal(out, rbind(exp(-5 + 0.5 * (Ta - 30)), exp(-4 + 0.2 * (Ta - 30))))
+})
+
+
+test_that("a constant rate is the same at every temperature, one value per draw", {
+  out <- .M_draws("const", list(loga = c(-5, -6, -7)), Ta = c(20, 30), Tr = 20)
+  expect_equal(out, matrix(exp(c(-5, -6, -7)), 3, 2))
+})
+
+
+test_that("a threshold rate uses the catalogue steepness, or the one it was fitted with", {
+  # exp_threshold just above Tc: log M = loga + b (Ta - Tc) - log(1 + exp(-k (Ta - Tc)))
+  draws <- list(loga = -5, logb = log(0.5), Tc = 34)
+  hand  <- function(k) exp(-5 + 0.5 * 0.1 - log1p(exp(-k * 0.1)))
+  expect_equal(.M_draws("exp_threshold", draws, Ta = 34.1, Tr = 30),
+               matrix(hand(50)))                         # catalogue k_sw = 50
+  expect_equal(.M_draws("exp_threshold", draws, Ta = 34.1, Tr = 30, k_sw = 10),
+               matrix(hand(10)))
+})
+
+
+test_that("a co-stressor enters at its chosen level, standardised as in the fit", {
+  do_cs <- costressor("DO", column = "do", ref = 8.5, scale = 1, direction = -1)
+  draws <- list(loga = -5, logb = log(0.5), cDO = 0.2, dTDO = 0.03)
+  # at 6 mg/L, z = -(6 - 8.5) / 1 = 2.5, so
+  # log M = loga + b (Ta - Tr) + cDO z + dTDO (Ta - Tr) z
+  out <- .M_draws("exp", draws, Ta = 32, Tr = 30,
+                 costressors = list(do_cs), levels = c(DO = 6))
+  expect_equal(out, matrix(exp(-5 + 0.5 * 2 + 0.2 * 2.5 + 0.03 * 2 * 2.5)))
+})
+
+
+test_that("a co-stressor with a transform enters through that transform", {
+  # pH harmful either side of 7.5: z = ((pH - 7.5) / 0.5)^2, so pH 6.5 gives z = 4
+  ph_cs <- costressor("pH", column = "ph", ref = 7.5, scale = 0.5, direction = 1,
+                      interaction = FALSE, transform = function(u) u^2)
+  draws <- list(loga = -5, logb = log(0.5), cpH = 0.1)
+  out <- .M_draws("exp", draws, Ta = 32, Tr = 30,
+                  costressors = list(ph_cs), levels = c(pH = 6.5))
+  expect_equal(out, matrix(exp(-5 + 0.5 * 2 + 0.1 * 4)))
+})
+
+
+test_that("draws may be a data frame", {
+  draws <- data.frame(loga = c(-5, -4), logb = log(c(0.5, 0.2)), other = 1:2)
+  expect_equal(.M_draws("exp", draws, Ta = 30, Tr = 30), matrix(exp(c(-5, -4))))
+})
+
+
+test_that(".M_draws refuses missing or mismatched draws", {
+  expect_error(.M_draws("exp", list(loga = -5), Ta = 30, Tr = 30),
+               class = "rTFT_missing_draws")             # no draws for logb
+  expect_error(.M_draws("exp", list(loga = c(-5, -4), logb = 0), Ta = 30, Tr = 30),
+               class = "rTFT_bad_draws")
+})
+
+
+test_that(".M_draws needs a level for each co-stressor", {
+  do_cs <- costressor("DO", column = "do", ref = 8.5, scale = 1, direction = -1)
+  draws <- list(loga = -5, logb = log(0.5), cDO = 0.2, dTDO = 0.03)
+  expect_error(.M_draws("exp", draws, Ta = 32, Tr = 30, costressors = list(do_cs)),
+               class = "rTFT_bad_levels")
+  expect_error(.M_draws("exp", draws, Ta = 32, Tr = 30, costressors = list(do_cs),
+                       levels = c(pH = 7)), class = "rTFT_bad_levels")
+})
+
+
+test_that(".M_draws warns about levels the model has no co-stressor for", {
+  do_cs <- costressor("DO", column = "do", ref = 8.5, scale = 1, direction = -1)
+  draws <- list(loga = -5, logb = log(0.5), cDO = 0.2, dTDO = 0.03)
+  # an extra level beside the one needed: warned about, and the rate is still the
+  # one at DO = 6
+  extra <- function() .M_draws("exp", draws, Ta = 32, Tr = 30,
+                                costressors = list(do_cs), levels = c(DO = 6, pH = 7))
+  expect_warning(extra(), class = "rTFT_unused_levels")
+  expect_equal(suppressWarnings(extra()),
+               .M_draws("exp", draws, Ta = 32, Tr = 30, costressors = list(do_cs),
+                        levels = c(DO = 6)))
+  # a level given to a model with no co-stressors
+  expect_warning(.M_draws("exp", draws, Ta = 32, Tr = 30, levels = c(DO = 6)),
+                 class = "rTFT_unused_levels")
+})
+
+
+test_that(".M_draws checks its function name, temperatures and reference", {
+  draws <- list(loga = -5, logb = log(0.5))
+  expect_error(.M_draws("nope", draws, Ta = 30, Tr = 30), class = "rTFT_unknown_m_form")
+  expect_error(.M_draws("exp", draws, Ta = c(30, NA), Tr = 30), class = "rTFT_bad_Ta")
+  expect_error(.M_draws("exp", draws, Ta = 30, Tr = c(20, 30)), class = "rTFT_bad_Tr")
+})
+
+
+test_that("the functions of (Ta - Tr) refuse a temperature grid below Tr", {
+  draws <- list(loga = -5, logb = 0, logc = -8)
+  for (m in c("zeroexp", "zeropower", "power"))
+    expect_error(.M_draws(m, draws, Ta = c(29, 31), Tr = 30), class = "rTFT_Ta_below_Tr",
+                 info = m)
+  # at Ta = Tr a zero function has a rate of exactly zero, its definition
+  expect_equal(.M_draws("zeropower", draws, Ta = 30, Tr = 30), matrix(0))
+  # the other functions are defined below Tr
+  expect_true(all(is.finite(.M_draws("exp", draws, Ta = c(25, 35), Tr = 30))))
+})
+
+
+test_that(".M_draws reports the rate the model formula fits", {
+  # Evaluate the right-hand side of the fitted model's formula at fixed parameter
+  # values, and compare it with the rate .M_draws reports for the same settings.
+  # Under the memoryless baseline the formula is log M + log_exposure, so the two
+  # must agree exactly: a threshold function with a custom steepness and a
+  # co-stressor, the cases where fitting and reporting could most easily part.
+  do_cs <- costressor("DO", column = "do", ref = 8.5, scale = 1, direction = -1)
+  pars  <- list(loga = -5, logb = log(0.5), Tc = 34, cDO = 0.2, dTDO = 0.03)
+  spec  <- build_hazard_spec("exp_threshold", k_sw = 20, costressors = list(do_cs))
+  Ta    <- c(33, 34.5, 36)
+  log_exposure <- log(c(1, 2, 0.5))
+  eta <- eval(spec$formula$formula[[3]],
+              c(pars, list(Ta = Ta, Tr = 30, z_DO = 2.5, log_exposure = log_exposure)),
+              enclos = baseenv())
+  M <- .M_draws("exp_threshold", pars, Ta = Ta, Tr = 30, k_sw = 20,
+               costressors = list(do_cs), levels = c(DO = 6))   # z_DO = 2.5 at 6 mg/L
+  expect_equal(eta, as.vector(log(M)) + log_exposure)
+})

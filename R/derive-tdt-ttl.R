@@ -136,3 +136,121 @@ H0inv_of <- function(baseline) {
       ifelse(abs(u) < .gz_tol, x * (1 - u / 2), val)
     })
 }
+
+
+# ===========================================================================
+# 2. The failure rate M(T) for each posterior draw
+# ===========================================================================
+
+# .M_draws() -------------------------------------------------------------------
+
+# Evaluate the failure rate M(T) at each temperature in `Ta` for each posterior
+# draw, returning a matrix with one row per draw and one column per temperature.
+# It evaluates the same log M(T) expression the model was fitted with, including
+# the softening steepness and any co-stressor terms, so the rate reported is the
+# rate that was fitted. With co-stressors the rate is M(T, Z), evaluated at a chosen
+# level of each.
+#
+# The settings (`m_form`, `Tr`, `k_sw`, `costressors`) must be the ones the model
+# was fitted with, so this is kept internal: the reporting functions read them from
+# the fit and pass them on (a user never re-enters them to avoid errors). The inputs:
+#   m_form       a key of M_catalogue
+#   draws        a named list or data frame, one vector of draws per parameter; it
+#                must hold every parameter of m_form and of the co-stressors
+#   Ta           the temperatures at which to evaluate the rate
+#   Tr           the reference temperature of the fit
+#   k_sw         the softening steepness set at fitting, or NULL for the catalogue's
+#   costressors  the list of costressor() objects the model was fitted with
+#   levels       a named vector giving each co-stressor's level on its measurement
+#                scale, e.g. c(DO = 6) for 6 mg/L of dissolved oxygen
+.M_draws <- function(m_form, draws, Ta, Tr, k_sw = NULL, costressors = list(),
+                     levels = NULL) {
+  m_spec <- .m_form_spec(m_form)
+  .check_costressors(costressors)
+  k_sw_used <- .resolve_k_sw(m_form, k_sw)
+
+  if (!is.numeric(Ta) || !length(Ta) || anyNA(Ta))
+    cli::cli_abort("{.arg Ta} must be a numeric vector of temperatures with no missing values.",
+                   class = "rTFT_bad_Ta")
+  if (!is.numeric(Tr) || length(Tr) != 1L || !is.finite(Tr))
+    cli::cli_abort(c(
+      "{.arg Tr} must be a single number, the reference temperature of the fit.",
+      "x" = "You supplied {.val {Tr}}."
+    ), class = "rTFT_bad_Tr")
+
+  # zeroexp, zeropower and power take a logarithm or a fractional power of Ta - Tr,
+  # so they have no rate below the reference, and a grid reaching below it is
+  # refused, as the fit refuses data that do. Ta = Tr itself is allowed: the zero
+  # functions give a rate of exactly zero there, which is how they are defined.
+  if (m_form %in% c("zeroexp", "zeropower", "power") && any(Ta < Tr))
+    cli::cli_abort(c(
+      "The {.val {m_form}} failure rate is not defined below the reference {.arg Tr}.",
+      "x" = "min(Ta) = {.val {min(Ta)}}, Tr = {.val {Tr}}.",
+      "i" = "Start the temperature grid at or above {.arg Tr}."
+    ), class = "rTFT_Ta_below_Tr")
+
+  # Every parameter the rate needs must have draws, and the same number of them. A
+  # missing one would otherwise fail later with an unhelpful "object not found", and
+  # a short one would be silently reused across the draws, shrinking the spread of
+  # the result.
+  pars    <- c(m_spec$dpars, .costressor_dpars(costressors))
+  draws   <- as.list(draws)
+  missing <- setdiff(pars, names(draws))
+  if (length(missing))
+    cli::cli_abort(c(
+      "{.arg draws} has no draws for {.val {missing}}.",
+      "i" = "{.val {m_form}} with these co-stressors needs {.val {pars}}."
+    ), class = "rTFT_missing_draws")
+  n_draws <- lengths(draws[pars])
+  if (length(unique(n_draws)) != 1L)
+    cli::cli_abort(c(
+      "Every parameter in {.arg draws} must have the same number of draws.",
+      "x" = "Lengths: {paste(names(n_draws), n_draws, sep = ' = ', collapse = ', ')}."
+    ), class = "rTFT_bad_draws")
+
+  # Each co-stressor enters at its chosen level, standardised exactly as the fit
+  # standardised its data.
+  cs_names <- vapply(costressors, `[[`, character(1), "name")
+  if (length(costressors)) {
+    if (!is.numeric(levels) || is.null(names(levels)) || anyNA(levels))
+      cli::cli_abort(c(
+        "{.arg levels} must be a named numeric vector, one level per co-stressor.",
+        "i" = "For example {.code levels = c({cs_names[1]} = 6)}."
+      ), class = "rTFT_bad_levels")
+    no_level <- setdiff(cs_names, names(levels))
+    if (length(no_level))
+      cli::cli_abort(c(
+        "{.arg levels} gives no level for {.val {no_level}}.",
+        "i" = "Give one for each co-stressor: {.val {cs_names}}."
+      ), class = "rTFT_bad_levels")
+  }
+  # A level for something the model does not have is ignored, with a warning, since
+  # it usually means a misspelled name or the wrong model.
+  if (!is.null(levels)) {
+    if (!length(costressors))
+      cli::cli_warn(c(
+        "!" = "Ignoring {.arg levels}: the model has no co-stressors."
+      ), class = "rTFT_unused_levels")
+    else {
+      extra <- setdiff(names(levels), cs_names)
+      if (length(extra))
+        cli::cli_warn(c(
+          "!" = "Ignoring {.arg levels} with no matching co-stressor: {.val {extra}}.",
+          "i" = "The model's co-stressors are {.val {cs_names}}."
+        ), class = "rTFT_unused_levels")
+    }
+  }
+  z <- purrr::map(costressors, \(cs) .costressor_z(cs, levels[[cs$name]]))
+  names(z) <- if (length(z)) paste0("z_", cs_names)
+
+  # Each parameter is one value per draw, repeated across the temperatures (a row);
+  # each temperature is repeated down the draws (a column). The expression then
+  # gives log M for every draw at every temperature at once.
+  nd <- n_draws[[1]]
+  nT <- length(Ta)
+  env <- c(purrr::map(draws[pars], \(v) matrix(v, nd, nT)),
+           list(Ta = matrix(Ta, nd, nT, byrow = TRUE), Tr = Tr),
+           z)
+  log_M <- str2lang(.log_M_string(m_form, k_sw_used, costressors))
+  exp(eval(log_M, env, enclos = baseenv()))
+}
