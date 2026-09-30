@@ -3,6 +3,7 @@
 export(H0_of)
 export(H0inv_of)
 export(M_catalogue)
+export(M_draws)
 export(assess_ramp_linearity)
 export(brms_log_M)
 export(brms_log_h0)

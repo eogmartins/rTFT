@@ -503,3 +503,71 @@ H0inv_of <- function(baseline) {
     newdata[[col]] <- fit$data[[col]][1]
   newdata
 }
+
+
+# ===========================================================================
+# 6. The fitted failure rate, from a fitted model
+# ===========================================================================
+
+# M_draws() --------------------------------------------------------------------
+
+#' The fitted failure rate over temperature, for each posterior draw
+#'
+#' Evaluates the failure rate M(T) of a model fitted with [fit_hazard()] at each
+#' temperature in `Ta`, for every posterior draw, at the covariate values in each row
+#' of `newdata`. The rate is computed from the same expression the model was fitted
+#' with, and the failure-rate function, reference temperature, softening steepness
+#' and co-stressors are read from the fit, so none of them is entered by hand. Random
+#' effects are set to zero, so the rate is that of a typical group.
+#'
+#' The draws are returned as they are, not summarised, for plotting the rate with
+#' its uncertainty or for further calculation.
+#'
+#' @param fit A model fitted with [fit_hazard()].
+#' @param Ta A numeric vector of temperatures at which to evaluate the rate.
+#' @param newdata A data frame of covariate values, one row per setting at which to
+#'   evaluate the rate. It must hold every covariate in the model's parameter
+#'   formulas; other columns the model needs are filled in. May be `NULL` for a model
+#'   without covariates.
+#' @param levels A named numeric vector giving the level of each co-stressor, on its
+#'   measurement scale, e.g. `c(DO = 6)` for 6 mg/L of dissolved oxygen. Required
+#'   when the model has co-stressors.
+#' @param n_draws An optional number of posterior draws to keep, evenly spaced
+#'   through the posterior. `NULL` (the default) keeps them all.
+#' @return A tibble with one row per draw, temperature and row of `newdata`: the
+#'   columns of `newdata`, `.draw` (the draw's number in the fit, so draws from
+#'   different calls can be matched), `Ta` and the failure rate `M`.
+#' @examples
+#' \dontrun{
+#' fit  <- fit_hazard(long, "exp", dpar_formulas = list(loga = ~ 1 + mass))
+#' rate <- M_draws(fit, Ta = seq(25, 40, by = 0.5), newdata = data.frame(mass = c(8, 12)))
+#' }
+#' @export
+M_draws <- function(fit, Ta, newdata = NULL, levels = NULL, n_draws = NULL) {
+  st   <- .fit_settings(fit)
+  pars <- c(M_catalogue[[st$m_form]]$dpars, .costressor_dpars(st$costressors))
+  if (is.null(newdata)) newdata <- data.frame(row.names = 1L)
+
+  ids <- .thin_ids(brms::ndraws(fit), n_draws)
+  dr  <- .fit_draws(fit, pars, newdata, draw_ids = ids)
+
+  # The rows of newdata are stacked as further draws, so the rate for all of them is
+  # evaluated in one call: the draws of row 1, then those of row 2, and so on. The
+  # fit records the steepness it used; for a function without a threshold that is
+  # 0, which is passed on as no override at all.
+  nd  <- length(ids)
+  nr  <- nrow(newdata)
+  k   <- if (M_catalogue[[st$m_form]]$k_sw != 0) st$k_sw
+  M   <- .M_draws(st$m_form, purrr::map(dr, as.vector), Ta, st$Tr, k,
+                  st$costressors, levels)
+
+  # One row per draw, temperature and newdata row, ordered by newdata row, then
+  # draw, then temperature.
+  row_of  <- rep(rep(seq_len(nr), each = nd), times = length(Ta))
+  draw_of <- rep(rep(ids, times = nr), times = length(Ta))
+  Ta_of   <- rep(Ta, each = nd * nr)
+  ord     <- order(row_of, draw_of, Ta_of)
+  dplyr::bind_cols(
+    tibble::as_tibble(newdata[row_of[ord], , drop = FALSE]),
+    tibble::tibble(.draw = draw_of[ord], Ta = Ta_of[ord], M = as.vector(M)[ord]))
+}

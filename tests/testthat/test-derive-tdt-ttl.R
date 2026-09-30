@@ -482,3 +482,46 @@ test_that("a model fitted with fit_hazard carries its settings", {
                list(m_form = "exp", baseline = "mem", observation = "interval",
                     Tr = 20, k_sw = 0, costressors = list()))
 })
+
+
+# ===========================================================================
+# 6. The fitted failure rate, from a fitted model (M_draws)
+# ===========================================================================
+
+test_that("M_draws gives one row per draw, temperature and newdata row", {
+  out <- M_draws(fit_exp, Ta = c(25, 30, 35), newdata = data.frame(mass = c(8, 12)),
+                 n_draws = 10)
+  expect_named(out, c("mass", ".draw", "Ta", "M"))
+  expect_equal(nrow(out), 10 * 3 * 2)
+  expect_equal(unique(out$.draw), .thin_ids(600, 10))    # the fit's own draw numbers
+})
+
+
+test_that("M_draws gives the fitted rate, computed from the fit's own draws", {
+  # M = exp(loga + b (Ta - Tr)), with loga = b_loga_Intercept + mass b_loga_mass,
+  # b = exp(b_logb_Intercept) and Tr = 20, all from the same draws.
+  out <- M_draws(fit_exp, Ta = c(25, 35), newdata = data.frame(mass = c(8, 12)),
+                 n_draws = 5)
+  ids <- .thin_ids(600, 5)
+  by_hand <- expand.grid(Ta = c(25, 35), draw = ids, mass = c(8, 12))
+  cf <- coefs[by_hand$draw, ]
+  by_hand$M <- exp(cf$b_loga_Intercept + by_hand$mass * cf$b_loga_mass +
+                   exp(cf$b_logb_Intercept) * (by_hand$Ta - 20))
+  expect_equal(out$M, by_hand$M)                         # same order: mass, draw, Ta
+  expect_equal(out$.draw, by_hand$draw)
+})
+
+
+test_that("M_draws keeps every draw unless asked to thin", {
+  out <- M_draws(fit_exp, Ta = 30, newdata = data.frame(mass = 10))
+  expect_equal(nrow(out), 600)
+})
+
+
+test_that("M_draws needs the fit's covariates and a fit with its settings", {
+  expect_error(M_draws(fit_exp, Ta = 30), class = "rTFT_missing_covariates")
+  bare <- fit_exp
+  bare$rtft <- NULL
+  expect_error(M_draws(bare, Ta = 30, newdata = data.frame(mass = 10)),
+               class = "rTFT_no_settings")
+})
