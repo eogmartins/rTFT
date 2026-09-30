@@ -473,3 +473,12 @@ test_that(".fit_draws checks the fit, the parameters and newdata", {
   expect_error(.fit_draws(fit_exp, "Tc", data.frame(mass = 10)), class = "rTFT_missing_nlpar")
   expect_error(.fit_draws(fit_exp, "loga", data.frame()), class = "rTFT_bad_newdata")
 })
+
+
+test_that("a model fitted with fit_hazard carries its settings", {
+  # The fixture was made by fit_hazard(), so this checks the whole path from the
+  # fit to the record the reporting functions read.
+  expect_equal(.fit_settings(fit_exp),
+               list(m_form = "exp", baseline = "mem", observation = "interval",
+                    Tr = 20, k_sw = 0, costressors = list()))
+})

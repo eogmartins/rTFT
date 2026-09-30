@@ -1147,3 +1147,26 @@ test_that("fit_hazard passes a custom k_sw into the formula", {
   a <- .hazard_brm_args(long_int, "exp_threshold", k_sw = 20)
   expect_true(grepl("-20 * (Ta - Tc)", deparse1(main_rhs(a)), fixed = TRUE))
 })
+
+
+test_that(".hazard_settings records what the reporting functions need", {
+  st <- .hazard_settings(long_int, "exp_threshold", "mem", "interval", k_sw = NULL,
+                         costressors = list())
+  expect_equal(st[c("m_form", "baseline", "observation")],
+               list(m_form = "exp_threshold", baseline = "mem", observation = "interval"))
+  expect_equal(st$Tr, long_int$Tr[1])                    # the reference of the data
+  expect_equal(st$k_sw, 50)                              # the catalogue steepness
+  expect_equal(.hazard_settings(long_int, "exp_threshold", "mem", "interval", 20,
+                                list())$k_sw, 20)        # a custom one
+  # a k_sw ignored for a threshold-less function is recorded as the catalogue 0,
+  # without a second warning
+  expect_silent(st2 <- .hazard_settings(long_int, "exp", "mem", "interval", 20, list()))
+  expect_equal(st2$k_sw, 0)
+})
+
+
+test_that(".fit_settings refuses a fit that carries no settings", {
+  expect_error(.fit_settings(list()), class = "rTFT_not_brmsfit")
+  bare <- structure(list(), class = "brmsfit")
+  expect_error(.fit_settings(bare), class = "rTFT_no_settings")
+})

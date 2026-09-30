@@ -52,7 +52,10 @@ the same one.}
 \link[brms:brm]{brms::brm} for the full set.}
 }
 \value{
-A \code{brmsfit}.
+A \code{brmsfit}, carrying in \verb{$rtft} the settings it was fitted with: the
+failure-rate and baseline functions, the observation mode, the reference
+temperature \code{Tr}, the softening steepness and the co-stressors. The reporting
+functions read them from there, so they are never re-entered by hand.
 }
 \description{
 Assembles the formula and family with \link{build_hazard_spec}, the default prior with
