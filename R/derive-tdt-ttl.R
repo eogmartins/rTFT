@@ -427,3 +427,79 @@ H0inv_of <- function(baseline) {
   }
   ifelse(is.na(out), (lo + hi) / 2, out)
 }
+
+
+# ===========================================================================
+# 5. Posterior draws from a fitted model
+# ===========================================================================
+
+# .fit_draws() -----------------------------------------------------------------
+
+# Take the posterior draws of the model's parameters (loga, logb, Tc, the baseline
+# and co-stressor parameters) out of a fitted model, at the covariate values in
+# each row of `newdata`, with random effects at zero: the population-level answer.
+# Returns a named list, one matrix per parameter, with a row per draw and a column
+# per row of `newdata`.
+#
+# This is the one place the reporting functions reach into a fitted model; every
+# later step works on plain draws. Draw i of one parameter and draw i of another
+# are one joint posterior sample, and their pairing is what carries the correlation
+# between parameters into every derived quantity. So every parameter is read at the
+# same `draw_ids`.
+.fit_draws <- function(fit, pars, newdata, draw_ids = NULL) {
+  if (!inherits(fit, "brmsfit"))
+    cli::cli_abort("{.arg fit} must be a fitted model ({.cls brmsfit}).",
+                   class = "rTFT_not_brmsfit")
+  unknown <- setdiff(pars, names(fit$formula$pforms))
+  if (length(unknown))
+    cli::cli_abort(c(
+      "The fitted model has no parameter {.val {unknown}}.",
+      "i" = "Its parameters are {.val {names(fit$formula$pforms)}}."
+    ), class = "rTFT_missing_nlpar")
+  newdata <- .complete_newdata(fit, newdata, pars)
+  if (is.null(draw_ids)) draw_ids <- seq_len(brms::ndraws(fit))
+
+  out <- purrr::map(pars, \(p)
+    brms::posterior_linpred(fit, newdata = newdata, nlpar = p, re_formula = NA,
+                            draw_ids = draw_ids))
+  stats::setNames(out, pars)
+}
+
+# Pick `n_keep` evenly spaced draws out of `n_total`, always including the first and
+# the last, or all of them when `n_keep` is NULL or not smaller. Evenly spaced rather
+# than random, so the same call gives the same draws without a seed.
+.thin_ids <- function(n_total, n_keep = NULL) {
+  if (is.null(n_keep) || n_keep >= n_total) return(seq_len(n_total))
+  if (!is.numeric(n_keep) || length(n_keep) != 1L || !is.finite(n_keep) || n_keep < 1)
+    cli::cli_abort(c(
+      "The number of draws to keep must be a single positive number.",
+      "x" = "You supplied {.val {n_keep}}."
+    ), class = "rTFT_bad_thin")
+  unique(round(seq(1, n_total, length.out = n_keep)))
+}
+
+# Make `newdata` acceptable to brms, which checks it against the whole model and so
+# asks for every column the model's formula uses, including those (the temperature,
+# the reference, the log exposure, the failure indicator) that no parameter's own
+# formula uses. Those are filled from the first row of the fitted data; their values
+# cannot reach the parameters' draws. The covariates in the parameters' formulas are
+# another matter: they set the values the draws are reported at, so a missing one is
+# an error rather than a silent fill with some fish's value.
+.complete_newdata <- function(fit, newdata, pars) {
+  if (!is.data.frame(newdata) || !nrow(newdata))
+    cli::cli_abort("{.arg newdata} must be a data frame with at least one row.",
+                   class = "rTFT_bad_newdata")
+  covariates <- unique(unlist(purrr::map(pars, \(p) {
+    terms <- .rhs_terms(fit$formula$pforms[[p]])
+    unlist(purrr::map(terms[!vapply(terms, .is_bar, logical(1))], all.vars))
+  })))
+  missing <- setdiff(covariates, names(newdata))
+  if (length(missing))
+    cli::cli_abort(c(
+      "{.arg newdata} has no column for {.val {missing}}.",
+      "i" = "The fitted model uses {cli::qty(length(missing))}{?it/them} in its parameters' formulas; give the value{?s} to report at."
+    ), class = "rTFT_missing_covariates")
+  for (col in setdiff(names(fit$data), names(newdata)))
+    newdata[[col]] <- fit$data[[col]][1]
+  newdata
+}

@@ -396,3 +396,80 @@ test_that("sCTmax needs one positive target per draw", {
   expect_error(.sctmax_draws("exp", d["loga"], c(0.05, 0.1), Tr = 30),
                class = "rTFT_missing_draws")             # the shared checks apply
 })
+
+
+# ===========================================================================
+# 5. Posterior draws from a fitted model (.fit_draws)
+# ===========================================================================
+
+# A small fitted model saved as a fixture (made by fixtures/make-hazard-fit.R): the
+# exponential failure rate, memoryless baseline, body mass as a covariate on log a.
+# 600 draws. The expected draws are rebuilt by hand from the fit's own coefficients:
+# loga = b_loga_Intercept + mass * b_loga_mass, and logb = b_logb_Intercept.
+fit_exp <- readRDS(test_path("fixtures", "hazard-fit-exp.rds"))
+coefs   <- as.data.frame(posterior::as_draws_df(fit_exp))
+
+test_that(".fit_draws gives one draws-by-rows matrix per parameter", {
+  out <- .fit_draws(fit_exp, c("loga", "logb"), data.frame(mass = c(8, 12)))
+  expect_named(out, c("loga", "logb"))
+  expect_equal(dim(out$loga), c(600L, 2L))
+  expect_equal(dim(out$logb), c(600L, 2L))
+})
+
+
+test_that(".fit_draws reads each parameter at the requested draws, paired", {
+  # Draws 1, 5 and 9 of loga and of logb must come from the same three posterior
+  # samples: checked against the fit's coefficients at those same rows.
+  ids <- c(1, 5, 9)
+  out <- .fit_draws(fit_exp, c("loga", "logb"), data.frame(mass = c(8, 12)),
+                    draw_ids = ids)
+  by_hand <- coefs[ids, ]
+  expect_equal(unname(out$loga),
+               cbind(by_hand$b_loga_Intercept + 8  * by_hand$b_loga_mass,
+                     by_hand$b_loga_Intercept + 12 * by_hand$b_loga_mass))
+  expect_equal(unname(out$logb[, 1]), by_hand$b_logb_Intercept)
+})
+
+
+test_that("thinning keeps the pairing", {
+  ids <- .thin_ids(600, 50)
+  out <- .fit_draws(fit_exp, c("loga", "logb"), data.frame(mass = 10), draw_ids = ids)
+  expect_equal(unname(out$loga[, 1]),
+               coefs$b_loga_Intercept[ids] + 10 * coefs$b_loga_mass[ids])
+  expect_equal(unname(out$logb[, 1]), coefs$b_logb_Intercept[ids])
+})
+
+
+test_that(".thin_ids spaces the draws evenly and keeps the ends", {
+  ids <- .thin_ids(600, 50)
+  expect_length(ids, 50)
+  expect_equal(range(ids), c(1, 600))
+  expect_equal(.thin_ids(600), 1:600)                    # no thinning asked
+  expect_equal(.thin_ids(600, 1000), 1:600)              # more than there are
+  expect_error(.thin_ids(600, 0), class = "rTFT_bad_thin")
+})
+
+
+test_that("the columns filled in for brms do not reach the draws", {
+  # Ta, Tr, log_exposure and failed are filled from the fitted data; supplying
+  # quite different values must leave the draws unchanged.
+  filled   <- .fit_draws(fit_exp, "loga", data.frame(mass = 10))
+  supplied <- .fit_draws(fit_exp, "loga", data.frame(mass = 10, Ta = 50, Tr = 0,
+                                                     log_exposure = 5, failed = 1))
+  expect_equal(filled, supplied)
+})
+
+
+test_that("a covariate missing from newdata is an error, not a silent fill", {
+  expect_error(.fit_draws(fit_exp, "loga", data.frame(size = 10)),
+               class = "rTFT_missing_covariates")
+  # logb has no covariates, so it needs none
+  expect_silent(.fit_draws(fit_exp, "logb", data.frame(size = 10)))
+})
+
+
+test_that(".fit_draws checks the fit, the parameters and newdata", {
+  expect_error(.fit_draws(list(), "loga", data.frame(mass = 10)), class = "rTFT_not_brmsfit")
+  expect_error(.fit_draws(fit_exp, "Tc", data.frame(mass = 10)), class = "rTFT_missing_nlpar")
+  expect_error(.fit_draws(fit_exp, "loga", data.frame()), class = "rTFT_bad_newdata")
+})
