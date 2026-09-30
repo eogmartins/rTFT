@@ -203,6 +203,19 @@ test_that("the functions of (Ta - Tr) refuse a temperature grid below Tr", {
 })
 
 
+test_that(".log_M_eval evaluates each draw at its own temperatures", {
+  # Row i of the temperature matrix belongs to draw i. Two draws, each at two
+  # temperatures of its own, so a mix-up of draws and temperatures would show.
+  setup  <- .rate_setup("exp", list(loga = c(-5, -4), logb = log(c(0.5, 0.2))), Tr = 30)
+  Ta_mat <- rbind(c(30, 32),                             # draw 1
+                  c(34, 36))                             # draw 2
+  # log M = loga + b (Ta - Tr), row by row
+  expect_equal(.log_M_eval(setup, Ta_mat),
+               rbind(-5 + 0.5 * c(0, 2),
+                     -4 + 0.2 * c(4, 6)))
+})
+
+
 test_that(".M_draws reports the rate the model formula fits", {
   # Evaluate the right-hand side of the fitted model's formula at fixed parameter
   # values, and compare it with the rate .M_draws reports for the same settings.
@@ -281,4 +294,105 @@ test_that("a missing draw is a fault, not something to drop", {
   expect_error(.draw_summary(c(1, 2, NaN)), class = "rTFT_missing_draw_values")
   expect_error(.draw_summary(numeric(0)),   class = "rTFT_bad_summary_draws")
   expect_error(.draw_summary("a"),          class = "rTFT_bad_summary_draws")
+})
+
+
+# ===========================================================================
+# 4. The static critical thermal maximum (.sctmax_draws)
+# ===========================================================================
+
+# Where a failure-rate function can be solved for T by hand, the closed form is
+# the oracle: log M(T) = log(target) = L solved for T. The solver itself never
+# uses these; it bisects the shared expression.
+
+test_that("sCTmax matches the closed form for the functions that have one", {
+  L <- log(c(0.01, 0.05, 0.2))                           # three targets
+  tgt <- exp(L)
+  d <- list(loga = c(-5, -4.5, -6), logb = log(c(0.5, 0.3, 0.8)), logc = rep(log(0.001), 3))
+  a <- d$loga; b <- exp(d$logb)
+
+  # exp: loga + b (T - Tr) = L
+  expect_equal(.sctmax_draws("exp", d, tgt, Tr = 30), 30 + (L - a) / b, tolerance = 1e-7)
+  # zeroexp: loga + log(exp(b (T - Tr)) - 1) = L
+  expect_equal(.sctmax_draws("zeroexp", d, tgt, Tr = 30),
+               30 + log1p(exp(L - a)) / b, tolerance = 1e-7)
+  # zeropower: loga + b log(T - Tr) = L
+  expect_equal(.sctmax_draws("zeropower", d, tgt, Tr = 30),
+               30 + exp((L - a) / b), tolerance = 1e-7)
+  # power: log(c + exp(loga) (T - Tr)^b) = L
+  expect_equal(.sctmax_draws("power", d, tgt, Tr = 30),
+               30 + ((tgt - 0.001) / exp(a))^(1 / b), tolerance = 1e-7)
+  # const_threshold: loga - log(1 + exp(-k (T - Tc))) = L
+  dt <- list(loga = c(-1, -1.5, -0.5), Tc = c(34, 35, 33))
+  expect_equal(.sctmax_draws("const_threshold", dt, tgt, Tr = 30),
+               dt$Tc - log(expm1(dt$loga - L)) / 50, tolerance = 1e-7)
+})
+
+
+test_that("sCTmax solves the functions without a closed form", {
+  # For these the check is that the rate at the answer equals the target.
+  tgt <- c(0.01, 0.05, 0.2)
+  d <- list(loga = c(-5, -4.5, -6), logb = log(c(0.5, 0.3, 0.8)), Tc = c(34, 35, 33))
+  for (m in c("exp_threshold", "zeroexp_threshold", "zeropower_threshold")) {
+    ct <- .sctmax_draws(m, d, tgt, Tr = 30)
+    M_at <- vapply(1:3, \(i) .M_draws(m, lapply(d, `[`, i), Ta = ct[i], Tr = 30)[1, 1],
+                   numeric(1))
+    expect_equal(M_at, tgt, tolerance = 1e-7, info = m)
+  }
+  # the zero-threshold answers lie on the rising branch, above Tc
+  expect_true(all(.sctmax_draws("zeroexp_threshold", d, tgt, Tr = 30) > d$Tc))
+})
+
+
+test_that("a custom steepness and a co-stressor move sCTmax as the formula says", {
+  # exp with oxygen: loga + b (T - Tr) + cDO z + dTDO (T - Tr) z = L, z = 2.5 at 6 mg/L
+  do_cs <- costressor("DO", column = "do", ref = 8.5, scale = 1, direction = -1)
+  d <- list(loga = -5, logb = log(0.5), cDO = 0.2, dTDO = 0.03)
+  L <- log(0.05)
+  expect_equal(.sctmax_draws("exp", d, 0.05, Tr = 30, costressors = list(do_cs),
+                             levels = c(DO = 6)),
+               30 + (L + 5 - 0.2 * 2.5) / (0.5 + 0.03 * 2.5), tolerance = 1e-7)
+  # const_threshold with k_sw = 10 rather than 50
+  dt <- list(loga = -1, Tc = 34)
+  expect_equal(.sctmax_draws("const_threshold", dt, 0.05, Tr = 30, k_sw = 10),
+               34 - log(expm1(-1 - L)) / 10, tolerance = 1e-7)
+})
+
+
+test_that("a rate that never crosses the target gives +Inf or -Inf, not NA", {
+  # const: below the target everywhere -> +Inf; above it everywhere -> -Inf
+  expect_equal(.sctmax_draws("const", list(loga = log(c(0.01, 0.5))), c(0.1, 0.1), Tr = 30),
+               c(Inf, -Inf))
+  # const_threshold whose ceiling a = exp(loga) lies below the target
+  expect_equal(.sctmax_draws("const_threshold", list(loga = log(0.05), Tc = 34), 0.1, Tr = 30),
+               Inf)
+  # power whose floor c lies above the target
+  expect_equal(.sctmax_draws("power", list(loga = -5, logb = 0, logc = log(0.5)), 0.1, Tr = 30),
+               -Inf)
+  # a crossing beyond the search span counts as never reached
+  expect_equal(.sctmax_draws("exp", list(loga = -20, logb = log(1e-4)), 0.1, Tr = 30), Inf)
+})
+
+
+test_that("sCTmax refuses a co-stressor level at which the rate falls with temperature", {
+  do_cs <- costressor("DO", column = "do", ref = 8.5, scale = 1, direction = -1)
+  # at 6 mg/L (z = 2.5) the thermal slope is b + dTDO z = 0.5 - 0.3 * 2.5 < 0
+  falls <- list(loga = -5, logb = log(0.5), cDO = 0.2, dTDO = -0.3)
+  expect_error(.sctmax_draws("exp", falls, 0.05, Tr = 30, costressors = list(do_cs),
+                             levels = c(DO = 6)), class = "rTFT_falling_rate")
+  # a milder negative interaction leaves the slope positive, 0.5 - 0.1 * 2.5 > 0
+  mild <- list(loga = -5, logb = log(0.5), cDO = 0.2, dTDO = -0.1)
+  expect_equal(.sctmax_draws("exp", mild, 0.05, Tr = 30, costressors = list(do_cs),
+                             levels = c(DO = 6)),
+               30 + (log(0.05) + 5 - 0.2 * 2.5) / (0.5 - 0.1 * 2.5), tolerance = 1e-7)
+})
+
+
+test_that("sCTmax needs one positive target per draw", {
+  d <- list(loga = c(-5, -4.5), logb = log(c(0.5, 0.3)))
+  expect_error(.sctmax_draws("exp", d, 0.05, Tr = 30), class = "rTFT_bad_target")
+  expect_error(.sctmax_draws("exp", d, c(0.05, 0), Tr = 30), class = "rTFT_bad_target")
+  expect_error(.sctmax_draws("exp", d, c(0.05, NA), Tr = 30), class = "rTFT_bad_target")
+  expect_error(.sctmax_draws("exp", d["loga"], c(0.05, 0.1), Tr = 30),
+               class = "rTFT_missing_draws")             # the shared checks apply
 })

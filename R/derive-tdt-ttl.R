@@ -165,19 +165,11 @@ H0inv_of <- function(baseline) {
 #                scale, e.g. c(DO = 6) for 6 mg/L of dissolved oxygen
 .M_draws <- function(m_form, draws, Ta, Tr, k_sw = NULL, costressors = list(),
                      levels = NULL) {
-  m_spec <- .m_form_spec(m_form)
-  .check_costressors(costressors)
-  k_sw_used <- .resolve_k_sw(m_form, k_sw)
+  setup <- .rate_setup(m_form, draws, Tr, k_sw, costressors, levels)
 
   if (!is.numeric(Ta) || !length(Ta) || anyNA(Ta))
     cli::cli_abort("{.arg Ta} must be a numeric vector of temperatures with no missing values.",
                    class = "rTFT_bad_Ta")
-  if (!is.numeric(Tr) || length(Tr) != 1L || !is.finite(Tr))
-    cli::cli_abort(c(
-      "{.arg Tr} must be a single number, the reference temperature of the fit.",
-      "x" = "You supplied {.val {Tr}}."
-    ), class = "rTFT_bad_Tr")
-
   # zeroexp, zeropower and power take a logarithm or a fractional power of Ta - Tr,
   # so they have no rate below the reference, and a grid reaching below it is
   # refused, as the fit refuses data that do. Ta = Tr itself is allowed: the zero
@@ -188,6 +180,30 @@ H0inv_of <- function(baseline) {
       "x" = "min(Ta) = {.val {min(Ta)}}, Tr = {.val {Tr}}.",
       "i" = "Start the temperature grid at or above {.arg Tr}."
     ), class = "rTFT_Ta_below_Tr")
+
+  # Every draw at every temperature: each temperature is repeated down the draws.
+  exp(.log_M_eval(setup, matrix(Ta, setup$nd, length(Ta), byrow = TRUE)))
+}
+
+
+# .rate_setup() / .log_M_eval() ------------------------------------------------
+
+# Check and prepare everything the failure rate needs apart from the temperatures:
+# the function, the draws, the reference temperature, the softening steepness and
+# the co-stressors at their chosen levels. Returns the pieces .log_M_eval() needs.
+# .M_draws() and .sctmax_draws() share it, so both refuse the same bad inputs the
+# same way.
+.rate_setup <- function(m_form, draws, Tr, k_sw = NULL, costressors = list(),
+                        levels = NULL) {
+  m_spec <- .m_form_spec(m_form)
+  .check_costressors(costressors)
+  k_sw_used <- .resolve_k_sw(m_form, k_sw)
+
+  if (!is.numeric(Tr) || length(Tr) != 1L || !is.finite(Tr))
+    cli::cli_abort(c(
+      "{.arg Tr} must be a single number, the reference temperature of the fit.",
+      "x" = "You supplied {.val {Tr}}."
+    ), class = "rTFT_bad_Tr")
 
   # Every parameter the rate needs must have draws, and the same number of them. A
   # missing one would otherwise fail later with an unhelpful "object not found", and
@@ -243,16 +259,22 @@ H0inv_of <- function(baseline) {
   z <- purrr::map(costressors, \(cs) .costressor_z(cs, levels[[cs$name]]))
   names(z) <- if (length(z)) paste0("z_", cs_names)
 
-  # Each parameter is one value per draw, repeated across the temperatures (a row);
-  # each temperature is repeated down the draws (a column). The expression then
-  # gives log M for every draw at every temperature at once.
-  nd <- n_draws[[1]]
-  nT <- length(Ta)
-  env <- c(purrr::map(draws[pars], \(v) matrix(v, nd, nT)),
-           list(Ta = matrix(Ta, nd, nT, byrow = TRUE), Tr = Tr),
-           z)
-  log_M <- str2lang(.log_M_string(m_form, k_sw_used, costressors))
-  exp(eval(log_M, env, enclos = baseenv()))
+  list(draws = draws[pars], nd = n_draws[[1]], Tr = Tr, z = z,
+       log_M = str2lang(.log_M_string(m_form, k_sw_used, costressors)))
+}
+
+# Evaluate log M(T) for every draw at the temperatures in `Ta_mat`, a matrix with
+# one row per draw: row i holds the temperatures at which draw i is evaluated. Each
+# parameter is laid out the same shape, one value per draw repeated along its row,
+# so the expression gives log M for every cell at once. The expression sees only
+# these inputs and base R.
+.log_M_eval <- function(setup, Ta_mat) {
+  nd <- setup$nd
+  nT <- ncol(Ta_mat)
+  env <- c(purrr::map(setup$draws, \(v) matrix(v, nd, nT)),
+           list(Ta = Ta_mat, Tr = setup$Tr),
+           setup$z)
+  eval(setup$log_M, env, enclos = baseenv())
 }
 
 
@@ -301,4 +323,107 @@ H0inv_of <- function(baseline) {
 
   tibble::tibble(median = q[1], lower = q[2], upper = q[3], prob = prob,
                  n_draws = length(x), n_unreached = sum(is.infinite(x)))
+}
+
+
+# ===========================================================================
+# 4. The static critical thermal maximum for each posterior draw
+# ===========================================================================
+
+# .sctmax_draws() --------------------------------------------------------------
+
+# Find, for each posterior draw, the static critical thermal maximum sCTmax: the
+# constant temperature at which a fraction p of animals fail within a reference
+# exposure t_ref (Jorgensen et al. 2021 report it for one hour, sCTmax(1h)). Under a
+# constant temperature survival is exp(-M(T) * H0(t_ref)), so sCTmax solves
+# M(T) = target, with target = -log(1 - p) / H0(t_ref). The caller computes the
+# target, one per draw.
+#
+# The equation is solved on the shared log M(T) expression, by bisection run on
+# every draw at once, rather than read off a grid of temperatures. The answer then
+# does not depend on a grid, and there is no second, hand-written copy of each
+# function to drift from the fit. Every function of M_catalogue rises with
+# temperature over its domain (or, for `const`, stays flat), so a draw has at most
+# one crossing.
+#
+# The search starts at the lower end of the function's domain: Tr for zeroexp,
+# zeropower and power, which are undefined below it; Tc for zeroexp_threshold and
+# zeropower_threshold, whose softened switch makes a small spurious rise just below
+# Tc, so that the crossing found is on the branch the function means; otherwise
+# just below Tr. It widens in doubling steps until the crossing is bracketed, or
+# until it reaches .sctmax_span either side of Tr. A draw with no crossing is
+# returned as +Inf when its rate stays below the target throughout (a constant rate
+# below it, a threshold rate whose ceiling a lies below it, a crossing beyond the
+# span) and as -Inf when its rate is above the target throughout its domain (a
+# constant rate above it, a power rate whose floor c lies above it).
+#
+# The one way a rate can fall with temperature is through a co-stressor's
+# temperature interaction, when it outweighs the rate's own rise at the chosen
+# level. sCTmax is not defined there, and a search that assumes a rising rate
+# would report such a draw as never reaching the target, which is wrong. So a draw
+# whose rate is lower at the top of its search range than at the bottom stops the
+# calculation with an error; such a level usually lies outside the range the data
+# support.
+.sctmax_span <- 1000
+.sctmax_tol  <- 1e-8
+
+.sctmax_draws <- function(m_form, draws, target, Tr, k_sw = NULL,
+                          costressors = list(), levels = NULL) {
+  setup <- .rate_setup(m_form, draws, Tr, k_sw, costressors, levels)
+  nd <- setup$nd
+  if (!is.numeric(target) || length(target) != nd || !all(is.finite(target)) ||
+      any(target <= 0))
+    cli::cli_abort(c(
+      "{.arg target} must hold one positive, finite failure rate per draw.",
+      "x" = "There are {nd} draws and {length(target)} target{?s}, of which {sum(!is.finite(target) | target <= 0)} {?is/are} not positive and finite."
+    ), class = "rTFT_bad_target")
+
+  log_target <- log(target)
+  gap <- function(Tv) as.vector(.log_M_eval(setup, matrix(Tv, nd, 1L))) - log_target
+
+  # The lower end of each draw's domain, or NA where the function has none.
+  domain_lo <- switch(m_form,
+    zeroexp = , zeropower = , power           = rep(Tr, nd),
+    zeroexp_threshold = , zeropower_threshold = setup$draws$Tc,
+    rep(NA_real_, nd))
+  bounded <- !is.na(domain_lo)
+  lo <- ifelse(bounded, domain_lo, Tr - 1)
+  hi <- pmax(lo, Tr) + 1
+
+  # Widen until the rate is below the target at `lo` and above it at `hi`.
+  gap_lo <- gap(lo)
+  gap_hi <- gap(hi)
+  step <- 1
+  repeat {
+    raise <- gap_hi < 0 & hi < Tr + .sctmax_span
+    lower <- gap_lo > 0 & !bounded & lo > Tr - .sctmax_span
+    if (!any(raise | lower)) break
+    step <- 2 * step
+    hi[raise] <- pmin(hi[raise] + step, Tr + .sctmax_span)
+    lo[lower] <- pmax(lo[lower] - step, Tr - .sctmax_span)
+    gap_lo <- gap(lo)
+    gap_hi <- gap(hi)
+  }
+  falling <- gap_hi < gap_lo
+  if (any(falling))
+    cli::cli_abort(c(
+      "sCTmax is not defined where the failure rate falls with temperature.",
+      "x" = paste0("The rate falls with temperature for {sum(falling)} of {nd} draws",
+                   if (length(costressors)) " at {.val {paste(names(levels), levels, sep = ' = ')}}", "."),
+      "i" = "A temperature interaction strong enough to reverse the rate's rise usually means the co-stressor level lies outside the range the data support."
+    ), class = "rTFT_falling_rate")
+  out <- rep(NA_real_, nd)
+  out[gap_hi < 0] <- Inf                                 # never reaches the target
+  out[gap_lo > 0] <- -Inf                                # above it throughout
+
+  # Halve each bracket until it is narrower than .sctmax_tol.
+  open <- is.na(out)
+  while (any(open)) {
+    mid <- (lo + hi) / 2
+    below <- gap(mid) < 0
+    lo[open & below]  <- mid[open & below]
+    hi[open & !below] <- mid[open & !below]
+    open <- open & (hi - lo) > .sctmax_tol
+  }
+  ifelse(is.na(out), (lo + hi) / 2, out)
 }
