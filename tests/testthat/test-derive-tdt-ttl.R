@@ -478,9 +478,14 @@ test_that(".fit_draws checks the fit, the parameters and newdata", {
 test_that("a model fitted with fit_hazard carries its settings", {
   # The fixture was made by fit_hazard(), so this checks the whole path from the
   # fit to the record the reporting functions read.
-  expect_equal(.fit_settings(fit_exp),
+  st <- .fit_settings(fit_exp)
+  expect_equal(st[c("m_form", "baseline", "observation", "Tr", "k_sw", "costressors")],
                list(m_form = "exp", baseline = "mem", observation = "interval",
                     Tr = 20, k_sw = 0, costressors = list()))
+  # the observed ranges: temperatures within the ramp (20 to 50 degC) and elapsed
+  # times within the two-hour trial
+  expect_true(st$Ta_range[1] >= 20 && st$Ta_range[2] <= 50)
+  expect_true(st$tau_range[1] > 0 && st$tau_range[2] <= 120)
 })
 
 
@@ -531,10 +536,17 @@ test_that("M_draws needs the fit's covariates and a fit with its settings", {
 # 7. Thermal tolerance from a fitted model (derive_tdt_ttl)
 # ===========================================================================
 
-test_that("derive_tdt_ttl gives a params and an sctmax table, labelled by newdata", {
+test_that("derive_tdt_ttl gives four tables, each labelled by newdata", {
   out <- derive_tdt_ttl(fit_exp, newdata = data.frame(mass = c(8, 12)), p = c(0.5, 0.9),
                         t_ref = 60, n_draws = 50)
-  expect_named(out, c("params", "sctmax"))
+  expect_named(out, c("params", "sctmax", "tdt_curves", "ttl_surface"))
+  expect_equal(names(out$tdt_curves),
+               c("mass", "p", "Ta", "median", "lower", "upper", "prob", "n_draws", "n_unreached"))
+  expect_equal(names(out$ttl_surface),
+               c("mass", "Ta", "tau", "median", "lower", "upper", "prob", "n_draws", "n_unreached"))
+  # the default grids: 50 temperatures, and 50 elapsed times for the landscape
+  expect_equal(nrow(out$tdt_curves), 2 * 2 * 50)          # newdata rows x p x Ta
+  expect_equal(nrow(out$ttl_surface), 2 * 50 * 50)        # newdata rows x Ta x tau
   expect_equal(names(out$params),
                c("mass", "quantity", "median", "lower", "upper", "prob", "n_draws", "n_unreached"))
   expect_equal(names(out$sctmax),
@@ -649,4 +661,104 @@ test_that(".report_unreached gives one message listing the quantities, or none",
   expect_false(grepl("p = 0.5", msg, fixed = TRUE))
   expect_false(grepl("a: up to", msg, fixed = TRUE))
   expect_silent(.report_unreached(list(params = par, sctmax = sct[1, ])))
+})
+
+
+test_that("the thermal death time curves match the closed form", {
+  # Memoryless: H0(t) = t, so t_p = -log(1 - p) / M(T), with
+  # M = exp(loga + b (Ta - 20)) from the same draws.
+  out <- derive_tdt_ttl(fit_exp, newdata = data.frame(mass = 10), p = c(0.5, 0.9),
+                        t_ref = 60, Ta = c(25, 30), n_draws = 50)
+  cf   <- coefs[.thin_ids(600, 50), ]
+  loga <- cf$b_loga_Intercept + 10 * cf$b_loga_mass
+  b    <- exp(cf$b_logb_Intercept)
+  by_hand <- dplyr::bind_rows(lapply(c(0.5, 0.9), \(pp) dplyr::bind_rows(lapply(c(25, 30), \(temp)
+    .draw_summary(-log(1 - pp) / exp(loga + b * (temp - 20)))))))
+  expect_equal(out$tdt_curves$p,  c(0.5, 0.5, 0.9, 0.9))
+  expect_equal(out$tdt_curves$Ta, c(25, 30, 25, 30))
+  expect_equal(out$tdt_curves[, 4:9], by_hand)
+})
+
+
+test_that("the tolerance landscape matches survival computed by hand", {
+  # Memoryless: S = exp(-M(T) tau).
+  out <- derive_tdt_ttl(fit_exp, newdata = data.frame(mass = 10), t_ref = 60,
+                        Ta = c(25, 30), tau = c(10, 60), n_draws = 50)
+  cf   <- coefs[.thin_ids(600, 50), ]
+  loga <- cf$b_loga_Intercept + 10 * cf$b_loga_mass
+  b    <- exp(cf$b_logb_Intercept)
+  by_hand <- dplyr::bind_rows(lapply(c(25, 30), \(temp) dplyr::bind_rows(lapply(c(10, 60), \(tt)
+    .draw_summary(exp(-exp(loga + b * (temp - 20)) * tt))))))
+  expect_equal(out$ttl_surface$Ta,  c(25, 25, 30, 30))
+  expect_equal(out$ttl_surface$tau, c(10, 60, 10, 60))
+  expect_equal(out$ttl_surface[, 4:9], by_hand)
+})
+
+
+test_that("the grids must be finite temperatures and times that are not negative", {
+  nd <- data.frame(mass = 10)
+  expect_error(derive_tdt_ttl(fit_exp, nd, t_ref = 60, Ta = c(25, NA)),  class = "rTFT_bad_Ta")
+  expect_error(derive_tdt_ttl(fit_exp, nd, t_ref = 60, tau = c(-1, 10)), class = "rTFT_bad_tau")
+  expect_error(derive_tdt_ttl(fit_exp, nd, t_ref = 60, tau = "10"),     class = "rTFT_bad_tau")
+})
+
+
+test_that("the landscape starts at a survival of 1 at an elapsed time of zero", {
+  out <- derive_tdt_ttl(fit_exp, data.frame(mass = 10), t_ref = 60, Ta = c(25, 30),
+                        tau = c(0, 10), n_draws = 50)
+  at_zero <- out$ttl_surface[out$ttl_surface$tau == 0, ]
+  expect_equal(c(at_zero$median, at_zero$lower, at_zero$upper), rep(1, 6))
+})
+
+
+test_that("every baseline has no cumulative hazard at an elapsed time of zero", {
+  # H0(0) = 0 for all four, which is what makes survival 1 there.
+  expect_equal(H0_of("mem")(0, 1, 1), 0)
+  expect_equal(H0_of("weibull")(0, 2, 60), 0)
+  expect_equal(H0_of("llogis")(0, 2, 60), 0)
+  expect_equal(H0_of("gompertz")(0, c(0.05, -0.05), 1), c(0, 0))
+})
+
+
+test_that(".tdt_draws turns a time that is never reached into Inf", {
+  # Gompertz with gamma = -0.5: H0 levels off at 1 / 0.5 = 2. With p = 0.5 the
+  # target is log(2) / M; a rate of 0.5 gives a target of 1.39 (reached), a rate
+  # of 0.25 gives 2.77 (above the level: never reached).
+  H0inv <- H0inv_of("gompertz")
+  M <- matrix(c(0.5, 0.25), nrow = 1)                    # one draw, two temperatures
+  tp <- .tdt_draws(M, 0.5, H0inv, shape = -0.5, scale = 1)
+  expect_true(is.finite(tp[1, 1]))
+  expect_equal(tp[1, 2], Inf)
+  # a rate of zero (a zero function at Tr): the target is infinite, so never reached
+  expect_equal(.tdt_draws(matrix(0), 0.5, H0inv_of("mem"), 1, 1)[1, 1], Inf)
+})
+
+
+test_that(".summarise_columns summarises each column on its own, in one pass", {
+  # Four draws by three columns: ordinary numbers; one draw never reached; and half
+  # the draws unattainable below, half above, where interpolating the median gives
+  # Inf - Inf and the nearest draw must be taken instead, for that column only.
+  mat <- cbind(c(3, 1, 4, 1), c(9, 2, Inf, 5), c(-Inf, -Inf, Inf, Inf))
+  out <- .summarise_columns(mat)
+  probs <- c(0.5, 0.025, 0.975)
+  # column 1, against quantile() directly
+  expect_equal(unlist(out[1, c("median", "lower", "upper")], use.names = FALSE),
+               unname(stats::quantile(mat[, 1], probs)))
+  # column 2: one of four draws unreached, so the upper bound is unbounded
+  expect_equal(out$upper[2], Inf)
+  expect_true(is.finite(out$median[2]))
+  # column 3: no NaN, the median taken from the nearest draw
+  expect_equal(c(out$median[3], out$lower[3], out$upper[3]), c(-Inf, -Inf, Inf))
+  expect_equal(out$n_unreached, c(0L, 1L, 4L))
+  expect_equal(out$n_draws, rep(4L, 3))
+  expect_error(.summarise_columns(cbind(1, NA)), class = "rTFT_missing_draw_values")
+})
+
+
+test_that(".report_unreached lists a thermal death time curve once per p", {
+  tdt <- tibble::tibble(p = c(0.9, 0.9), Ta = c(25, 30), n_draws = 100,
+                        n_unreached = c(5, 40))
+  msg <- tryCatch(.report_unreached(list(tdt_curves = tdt)), message = conditionMessage)
+  expect_match(msg, "time until p = 0.9 fail, at some temperatures: up to 40.0% of draws",
+               fixed = TRUE)
 })

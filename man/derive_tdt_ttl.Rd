@@ -9,6 +9,8 @@ derive_tdt_ttl(
   newdata = NULL,
   p = c(0.1, 0.5, 0.9),
   t_ref,
+  Ta = NULL,
+  tau = NULL,
   levels = NULL,
   prob = 0.95,
   n_draws = 1000
@@ -29,6 +31,15 @@ the model was fitted to (for example \code{60} for one hour when times are in
 minutes).
 It has no default, because the fit does not record that unit.}
 
+\item{Ta}{The constant temperatures for the thermal death time curves and the
+tolerance landscape. \code{NULL} (the default) takes 50 evenly spaced across the
+temperatures the data cover.}
+
+\item{tau}{The elapsed exposure times for the tolerance landscape, in the time unit
+of the data. \code{NULL} (the default) takes 50 spaced evenly on a log scale across
+the times the data cover. A time of zero is allowed, and gives a survival of 1,
+so that a survival curve can start there.}
+
 \item{levels}{A named numeric vector giving the level of each co-stressor, on its
 measurement scale, e.g. \code{c(DO = 6)}. Required when the model has co-stressors.}
 
@@ -38,21 +49,26 @@ measurement scale, e.g. \code{c(DO = 6)}. Required when the model has co-stresso
 posterior; \code{NULL} uses them all.}
 }
 \value{
-A list of two tibbles, each starting with the columns of \code{newdata} and
+A list of four tibbles, each starting with the columns of \code{newdata} and
 ending with the posterior summary \code{median}, \code{lower}, \code{upper}, \code{prob}, \code{n_draws}
 and \code{n_unreached}:
 \itemize{
 \item \code{params}: one row per parameter, named in \code{quantity};
-\item \code{sctmax}: one row per value of \code{p}, with \code{p} and \code{t_ref}.
+\item \code{sctmax}: one row per value of \code{p}, with \code{p} and \code{t_ref};
+\item \code{tdt_curves}: one row per value of \code{p} and temperature, with \code{p} and \code{Ta}; the
+summary is of the time until that fraction has failed;
+\item \code{ttl_surface}: one row per temperature and elapsed time, with \code{Ta} and \code{tau};
+the summary is of survival.
 }
 }
 \description{
 Derives, from a model fitted with \code{\link[=fit_hazard]{fit_hazard()}}, the failure-rate parameters on
-their natural scale and the static critical thermal maximum sCTmax, each with its
-posterior median and credible interval, at the covariate values in each row of
-\code{newdata}. The model's settings (failure-rate and baseline functions, reference
-temperature, softening steepness, co-stressors) are read from the fit. Random
-effects are set to zero, so the results are those of a typical group.
+their natural scale, the static critical thermal maximum sCTmax, the thermal death
+time curves and the thermal tolerance landscape, each with its posterior median
+and credible interval, at the covariate values in each row of \code{newdata}. The model's
+settings (failure-rate and baseline functions, reference temperature, softening
+steepness, co-stressors) are read from the fit. Random effects are set to zero, so
+the results are those of a typical group.
 }
 \details{
 sCTmax is the constant temperature at which a fraction \code{p} of animals fail within
@@ -73,12 +89,20 @@ temperature, so that one number describes it: the exponential failure rate with
 the memoryless or Weibull baseline, where z = k log(10) / b (k = 1 for the
 memoryless baseline, the Weibull shape otherwise). Elsewhere the curve bends and
 no single z stands for it.
+
+The thermal death time curve for a fraction \code{p} gives, at each constant
+temperature in \code{Ta}, the time until that fraction has failed:
+t_p = H0^-1(-log(1 - p) / M(T)). The thermal tolerance landscape gives survival
+exp(-M(T) H0(tau)) over the grid of temperatures \code{Ta} and elapsed exposure times
+\code{tau}. "Thermal death time" is the literature's name for the curve, whatever the
+failure endpoint.
 }
 \section{Draws that never reach the quantity}{
 
 A posterior draw for which a quantity is never reached (an sCTmax the rate
-cannot attain within 1000 degrees of the reference temperature, or at all) counts
-as infinite rather than being dropped, so the summaries describe the whole
+cannot attain within 1000 degrees of the reference temperature, or at all; a time
+to failure that never comes, under a Gompertz baseline whose cumulative hazard
+levels off) counts as infinite rather than being dropped, so the summaries describe the whole
 posterior. \code{n_unreached} counts these draws, and a message lists the quantities
 that have any. With coverage \code{prob}, let u = (1 - prob) / 2 (0.025 for a 95\%
 interval):

@@ -295,6 +295,39 @@ H0inv_of <- function(baseline) {
 }
 
 
+# .summarise_columns() ---------------------------------------------------------
+
+# The posterior summary described for .draw_summary() below, applied to every column
+# of a draws-by-columns matrix in one pass, one row per column: the thermal death
+# time curves and the tolerance landscape have one column per temperature or per
+# cell. .draw_summary() is its one-column case, so both summarise alike.
+.summarise_columns <- function(mat, prob = 0.95) {
+  .check_prob(prob)
+  if (!is.numeric(mat) || !length(mat))
+    cli::cli_abort("The draws must be a non-empty numeric vector or matrix.",
+                   class = "rTFT_bad_summary_draws")
+  mat <- as.matrix(mat)
+  if (anyNA(mat))
+    cli::cli_abort(c(
+      "{sum(is.na(mat))} of {length(mat)} draws {?is/are} missing (NA or NaN).",
+      "i" = "A quantity that is never reached should be passed as {.code Inf} or {.code -Inf}."
+    ), class = "rTFT_missing_draw_values")
+
+  probs <- c(0.5, (1 - prob) / 2, 1 - (1 - prob) / 2)
+  q <- apply(mat, 2, stats::quantile, probs = probs, names = FALSE)
+  # Interpolating between a -Inf draw and a +Inf draw gives NaN. Only there, take
+  # the nearest draw instead.
+  for (j in which(colSums(is.na(q)) > 0)) {
+    bad <- is.na(q[, j])
+    q[bad, j] <- stats::quantile(mat[, j], probs[bad], names = FALSE, type = 1)
+  }
+
+  tibble::tibble(median = q[1, ], lower = q[2, ], upper = q[3, ], prob = prob,
+                 n_draws = nrow(mat),
+                 n_unreached = as.integer(colSums(is.infinite(mat))))
+}
+
+
 # .draw_summary() --------------------------------------------------------------
 
 # Summarise one quantity's posterior draws as a median and an equal-tailed credible
@@ -314,24 +347,7 @@ H0inv_of <- function(baseline) {
 # Since a quantity that is not reached must arrive as +Inf or -Inf, a missing value
 # (NA or NaN) can only mean a fault, and stops here rather than being dropped.
 .draw_summary <- function(x, prob = 0.95) {
-  .check_prob(prob)
-  if (!is.numeric(x) || !length(x))
-    cli::cli_abort("{.arg x} must be a non-empty numeric vector of draws.",
-                   class = "rTFT_bad_summary_draws")
-  if (anyNA(x))
-    cli::cli_abort(c(
-      "{sum(is.na(x))} of {length(x)} draws {?is/are} missing (NA or NaN).",
-      "i" = "A quantity that is never reached should be passed as {.code Inf} or {.code -Inf}."
-    ), class = "rTFT_missing_draw_values")
-
-  probs <- c(0.5, (1 - prob) / 2, 1 - (1 - prob) / 2)
-  q <- stats::quantile(x, probs, names = FALSE)
-  # Interpolating between a -Inf draw and a +Inf draw gives NaN. Only then, take the
-  # nearest draw instead.
-  if (anyNA(q)) q[is.na(q)] <- stats::quantile(x, probs[is.na(q)], names = FALSE, type = 1)
-
-  tibble::tibble(median = q[1], lower = q[2], upper = q[3], prob = prob,
-                 n_draws = length(x), n_unreached = sum(is.infinite(x)))
+  .summarise_columns(matrix(x, ncol = 1L), prob)
 }
 
 
@@ -652,8 +668,11 @@ M_draws <- function(fit, Ta, newdata = NULL, levels = NULL, n_draws = NULL) {
   hits <- purrr::imap(tables, \(tbl, nm) {
     hit <- tbl[tbl$n_unreached > 0, , drop = FALSE]
     if (!nrow(hit)) return(NULL)
-    label <- if (nm == "sctmax") sprintf("sCTmax (p = %g, t_ref = %g)", hit$p, hit$t_ref)
-             else hit$quantity
+    label <- switch(nm,
+      sctmax      = sprintf("sCTmax (p = %g, t_ref = %g)", hit$p, hit$t_ref),
+      tdt_curves  = sprintf("time until p = %g fail, at some temperatures", hit$p),
+      ttl_surface = "survival",
+      hit$quantity)
     worst <- tapply(hit$n_unreached / hit$n_draws, label, max)
     sprintf("%s: up to %.1f%% of draws", names(worst), 100 * worst)
   })
@@ -667,16 +686,33 @@ M_draws <- function(fit, Ta, newdata = NULL, levels = NULL, n_draws = NULL) {
 }
 
 
+# .tdt_draws() -----------------------------------------------------------------
+
+# The time until a fraction p has failed under a constant temperature, for each
+# draw (a row of M) at each temperature (a column): M(T) H0(t_p) = -log(1 - p), so
+# t_p = H0^-1(-log(1 - p) / M(T)). Two cases give a time that is never reached,
+# returned as Inf: a cumulative hazard that levels off below the target (a Gompertz
+# baseline with a negative rate constant, where H0^-1 returns NaN), and a rate of
+# zero (a zero function at Tr), where the target is infinite.
+.tdt_draws <- function(M, p, H0inv, shape, scale) {
+  x  <- -log1p(-p) / M
+  tp <- H0inv(x, shape, scale)
+  tp[is.nan(tp) | is.infinite(x)] <- Inf
+  tp
+}
+
+
 # derive_tdt_ttl() -------------------------------------------------------------
 
 #' Thermal tolerance derived from a fitted failure-rate model
 #'
 #' Derives, from a model fitted with [fit_hazard()], the failure-rate parameters on
-#' their natural scale and the static critical thermal maximum sCTmax, each with its
-#' posterior median and credible interval, at the covariate values in each row of
-#' `newdata`. The model's settings (failure-rate and baseline functions, reference
-#' temperature, softening steepness, co-stressors) are read from the fit. Random
-#' effects are set to zero, so the results are those of a typical group.
+#' their natural scale, the static critical thermal maximum sCTmax, the thermal death
+#' time curves and the thermal tolerance landscape, each with its posterior median
+#' and credible interval, at the covariate values in each row of `newdata`. The model's 
+#' settings (failure-rate and baseline functions, reference temperature, softening 
+#' steepness, co-stressors) are read from the fit. Random effects are set to zero, so 
+#' the results are those of a typical group.
 #'
 #' sCTmax is the constant temperature at which a fraction `p` of animals fail within
 #' the reference exposure time `t_ref`, the static critical thermal maximum of
@@ -697,10 +733,18 @@ M_draws <- function(fit, Ta, newdata = NULL, levels = NULL, n_draws = NULL) {
 #' memoryless baseline, the Weibull shape otherwise). Elsewhere the curve bends and
 #' no single z stands for it.
 #'
+#' The thermal death time curve for a fraction `p` gives, at each constant
+#' temperature in `Ta`, the time until that fraction has failed:
+#' t_p = H0^-1(-log(1 - p) / M(T)). The thermal tolerance landscape gives survival
+#' exp(-M(T) H0(tau)) over the grid of temperatures `Ta` and elapsed exposure times
+#' `tau`. "Thermal death time" is the literature's name for the curve, whatever the
+#' failure endpoint.
+#'
 #' @section Draws that never reach the quantity:
 #' A posterior draw for which a quantity is never reached (an sCTmax the rate
-#' cannot attain within 1000 degrees of the reference temperature, or at all) counts
-#' as infinite rather than being dropped, so the summaries describe the whole
+#' cannot attain within 1000 degrees of the reference temperature, or at all; a time
+#' to failure that never comes, under a Gompertz baseline whose cumulative hazard
+#' levels off) counts as infinite rather than being dropped, so the summaries describe the whole
 #' posterior. `n_unreached` counts these draws, and a message lists the quantities
 #' that have any. With coverage `prob`, let u = (1 - prob) / 2 (0.025 for a 95%
 #' interval):
@@ -723,16 +767,27 @@ M_draws <- function(fit, Ta, newdata = NULL, levels = NULL, n_draws = NULL) {
 #'   the model was fitted to (for example `60` for one hour when times are in
 #'   minutes).
 #'   It has no default, because the fit does not record that unit.
+#' @param Ta The constant temperatures for the thermal death time curves and the
+#'   tolerance landscape. `NULL` (the default) takes 50 evenly spaced across the
+#'   temperatures the data cover.
+#' @param tau The elapsed exposure times for the tolerance landscape, in the time unit
+#'   of the data. `NULL` (the default) takes 50 spaced evenly on a log scale across
+#'   the times the data cover. A time of zero is allowed, and gives a survival of 1,
+#'   so that a survival curve can start there.
 #' @param levels A named numeric vector giving the level of each co-stressor, on its
 #'   measurement scale, e.g. `c(DO = 6)`. Required when the model has co-stressors.
 #' @param prob The coverage of the credible intervals.
 #' @param n_draws The number of posterior draws to use, evenly spaced through the
 #'   posterior; `NULL` uses them all.
-#' @return A list of two tibbles, each starting with the columns of `newdata` and
+#' @return A list of four tibbles, each starting with the columns of `newdata` and
 #'   ending with the posterior summary `median`, `lower`, `upper`, `prob`, `n_draws`
 #'   and `n_unreached`:
 #'   * `params`: one row per parameter, named in `quantity`;
-#'   * `sctmax`: one row per value of `p`, with `p` and `t_ref`.
+#'   * `sctmax`: one row per value of `p`, with `p` and `t_ref`;
+#'   * `tdt_curves`: one row per value of `p` and temperature, with `p` and `Ta`; the
+#'     summary is of the time until that fraction has failed;
+#'   * `ttl_surface`: one row per temperature and elapsed time, with `Ta` and `tau`;
+#'     the summary is of survival.
 #' @references
 #' Jorgensen, L. B., Malte, H., Orsted, M., Klahn, N. A. and Overgaard, J. (2021).
 #' A unifying model to estimate thermal tolerance limits in ectotherms across
@@ -747,7 +802,8 @@ M_draws <- function(fit, Ta, newdata = NULL, levels = NULL, n_draws = NULL) {
 #' }
 #' @export
 derive_tdt_ttl <- function(fit, newdata = NULL, p = c(0.1, 0.5, 0.9), t_ref,
-                           levels = NULL, prob = 0.95, n_draws = 1000) {
+                           Ta = NULL, tau = NULL, levels = NULL, prob = 0.95,
+                           n_draws = 1000) {
   st <- .fit_settings(fit)
   if (!is.numeric(p) || !length(p) || anyNA(p) || any(p <= 0 | p >= 1))
     cli::cli_abort(c(
@@ -770,6 +826,21 @@ derive_tdt_ttl <- function(fit, newdata = NULL, p = c(0.1, 0.5, 0.9), t_ref,
   .check_prob(prob)
   if (is.null(newdata)) newdata <- data.frame(row.names = 1L)
 
+  # The grids default to the temperatures and elapsed times the data cover: 50
+  # temperatures evenly spaced, and 50 times evenly spaced on a log scale, since
+  # times to failure and survival change over orders of magnitude in time.
+  if (is.null(Ta))  Ta  <- seq(st$Ta_range[1], st$Ta_range[2], length.out = 50)
+  if (is.null(tau)) tau <- exp(seq(log(st$tau_range[1]), log(st$tau_range[2]),
+                                   length.out = 50))
+  if (!is.numeric(Ta) || !length(Ta) || !all(is.finite(Ta)))
+    cli::cli_abort("{.arg Ta} must be a numeric vector of finite temperatures.",
+                   class = "rTFT_bad_Ta")
+  if (!is.numeric(tau) || !length(tau) || !all(is.finite(tau)) || any(tau < 0))
+    cli::cli_abort(c(
+      "{.arg tau} must be a numeric vector of elapsed exposure times, none negative.",
+      "i" = "They are in the time unit of the data the model was fitted to."
+    ), class = "rTFT_bad_tau")
+
   cs   <- st$costressors
   pars <- c(M_catalogue[[st$m_form]]$dpars, h0_catalogue[[st$baseline]]$dpars,
             .costressor_dpars(cs))
@@ -786,7 +857,8 @@ derive_tdt_ttl <- function(fit, newdata = NULL, p = c(0.1, 0.5, 0.9), t_ref,
   levels   <- if (length(cs)) levels[cs_names]
   z_at     <- stats::setNames(purrr::map(cs, \(x) .costressor_z(x, levels[[x$name]])),
                               cs_names)
-  H0 <- H0_of(st$baseline)
+  H0    <- H0_of(st$baseline)
+  H0inv <- H0inv_of(st$baseline)
 
   per_row <- purrr::map(seq_len(nrow(newdata)), \(r) {
     d  <- purrr::map(dr, \(m) m[, r])
@@ -799,12 +871,31 @@ derive_tdt_ttl <- function(fit, newdata = NULL, p = c(0.1, 0.5, 0.9), t_ref,
       x <- .sctmax_draws(st$m_form, d, target, st$Tr, k, cs, levels)
       tibble::tibble(p = pp, t_ref = t_ref, .draw_summary(x, prob))
     }))
+
+    # The thermal death time curves: for each p, the time until that fraction has
+    # failed at each temperature of the grid.
+    M <- .M_draws(st$m_form, d, Ta, st$Tr, k, cs, levels)
+    curves <- dplyr::bind_rows(purrr::map(p, \(pp)
+      tibble::tibble(p = pp, Ta = Ta,
+                     .summarise_columns(.tdt_draws(M, pp, H0inv, bl$shape, bl$scale), prob))))
+
+    # The thermal tolerance landscape: survival exp(-M(T) H0(tau)) over the grid of
+    # temperatures and elapsed times. H0(tau) is laid out one row per draw, and
+    # multiplying by the column of M at one temperature scales each draw's row by
+    # its own rate.
+    H0_tau  <- H0(matrix(tau, nd, length(tau), byrow = TRUE), bl$shape, bl$scale)
+    surface <- dplyr::bind_rows(purrr::map(seq_along(Ta), \(j)
+      tibble::tibble(Ta = Ta[j], tau = tau,
+                     .summarise_columns(exp(-M[, j] * H0_tau), prob))))
+
     row <- newdata[r, , drop = FALSE]
-    list(params = .with_newdata(row, params), sctmax = .with_newdata(row, sctmax))
+    list(params = .with_newdata(row, params), sctmax = .with_newdata(row, sctmax),
+         tdt_curves = .with_newdata(row, curves), ttl_surface = .with_newdata(row, surface))
   })
 
-  out <- list(params = dplyr::bind_rows(purrr::map(per_row, "params")),
-              sctmax = dplyr::bind_rows(purrr::map(per_row, "sctmax")))
+  out <- purrr::map(c(params = "params", sctmax = "sctmax", tdt_curves = "tdt_curves",
+                      ttl_surface = "ttl_surface"),
+                    \(tbl) dplyr::bind_rows(purrr::map(per_row, tbl)))
   .report_unreached(out)
   out
 }
