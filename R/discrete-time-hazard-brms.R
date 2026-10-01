@@ -1422,6 +1422,41 @@ build_hazard_prior <- function(m_form, baseline = "mem", dpar_formulas = list(),
   args
 }
 
+# .hazard_settings() / .fit_settings() -----------------------------------------
+
+# Record the settings a failure-rate model is fitted with, which the reporting
+# functions need to evaluate its failure rate exactly as it was fitted: the
+# failure-rate and baseline functions, the observation mode, the reference
+# temperature (the constant `Tr` column of `long`), the softening steepness actually
+# used, and the co-stressors. fit_hazard() attaches the record to the fit it returns.
+# The steepness is resolved quietly here, since build_hazard_spec() has already
+# warned about a `k_sw` it ignores.
+.hazard_settings <- function(long, m_form, baseline, observation, k_sw, costressors) {
+  list(m_form      = m_form,
+       baseline    = baseline,
+       observation = .match_observation(observation),
+       Tr          = long$Tr[1],
+       k_sw        = suppressWarnings(.resolve_k_sw(m_form, k_sw)),
+       costressors = costressors)
+}
+
+# Read the settings fit_hazard() attached to a fit, or stop when there are none: a
+# model fitted some other way, whose settings the reporting functions cannot know. A
+# model changed afterwards with update() keeps its original record, so refit with
+# fit_hazard() instead.
+.fit_settings <- function(fit) {
+  if (!inherits(fit, "brmsfit"))
+    cli::cli_abort("{.arg fit} must be a fitted model ({.cls brmsfit}).",
+                   class = "rTFT_not_brmsfit")
+  if (is.null(fit$rtft))
+    cli::cli_abort(c(
+      "{.arg fit} carries no record of the settings it was fitted with.",
+      "i" = "Fit the model with {.fn fit_hazard}, which records the settings the reporting functions need."
+    ), class = "rTFT_no_settings")
+  fit$rtft
+}
+
+
 # fit_hazard() -----------------------------------------------------------------
 
 #' Fit a failure-rate hazard model with brms
@@ -1483,41 +1518,6 @@ fit_hazard <- function(long, m_form, baseline = "mem", dpar_formulas = list(),
   fit <- do.call(brms::brm, c(args, list(...)))
   fit$rtft <- .hazard_settings(long, m_form, baseline, observation, k_sw, costressors)
   fit
-}
-
-
-# .hazard_settings() / .fit_settings() -----------------------------------------
-
-# Record the settings a failure-rate model is fitted with, which the reporting
-# functions need to evaluate its failure rate exactly as it was fitted: the
-# failure-rate and baseline functions, the observation mode, the reference
-# temperature (the constant `Tr` column of `long`), the softening steepness actually
-# used, and the co-stressors. fit_hazard() attaches the record to the fit it returns.
-# The steepness is resolved quietly here, since build_hazard_spec() has already
-# warned about a `k_sw` it ignores.
-.hazard_settings <- function(long, m_form, baseline, observation, k_sw, costressors) {
-  list(m_form      = m_form,
-       baseline    = baseline,
-       observation = .match_observation(observation),
-       Tr          = long$Tr[1],
-       k_sw        = suppressWarnings(.resolve_k_sw(m_form, k_sw)),
-       costressors = costressors)
-}
-
-# Read the settings fit_hazard() attached to a fit, or stop when there are none: a
-# model fitted some other way, whose settings the reporting functions cannot know. A
-# model changed afterwards with update() keeps its original record, so refit with
-# fit_hazard() instead.
-.fit_settings <- function(fit) {
-  if (!inherits(fit, "brmsfit"))
-    cli::cli_abort("{.arg fit} must be a fitted model ({.cls brmsfit}).",
-                   class = "rTFT_not_brmsfit")
-  if (is.null(fit$rtft))
-    cli::cli_abort(c(
-      "{.arg fit} carries no record of the settings it was fitted with.",
-      "i" = "Fit the model with {.fn fit_hazard}, which records the settings the reporting functions need."
-    ), class = "rTFT_no_settings")
-  fit$rtft
 }
 
 
