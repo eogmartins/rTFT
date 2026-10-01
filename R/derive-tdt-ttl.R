@@ -142,50 +142,6 @@ H0inv_of <- function(baseline) {
 # 2. The failure rate M(T) for each posterior draw
 # ===========================================================================
 
-# .M_draws() -------------------------------------------------------------------
-
-# Evaluate the failure rate M(T) at each temperature in `Ta` for each posterior
-# draw, returning a matrix with one row per draw and one column per temperature.
-# It evaluates the same log M(T) expression the model was fitted with, including
-# the softening steepness and any co-stressor terms, so the rate reported is the
-# rate that was fitted. With co-stressors the rate is M(T, Z), evaluated at a chosen
-# level of each.
-#
-# The settings (`m_form`, `Tr`, `k_sw`, `costressors`) must be the ones the model
-# was fitted with, so this is kept internal: the reporting functions read them from
-# the fit and pass them on (a user never re-enters them to avoid errors). The inputs:
-#   m_form       a key of M_catalogue
-#   draws        a named list or data frame, one vector of draws per parameter; it
-#                must hold every parameter of m_form and of the co-stressors
-#   Ta           the temperatures at which to evaluate the rate
-#   Tr           the reference temperature of the fit
-#   k_sw         the softening steepness set at fitting, or NULL for the catalogue's
-#   costressors  the list of costressor() objects the model was fitted with
-#   levels       a named vector giving each co-stressor's level on its measurement
-#                scale, e.g. c(DO = 6) for 6 mg/L of dissolved oxygen
-.M_draws <- function(m_form, draws, Ta, Tr, k_sw = NULL, costressors = list(),
-                     levels = NULL) {
-  setup <- .rate_setup(m_form, draws, Tr, k_sw, costressors, levels)
-
-  if (!is.numeric(Ta) || !length(Ta) || anyNA(Ta))
-    cli::cli_abort("{.arg Ta} must be a numeric vector of temperatures with no missing values.",
-                   class = "rTFT_bad_Ta")
-  # zeroexp, zeropower and power take a logarithm or a fractional power of Ta - Tr,
-  # so they have no rate below the reference, and a grid reaching below it is
-  # refused, as the fit refuses data that do. Ta = Tr itself is allowed: the zero
-  # functions give a rate of exactly zero there, which is how they are defined.
-  if (m_form %in% c("zeroexp", "zeropower", "power") && any(Ta < Tr))
-    cli::cli_abort(c(
-      "The {.val {m_form}} failure rate is not defined below the reference {.arg Tr}.",
-      "x" = "min(Ta) = {.val {min(Ta)}}, Tr = {.val {Tr}}.",
-      "i" = "Start the temperature grid at or above {.arg Tr}."
-    ), class = "rTFT_Ta_below_Tr")
-
-  # Every draw at every temperature: each temperature is repeated down the draws.
-  exp(.log_M_eval(setup, matrix(Ta, setup$nd, length(Ta), byrow = TRUE)))
-}
-
-
 # .rate_setup() / .log_M_eval() ------------------------------------------------
 
 # Check and prepare everything the failure rate needs apart from the temperatures:
@@ -278,9 +234,66 @@ H0inv_of <- function(baseline) {
 }
 
 
+# .M_draws() -------------------------------------------------------------------
+
+# Evaluate the failure rate M(T) at each temperature in `Ta` for each posterior
+# draw, returning a matrix with one row per draw and one column per temperature.
+# It evaluates the same log M(T) expression the model was fitted with, including
+# the softening steepness and any co-stressor terms, so the rate reported is the
+# rate that was fitted. With co-stressors the rate is M(T, Z), evaluated at a chosen
+# level of each.
+#
+# The settings (`m_form`, `Tr`, `k_sw`, `costressors`) must be the ones the model
+# was fitted with, so this is kept internal: the reporting functions read them from
+# the fit and pass them on (a user never re-enters them to avoid errors). The inputs:
+#   m_form       a key of M_catalogue
+#   draws        a named list or data frame, one vector of draws per parameter; it
+#                must hold every parameter of m_form and of the co-stressors
+#   Ta           the temperatures at which to evaluate the rate
+#   Tr           the reference temperature of the fit
+#   k_sw         the softening steepness set at fitting, or NULL for the catalogue's
+#   costressors  the list of costressor() objects the model was fitted with
+#   levels       a named vector giving each co-stressor's level on its measurement
+#                scale, e.g. c(DO = 6) for 6 mg/L of dissolved oxygen
+.M_draws <- function(m_form, draws, Ta, Tr, k_sw = NULL, costressors = list(),
+                     levels = NULL) {
+  setup <- .rate_setup(m_form, draws, Tr, k_sw, costressors, levels)
+
+  if (!is.numeric(Ta) || !length(Ta) || anyNA(Ta))
+    cli::cli_abort("{.arg Ta} must be a numeric vector of temperatures with no missing values.",
+                   class = "rTFT_bad_Ta")
+  # zeroexp, zeropower and power take a logarithm or a fractional power of Ta - Tr,
+  # so they have no rate below the reference, and a grid reaching below it is
+  # refused, as the fit refuses data that do. Ta = Tr itself is allowed: the zero
+  # functions give a rate of exactly zero there, which is how they are defined.
+  if (m_form %in% c("zeroexp", "zeropower", "power") && any(Ta < Tr))
+    cli::cli_abort(c(
+      "The {.val {m_form}} failure rate is not defined below the reference {.arg Tr}.",
+      "x" = "min(Ta) = {.val {min(Ta)}}, Tr = {.val {Tr}}.",
+      "i" = "Start the temperature grid at or above {.arg Tr}."
+    ), class = "rTFT_Ta_below_Tr")
+
+  # Every draw at every temperature: each temperature is repeated down the draws.
+  exp(.log_M_eval(setup, matrix(Ta, setup$nd, length(Ta), byrow = TRUE)))
+}
+
+
 # ===========================================================================
 # 3. Posterior summaries
 # ===========================================================================
+
+# .check_prob() ----------------------------------------------------------------
+
+# Check an interval's coverage: a single number strictly between 0 and 1.
+.check_prob <- function(prob) {
+  if (!is.numeric(prob) || length(prob) != 1L || !is.finite(prob) || prob <= 0 || prob >= 1)
+    cli::cli_abort(c(
+      "{.arg prob} must be a single number between 0 and 1, the interval's coverage.",
+      "x" = "You supplied {.val {prob}}."
+    ), class = "rTFT_bad_prob")
+  invisible(prob)
+}
+
 
 # .draw_summary() --------------------------------------------------------------
 
@@ -301,11 +314,7 @@ H0inv_of <- function(baseline) {
 # Since a quantity that is not reached must arrive as +Inf or -Inf, a missing value
 # (NA or NaN) can only mean a fault, and stops here rather than being dropped.
 .draw_summary <- function(x, prob = 0.95) {
-  if (!is.numeric(prob) || length(prob) != 1L || !is.finite(prob) || prob <= 0 || prob >= 1)
-    cli::cli_abort(c(
-      "{.arg prob} must be a single number between 0 and 1, the interval's coverage.",
-      "x" = "You supplied {.val {prob}}."
-    ), class = "rTFT_bad_prob")
+  .check_prob(prob)
   if (!is.numeric(x) || !length(x))
     cli::cli_abort("{.arg x} must be a non-empty numeric vector of draws.",
                    class = "rTFT_bad_summary_draws")
@@ -334,8 +343,8 @@ H0inv_of <- function(baseline) {
 
 # Find, for each posterior draw, the static critical thermal maximum sCTmax: the
 # constant temperature at which a fraction p of animals fail within a reference
-# exposure t_ref (Jorgensen et al. 2021 report it for one hour, sCTmax(1h)). Under a
-# constant temperature survival is exp(-M(T) * H0(t_ref)), so sCTmax solves
+# exposure time t_ref (Jorgensen et al. 2021 report it for one hour, sCTmax(1h)).
+# Under a constant temperature survival is exp(-M(T) * H0(t_ref)), so sCTmax solves
 # M(T) = target, with target = -log(1 - p) / H0(t_ref). The caller computes the
 # target, one per draw.
 #
@@ -433,37 +442,7 @@ H0inv_of <- function(baseline) {
 # 5. Posterior draws from a fitted model
 # ===========================================================================
 
-# .fit_draws() -----------------------------------------------------------------
-
-# Take the posterior draws of the model's parameters (loga, logb, Tc, the baseline
-# and co-stressor parameters) out of a fitted model, at the covariate values in
-# each row of `newdata`, with random effects at zero: the population-level answer.
-# Returns a named list, one matrix per parameter, with a row per draw and a column
-# per row of `newdata`.
-#
-# This is the one place the reporting functions reach into a fitted model; every
-# later step works on plain draws. Draw i of one parameter and draw i of another
-# are one joint posterior sample, and their pairing is what carries the correlation
-# between parameters into every derived quantity. So every parameter is read at the
-# same `draw_ids`.
-.fit_draws <- function(fit, pars, newdata, draw_ids = NULL) {
-  if (!inherits(fit, "brmsfit"))
-    cli::cli_abort("{.arg fit} must be a fitted model ({.cls brmsfit}).",
-                   class = "rTFT_not_brmsfit")
-  unknown <- setdiff(pars, names(fit$formula$pforms))
-  if (length(unknown))
-    cli::cli_abort(c(
-      "The fitted model has no parameter {.val {unknown}}.",
-      "i" = "Its parameters are {.val {names(fit$formula$pforms)}}."
-    ), class = "rTFT_missing_nlpar")
-  newdata <- .complete_newdata(fit, newdata, pars)
-  if (is.null(draw_ids)) draw_ids <- seq_len(brms::ndraws(fit))
-
-  out <- purrr::map(pars, \(p)
-    brms::posterior_linpred(fit, newdata = newdata, nlpar = p, re_formula = NA,
-                            draw_ids = draw_ids))
-  stats::setNames(out, pars)
-}
+# .thin_ids() / .complete_newdata() --------------------------------------------
 
 # Pick `n_keep` evenly spaced draws out of `n_total`, always including the first and
 # the last, or all of them when `n_keep` is NULL or not smaller. Evenly spaced rather
@@ -502,6 +481,39 @@ H0inv_of <- function(baseline) {
   for (col in setdiff(names(fit$data), names(newdata)))
     newdata[[col]] <- fit$data[[col]][1]
   newdata
+}
+
+
+# .fit_draws() -----------------------------------------------------------------
+
+# Take the posterior draws of the model's parameters (loga, logb, Tc, the baseline
+# and co-stressor parameters) out of a fitted model, at the covariate values in
+# each row of `newdata`, with random effects at zero: the population-level answer.
+# Returns a named list, one matrix per parameter, with a row per draw and a column
+# per row of `newdata`.
+#
+# This is the one place the reporting functions reach into a fitted model; every
+# later step works on plain draws. Draw i of one parameter and draw i of another
+# are one joint posterior sample, and their pairing is what carries the correlation
+# between parameters into every derived quantity. So every parameter is read at the
+# same `draw_ids`.
+.fit_draws <- function(fit, pars, newdata, draw_ids = NULL) {
+  if (!inherits(fit, "brmsfit"))
+    cli::cli_abort("{.arg fit} must be a fitted model ({.cls brmsfit}).",
+                   class = "rTFT_not_brmsfit")
+  unknown <- setdiff(pars, names(fit$formula$pforms))
+  if (length(unknown))
+    cli::cli_abort(c(
+      "The fitted model has no parameter {.val {unknown}}.",
+      "i" = "Its parameters are {.val {names(fit$formula$pforms)}}."
+    ), class = "rTFT_missing_nlpar")
+  newdata <- .complete_newdata(fit, newdata, pars)
+  if (is.null(draw_ids)) draw_ids <- seq_len(brms::ndraws(fit))
+
+  out <- purrr::map(pars, \(p)
+    brms::posterior_linpred(fit, newdata = newdata, nlpar = p, re_formula = NA,
+                            draw_ids = draw_ids))
+  stats::setNames(out, pars)
 }
 
 
@@ -570,4 +582,229 @@ M_draws <- function(fit, Ta, newdata = NULL, levels = NULL, n_draws = NULL) {
   dplyr::bind_cols(
     tibble::as_tibble(newdata[row_of[ord], , drop = FALSE]),
     tibble::tibble(.draw = draw_of[ord], Ta = Ta_of[ord], M = as.vector(M)[ord]))
+}
+
+
+# ===========================================================================
+# 7. Thermal tolerance from a fitted model
+# ===========================================================================
+
+# .baseline_draws() / .param_draws() / .with_newdata() / .report_unreached() --
+
+# Each draw's baseline shape and scale, in the (shape, scale) form H0_of() and
+# H0inv_of() take: 1 and 1 for the memoryless baseline, the rate constant gamma and
+# an unused 1 for the Gompertz, and exp(logshape), exp(logscale) otherwise.
+.baseline_draws <- function(baseline, d, nd) {
+  switch(baseline,
+    mem      = list(shape = rep(1, nd), scale = rep(1, nd)),
+    gompertz = list(shape = d$gam,      scale = rep(1, nd)),
+    list(shape = exp(d$logshape), scale = exp(d$logscale)))
+}
+
+# The draws of each reported parameter, on its natural scale: a, b and c from their
+# logarithms, Tc as it is, the baseline's shape and scale or its rate constant, and
+# each co-stressor's coefficients. Which parameters are reported is decided by the
+# failure-rate function, the baseline and the co-stressors, never by which draws
+# happen to be in `d`. Where a co-stressor interacts with temperature,
+# the thermal sensitivity at the chosen levels, b + sum of dT z, is added as
+# `b_at_levels`. z is added only where the thermal death time curve is straight in
+# log time against temperature, the exponential rate with the memoryless or Weibull
+# baseline, where the time to a given fraction failing scales as M^(-1/k), so
+# log10 t falls by b / (k log 10) per degree and z = k log(10) / b.
+.param_draws <- function(m_form, baseline, d, costressors = list(), z_at = list()) {
+  nd     <- length(d$loga)
+  m_pars <- M_catalogue[[m_form]]$dpars
+  out    <- list(a = exp(d$loga))
+  if ("logb" %in% m_pars) out$b  <- exp(d$logb)
+  if ("logc" %in% m_pars) out$c  <- exp(d$logc)
+  if ("Tc"   %in% m_pars) out$Tc <- d$Tc
+  bl <- .baseline_draws(baseline, d, nd)
+  if (baseline %in% c("weibull", "llogis")) {
+    out$shape <- bl$shape
+    out$scale <- bl$scale
+  }
+  if (baseline == "gompertz") out$gamma <- bl$shape
+  for (cs in costressors) {
+    out[[paste0("c", cs$name)]] <- d[[paste0("c", cs$name)]]
+    if (cs$interaction) out[[paste0("dT", cs$name)]] <- d[[paste0("dT", cs$name)]]
+  }
+  if (!is.null(out$b)) {
+    interacting <- purrr::keep(costressors, \(cs) cs$interaction)
+    b_at <- out$b
+    for (cs in interacting) b_at <- b_at + d[[paste0("dT", cs$name)]] * z_at[[cs$name]]
+    if (length(interacting)) out$b_at_levels <- b_at
+    if (m_form == "exp" && baseline %in% c("mem", "weibull"))
+      out$z <- bl$shape * log(10) / b_at
+  }
+  out
+}
+
+# Put one row of newdata in front of every row of a summary table.
+.with_newdata <- function(row, tbl) {
+  dplyr::bind_cols(tibble::as_tibble(row[rep(1L, nrow(tbl)), , drop = FALSE]), tbl)
+}
+
+# One message listing the quantities with draws that never reach them, and the
+# largest share of such draws across the rows of newdata, or nothing when there are
+# none. A message rather than a warning: an unreached draw is part of the answer,
+# not a fault.
+.report_unreached <- function(tables) {
+  hits <- purrr::imap(tables, \(tbl, nm) {
+    hit <- tbl[tbl$n_unreached > 0, , drop = FALSE]
+    if (!nrow(hit)) return(NULL)
+    label <- if (nm == "sctmax") sprintf("sCTmax (p = %g, t_ref = %g)", hit$p, hit$t_ref)
+             else hit$quantity
+    worst <- tapply(hit$n_unreached / hit$n_draws, label, max)
+    sprintf("%s: up to %.1f%% of draws", names(worst), 100 * worst)
+  })
+  lines <- unlist(hits, use.names = FALSE)
+  if (!length(lines)) return(invisible(NULL))
+  cli::cli_inform(c(
+    "i" = "Some posterior draws never reach these quantities, and count as infinite:",
+    stats::setNames(lines, rep("*", length(lines))),
+    "i" = "See the section on such draws in {.fn derive_tdt_ttl}'s help for how to read them."
+  ), class = "rTFT_unreached")
+}
+
+
+# derive_tdt_ttl() -------------------------------------------------------------
+
+#' Thermal tolerance derived from a fitted failure-rate model
+#'
+#' Derives, from a model fitted with [fit_hazard()], the failure-rate parameters on
+#' their natural scale and the static critical thermal maximum sCTmax, each with its
+#' posterior median and credible interval, at the covariate values in each row of
+#' `newdata`. The model's settings (failure-rate and baseline functions, reference
+#' temperature, softening steepness, co-stressors) are read from the fit. Random
+#' effects are set to zero, so the results are those of a typical group.
+#'
+#' sCTmax is the constant temperature at which a fraction `p` of animals fail within
+#' the reference exposure time `t_ref`, the static critical thermal maximum of
+#' Jorgensen et al. (2021), who report it for one hour. Under a constant
+#' temperature, survival is exp(-M(T) H0(t_ref)), so for each posterior draw sCTmax
+#' solves M(T) = -log(1 - p) / H0(t_ref). It is not the critical thermal maximum a
+#' ramping experiment records (their dynamic CTmax).
+#'
+#' The parameters reported are a, and where the failure-rate function has them b,
+#' c and Tc; the baseline's shape and scale (Weibull, log-logistic) or its rate
+#' constant gamma (Gompertz); and each co-stressor's coefficients. With a
+#' co-stressor that interacts with temperature, `b_at_levels` is the thermal
+#' sensitivity b + dT z at the chosen levels. The thermal sensitivity z, the
+#' temperature change that shortens the time to failure tenfold, is reported only
+#' where the thermal death time curve is a straight line in log time against
+#' temperature, so that one number describes it: the exponential failure rate with
+#' the memoryless or Weibull baseline, where z = k log(10) / b (k = 1 for the
+#' memoryless baseline, the Weibull shape otherwise). Elsewhere the curve bends and
+#' no single z stands for it.
+#'
+#' @section Draws that never reach the quantity:
+#' A posterior draw for which a quantity is never reached (an sCTmax the rate
+#' cannot attain within 1000 degrees of the reference temperature, or at all) counts
+#' as infinite rather than being dropped, so the summaries describe the whole
+#' posterior. `n_unreached` counts these draws, and a message lists the quantities
+#' that have any. With coverage `prob`, let u = (1 - prob) / 2 (0.025 for a 95%
+#' interval):
+#'
+#' * fewer than a share u of the draws unreached: both bounds are finite; report
+#'   the summary as it stands.
+#' * between u and half: the outer bound is infinite; report it as unbounded (for
+#'   example "above 40 degC", "not reached"), and consider whether the question lies
+#'   beyond the temperatures or exposure times the data cover.
+#' * half or more: the median is infinite; the quantity is not estimable there. Ask
+#'   at a lower `p` or a shorter `t_ref`.
+#'
+#' @param fit A model fitted with [fit_hazard()].
+#' @param newdata A data frame of covariate values, one row per setting at which to
+#'   derive. It must hold every covariate in the model's parameter formulas. May be
+#'   `NULL` for a model without covariates.
+#' @param p The fractions of animals failing at which sCTmax is derived, each
+#'   strictly between 0 and 1.
+#' @param t_ref The reference exposure time for sCTmax, in the time unit of the data
+#'   the model was fitted to (for example `60` for one hour when times are in
+#'   minutes).
+#'   It has no default, because the fit does not record that unit.
+#' @param levels A named numeric vector giving the level of each co-stressor, on its
+#'   measurement scale, e.g. `c(DO = 6)`. Required when the model has co-stressors.
+#' @param prob The coverage of the credible intervals.
+#' @param n_draws The number of posterior draws to use, evenly spaced through the
+#'   posterior; `NULL` uses them all.
+#' @return A list of two tibbles, each starting with the columns of `newdata` and
+#'   ending with the posterior summary `median`, `lower`, `upper`, `prob`, `n_draws`
+#'   and `n_unreached`:
+#'   * `params`: one row per parameter, named in `quantity`;
+#'   * `sctmax`: one row per value of `p`, with `p` and `t_ref`.
+#' @references
+#' Jorgensen, L. B., Malte, H., Orsted, M., Klahn, N. A. and Overgaard, J. (2021).
+#' A unifying model to estimate thermal tolerance limits in ectotherms across
+#' static, dynamic and fluctuating exposures to thermal stress. *Scientific
+#' Reports* 11, 12840.
+#' @examples
+#' \dontrun{
+#' fit <- fit_hazard(long, "exp", dpar_formulas = list(loga = ~ 1 + mass))
+#' tol <- derive_tdt_ttl(fit, newdata = data.frame(mass = c(8, 12)), p = 0.5,
+#'                       t_ref = 60)
+#' tol$sctmax
+#' }
+#' @export
+derive_tdt_ttl <- function(fit, newdata = NULL, p = c(0.1, 0.5, 0.9), t_ref,
+                           levels = NULL, prob = 0.95, n_draws = 1000) {
+  st <- .fit_settings(fit)
+  if (!is.numeric(p) || !length(p) || anyNA(p) || any(p <= 0 | p >= 1))
+    cli::cli_abort(c(
+      "{.arg p} must hold fractions of animals failing, each strictly between 0 and 1.",
+      "x" = "You supplied {.val {p}}."
+    ), class = "rTFT_bad_p")
+  # t_ref has no default: its unit is that of the data the model was fitted to, which
+  # the fit does not record, and a default of 60 would silently mean 60 hours for a
+  # model fitted in hours.
+  if (missing(t_ref))
+    cli::cli_abort(c(
+      "Give {.arg t_ref}, the reference exposure time for sCTmax.",
+      "i" = "It is in the time unit of the data the model was fitted to, e.g. {.code t_ref = 60} for one hour when times are in minutes."
+    ), class = "rTFT_bad_t_ref")
+  if (!is.numeric(t_ref) || length(t_ref) != 1L || !is.finite(t_ref) || t_ref <= 0)
+    cli::cli_abort(c(
+      "{.arg t_ref} must be a single positive exposure time, in the time unit of the data the model was fitted to.",
+      "x" = "You supplied {.val {t_ref}}."
+    ), class = "rTFT_bad_t_ref")
+  .check_prob(prob)
+  if (is.null(newdata)) newdata <- data.frame(row.names = 1L)
+
+  cs   <- st$costressors
+  pars <- c(M_catalogue[[st$m_form]]$dpars, h0_catalogue[[st$baseline]]$dpars,
+            .costressor_dpars(cs))
+  ids  <- .thin_ids(brms::ndraws(fit), n_draws)
+  nd   <- length(ids)
+  dr   <- .fit_draws(fit, pars, newdata, draw_ids = ids)
+  k    <- if (M_catalogue[[st$m_form]]$k_sw != 0) st$k_sw
+
+  # Check the co-stressor levels once, warning once about any the model does not
+  # have; after that only the levels in use are passed on, so the calculations for
+  # each row and each p do not repeat the warning.
+  .rate_setup(st$m_form, purrr::map(dr, \(m) m[, 1]), st$Tr, k, cs, levels)
+  cs_names <- vapply(cs, `[[`, character(1), "name")
+  levels   <- if (length(cs)) levels[cs_names]
+  z_at     <- stats::setNames(purrr::map(cs, \(x) .costressor_z(x, levels[[x$name]])),
+                              cs_names)
+  H0 <- H0_of(st$baseline)
+
+  per_row <- purrr::map(seq_len(nrow(newdata)), \(r) {
+    d  <- purrr::map(dr, \(m) m[, r])
+    bl <- .baseline_draws(st$baseline, d, nd)
+    q  <- .param_draws(st$m_form, st$baseline, d, cs, z_at)
+    params <- dplyr::bind_rows(purrr::imap(q, \(x, nm)
+      tibble::tibble(quantity = nm, .draw_summary(x, prob))))
+    sctmax <- dplyr::bind_rows(purrr::map(p, \(pp) {
+      target <- -log1p(-pp) / H0(t_ref, bl$shape, bl$scale)
+      x <- .sctmax_draws(st$m_form, d, target, st$Tr, k, cs, levels)
+      tibble::tibble(p = pp, t_ref = t_ref, .draw_summary(x, prob))
+    }))
+    row <- newdata[r, , drop = FALSE]
+    list(params = .with_newdata(row, params), sctmax = .with_newdata(row, sctmax))
+  })
+
+  out <- list(params = dplyr::bind_rows(purrr::map(per_row, "params")),
+              sctmax = dplyr::bind_rows(purrr::map(per_row, "sctmax")))
+  .report_unreached(out)
+  out
 }

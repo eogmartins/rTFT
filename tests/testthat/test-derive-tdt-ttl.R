@@ -525,3 +525,128 @@ test_that("M_draws needs the fit's covariates and a fit with its settings", {
   expect_error(M_draws(bare, Ta = 30, newdata = data.frame(mass = 10)),
                class = "rTFT_no_settings")
 })
+
+
+# ===========================================================================
+# 7. Thermal tolerance from a fitted model (derive_tdt_ttl)
+# ===========================================================================
+
+test_that("derive_tdt_ttl gives a params and an sctmax table, labelled by newdata", {
+  out <- derive_tdt_ttl(fit_exp, newdata = data.frame(mass = c(8, 12)), p = c(0.5, 0.9),
+                        t_ref = 60, n_draws = 50)
+  expect_named(out, c("params", "sctmax"))
+  expect_equal(names(out$params),
+               c("mass", "quantity", "median", "lower", "upper", "prob", "n_draws", "n_unreached"))
+  expect_equal(names(out$sctmax),
+               c("mass", "p", "t_ref", "median", "lower", "upper", "prob", "n_draws", "n_unreached"))
+  expect_equal(out$sctmax$mass, c(8, 8, 12, 12))
+  expect_equal(out$sctmax$p, c(0.5, 0.9, 0.5, 0.9))
+})
+
+
+test_that("the parameters are summarised on their natural scale, with z where exact", {
+  # exp with the memoryless baseline: a = exp(loga), b = exp(logb), z = log(10) / b,
+  # from the same draws the function uses.
+  out <- derive_tdt_ttl(fit_exp, newdata = data.frame(mass = 10), t_ref = 60,
+                        n_draws = 50)
+  cf  <- coefs[.thin_ids(600, 50), ]
+  a <- exp(cf$b_loga_Intercept + 10 * cf$b_loga_mass)
+  b <- exp(cf$b_logb_Intercept)
+  expect_equal(out$params$quantity, c("a", "b", "z"))
+  expect_equal(out$params[, 3:8],
+               dplyr::bind_rows(.draw_summary(a), .draw_summary(b),
+                                .draw_summary(log(10) / b)))
+})
+
+
+test_that("sCTmax matches the closed form for the exponential rate", {
+  # Memoryless: H0(t_ref) = t_ref, so the target is -log(1 - p) / t_ref, and
+  # loga + b (T - Tr) = log(target) gives T = Tr + (log(target) - loga) / b.
+  out <- derive_tdt_ttl(fit_exp, newdata = data.frame(mass = 10), p = 0.5,
+                        t_ref = 30, n_draws = 50)
+  cf  <- coefs[.thin_ids(600, 50), ]
+  loga <- cf$b_loga_Intercept + 10 * cf$b_loga_mass
+  b    <- exp(cf$b_logb_Intercept)
+  T_by_hand <- 20 + (log(-log(0.5) / 30) - loga) / b
+  expect_equal(out$sctmax[, 4:9], .draw_summary(T_by_hand), tolerance = 1e-7)
+})
+
+
+test_that("derive_tdt_ttl refuses bad inputs, each with its own error class", {
+  nd <- data.frame(mass = 10)
+  expect_error(derive_tdt_ttl(fit_exp, nd, p = 1, t_ref = 60),           class = "rTFT_bad_p")
+  expect_error(derive_tdt_ttl(fit_exp, nd, p = c(0.5, NA), t_ref = 60),  class = "rTFT_bad_p")
+  expect_error(derive_tdt_ttl(fit_exp, nd),                             class = "rTFT_bad_t_ref")
+  expect_error(derive_tdt_ttl(fit_exp, nd, t_ref = 0),                  class = "rTFT_bad_t_ref")
+  expect_error(derive_tdt_ttl(fit_exp, nd, t_ref = 60, prob = 1),       class = "rTFT_bad_prob")
+  expect_error(derive_tdt_ttl(fit_exp, t_ref = 60),                     class = "rTFT_missing_covariates")
+  bare <- fit_exp
+  bare$rtft <- NULL
+  expect_error(derive_tdt_ttl(bare, nd, t_ref = 60),                    class = "rTFT_no_settings")
+})
+
+
+test_that("an unused co-stressor level is warned about once, not once per row and p", {
+  n_warn <- 0
+  withCallingHandlers(
+    derive_tdt_ttl(fit_exp, newdata = data.frame(mass = c(8, 12)), p = c(0.5, 0.9),
+                   t_ref = 60, levels = c(DO = 6), n_draws = 20),
+    rTFT_unused_levels = function(w) {
+      n_warn <<- n_warn + 1
+      invokeRestart("muffleWarning")
+    })
+  expect_equal(n_warn, 1)
+})
+
+
+test_that(".param_draws reports z only where the curve is straight", {
+  d <- list(loga = c(-5, -4), logb = log(c(0.5, 0.4)), Tc = c(34, 35),
+            logshape = log(c(2, 3)), logscale = log(c(60, 70)), gam = c(0.01, -0.02))
+  # exp + Weibull: shape and scale reported, z = k log(10) / b
+  q <- .param_draws("exp", "weibull", d)
+  expect_equal(names(q), c("a", "b", "shape", "scale", "z"))
+  # what is reported follows the function and baseline, not the draws present: d
+  # also holds Tc and the baseline parameters, which exp + memoryless has none of
+  expect_equal(names(.param_draws("exp", "mem", d)), c("a", "b", "z"))
+  expect_equal(q$z, c(2, 3) * log(10) / c(0.5, 0.4))
+  # exp + log-logistic: no single z
+  expect_false("z" %in% names(.param_draws("exp", "llogis", d)))
+  # exp + Gompertz: the rate constant, and no z
+  q <- .param_draws("exp", "gompertz", d)
+  expect_equal(q$gamma, c(0.01, -0.02))
+  expect_false("z" %in% names(q))
+  # a failure-rate function whose log is not linear in temperature: no z
+  expect_false("z" %in% names(.param_draws("zeropower", "mem", d)))
+})
+
+
+test_that(".param_draws uses the thermal sensitivity at the co-stressor levels", {
+  do_cs <- costressor("DO", column = "do", ref = 8.5, scale = 1, direction = -1)
+  d <- list(loga = -5, logb = log(0.5), cDO = 0.2, dTDO = 0.03)
+  q <- .param_draws("exp", "mem", d, list(do_cs), list(DO = 2.5))
+  expect_equal(q$b_at_levels, 0.5 + 0.03 * 2.5)
+  expect_equal(q$z, log(10) / (0.5 + 0.03 * 2.5))
+  # without the interaction there is no b_at_levels, and z uses b itself
+  no_int <- costressor("DO", column = "do", ref = 8.5, scale = 1, direction = -1,
+                       interaction = FALSE)
+  q2 <- .param_draws("exp", "mem", d[c("loga", "logb", "cDO")], list(no_int),
+                     list(DO = 2.5))
+  expect_false("b_at_levels" %in% names(q2))
+  expect_equal(q2$z, log(10) / 0.5)
+})
+
+
+test_that(".report_unreached gives one message listing the quantities, or none", {
+  sct <- tibble::tibble(p = c(0.5, 0.9, 0.9), t_ref = 60, n_draws = 100,
+                        n_unreached = c(0, 3, 12))
+  par <- tibble::tibble(quantity = "a", n_draws = 100, n_unreached = 0)
+  expect_message(.report_unreached(list(params = par, sctmax = sct)),
+                 class = "rTFT_unreached")
+  msg <- tryCatch(.report_unreached(list(params = par, sctmax = sct)),
+                  message = conditionMessage)
+  expect_match(msg, "sCTmax (p = 0.9, t_ref = 60): up to 12.0% of draws", fixed = TRUE)
+  # quantities with nothing unreached are left out of it
+  expect_false(grepl("p = 0.5", msg, fixed = TRUE))
+  expect_false(grepl("a: up to", msg, fixed = TRUE))
+  expect_silent(.report_unreached(list(params = par, sctmax = sct[1, ])))
+})
