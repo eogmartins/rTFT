@@ -45,15 +45,16 @@ A ggplot object.
 \description{
 Draws the thermal tolerance landscape from \code{\link[=derive_tdt_ttl]{derive_tdt_ttl()}}: survival over
 constant temperature and elapsed exposure time. The result is a ggplot object, to
-be refinedby the user with further ggplot2 layers, scales, labels and themes.
+be refined by the user with further ggplot2 layers, scales, labels and themes.
 }
 \details{
 With \code{type = "surface"} the whole landscape is drawn as a map, elapsed time across
 and temperature up, coloured by the posterior median survival from red (most have
 failed) through pale yellow (a survival of one half) to blue (most survive), with
 contour lines at the survival levels in \code{survival}, each labelled with its level.
-The credible interval is not shown on it. With \code{type = "curves"} survival is drawn against elapsed time at a
-few temperatures, each as the posterior median with its credible interval.
+The credible interval is not shown on it. With \code{type = "curves"} survival is
+drawn against elapsed time at a few temperatures, each as the posterior median
+with its credible interval.
 
 Elapsed time is on a log scale, unless the times include zero. The panels follow
 the same rule as in \code{\link[=plot_tdt]{plot_tdt()}}, except that the map needs a panel for each

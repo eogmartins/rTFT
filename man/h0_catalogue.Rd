@@ -12,7 +12,7 @@ h0_catalogue
 \description{
 This catalogue contains the four baseline hazard functions h0(tau), the factor
 in elapsed exposure time that multiplies the failure rate M(T). \code{mem} is the
-memoryless case, in which the hazard does not depend on how long the animal
+memoryless case, in which the hazard does not depend on how long the individual
 has already been exposed; \code{weibull}, \code{llogis} and \code{gompertz} allow
 it to rise or fall with elapsed exposure.
 }

@@ -61,7 +61,7 @@ A \code{costressor} object: a named list holding the declaration, for the
 \link{build_hazard_prior} and \link{fit_hazard}.
 }
 \description{
-Describes one non-temperature environmental variable (Z) the animal is exposed to
+Describes one non-temperature environmental variable (Z) the individual is exposed to
 and that co-determines the failure rate: dissolved oxygen, salinity, pH, a
 toxicant concentration, or, for a terrestrial ectotherm, humidity. The failure
 rate then becomes a surface M(T, Z). The co-stressor enters log M(T) as its own

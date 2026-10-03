@@ -11,11 +11,11 @@ A \code{customfamily} for use with \code{\link[=fit_hazard]{fit_hazard()}}.
 }
 \description{
 Some failures are known only to have fallen within an interval, others at a
-known time. This family fits both kinds in one model. A row where the animal
+known time. This family fits both kinds in one model. A row where the individual
 survived its interval contributes the same amount either way, so only the row
 recording the failure differs: an interval-censored failure contributes the
 probability of failing somewhere inside the interval, whereas a failure seen at a
 known time contributes the density at that recorded time. A per-row flag, passed
 to brms through \code{vint()}, tells the model which of the two to use, so a single
-fit can contain animals whose failures were recorded as either kind.
+fit can contain individuals whose failures were recorded as either kind.
 }

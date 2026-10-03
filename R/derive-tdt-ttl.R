@@ -46,17 +46,17 @@
 #'
 #' Returns the function H0(tau) for the chosen baseline. Under the memoryless shape
 #' it is elapsed exposure itself; the Weibull, log-logistic and Gompertz shapes let
-#' the hazard rise or fall with how long the animal has already been exposed. Shape
+#' the hazard rise or fall with how long the individual has already been exposed. Shape
 #' and scale arrive as per-draw vectors, and elapsed time may be a vector or a matrix
 #' whose rows are draws.
 #'
 #' For the Gompertz shape the first argument is the rate constant gamma and the
 #' second is ignored. A negative gamma is a valid value and means a hazard that
-#' falls the longer the animal has been exposed. The cumulative hazard then levels
+#' falls the longer the individual has been exposed. The cumulative hazard then levels
 #' off: it rises towards 1/|gamma| but never reaches it, instead of growing without
 #' limit. Survival therefore never drops to zero, and the model predicts that some
-#' animals never fail (a cure fraction, in survival-analysis terms). [H0inv_of()]
-#' gives the time by which a chosen fraction of animals has failed; when that
+#' individuals never fail (a cure fraction, in survival-analysis terms). [H0inv_of()]
+#' gives the time by which a chosen fraction of individuals has failed; when that
 #' fraction is never reached it returns `NaN` for the time, rather than a large
 #' number standing in for "never".
 #'
@@ -358,7 +358,7 @@ H0inv_of <- function(baseline) {
 # .sctmax_draws() --------------------------------------------------------------
 
 # Find, for each posterior draw, the static critical thermal maximum sCTmax: the
-# constant temperature at which a fraction p of animals fail within a reference
+# constant temperature at which a fraction p of individuals fail within a reference
 # exposure time t_ref (Jorgensen et al. 2021 report it for one hour, sCTmax(1h)).
 # Under a constant temperature survival is exp(-M(T) * H0(t_ref)), so sCTmax solves
 # M(T) = target, with target = -log(1 - p) / H0(t_ref). The caller computes the
@@ -479,7 +479,7 @@ H0inv_of <- function(baseline) {
 # formula uses. Those are filled from the first row of the fitted data; their values
 # cannot reach the parameters' draws. The covariates in the parameters' formulas are
 # another matter: they set the values the draws are reported at, so a missing one is
-# an error rather than a silent fill with some fish's value.
+# an error rather than a silent fill with some individual's value.
 .complete_newdata <- function(fit, newdata, pars) {
   if (!is.data.frame(newdata) || !nrow(newdata))
     cli::cli_abort("{.arg newdata} must be a data frame with at least one row.",
@@ -714,7 +714,7 @@ M_draws <- function(fit, Ta, newdata = NULL, levels = NULL, n_draws = NULL) {
 #' steepness, co-stressors) are read from the fit. Random effects are set to zero, so 
 #' the results are those of a typical group.
 #'
-#' sCTmax is the constant temperature at which a fraction `p` of animals fail within
+#' sCTmax is the constant temperature at which a fraction `p` of individuals fail within
 #' the reference exposure time `t_ref`, the static critical thermal maximum of
 #' Jorgensen et al. (2021), who report it for one hour. Under a constant
 #' temperature, survival is exp(-M(T) H0(t_ref)), so for each posterior draw sCTmax
@@ -761,7 +761,7 @@ M_draws <- function(fit, Ta, newdata = NULL, levels = NULL, n_draws = NULL) {
 #' @param newdata A data frame of covariate values, one row per setting at which to
 #'   derive. It must hold every covariate in the model's parameter formulas. May be
 #'   `NULL` for a model without covariates.
-#' @param p A numeric vector of the fractions of animals failing at which sCTmax and
+#' @param p A numeric vector of the fractions of individuals failing at which sCTmax and
 #'   the thermal death time curves are derived, each strictly between 0 and 1.
 #' @param t_ref A single positive number, the reference exposure time for sCTmax, in
 #'   the time unit of the data the model was fitted to (for example `60` for one hour
@@ -809,7 +809,7 @@ derive_tdt_ttl <- function(fit, newdata = NULL, p = c(0.1, 0.5, 0.9), t_ref,
   st <- .fit_settings(fit)
   if (!is.numeric(p) || !length(p) || anyNA(p) || any(p <= 0 | p >= 1))
     cli::cli_abort(c(
-      "{.arg p} must hold fractions of animals failing, each strictly between 0 and 1.",
+      "{.arg p} must hold fractions of individuals failing, each strictly between 0 and 1.",
       "x" = "You supplied {.val {p}}."
     ), class = "rTFT_bad_p")
   # t_ref has no default: its unit is that of the data the model was fitted to, which

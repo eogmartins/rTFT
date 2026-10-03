@@ -22,18 +22,18 @@ What \code{shape} and \code{scale} mean depends on the baseline:
 \description{
 Returns the function H0(tau) for the chosen baseline. Under the memoryless shape
 it is elapsed exposure itself; the Weibull, log-logistic and Gompertz shapes let
-the hazard rise or fall with how long the animal has already been exposed. Shape
+the hazard rise or fall with how long the individual has already been exposed. Shape
 and scale arrive as per-draw vectors, and elapsed time may be a vector or a matrix
 whose rows are draws.
 }
 \details{
 For the Gompertz shape the first argument is the rate constant gamma and the
 second is ignored. A negative gamma is a valid value and means a hazard that
-falls the longer the animal has been exposed. The cumulative hazard then levels
+falls the longer the individual has been exposed. The cumulative hazard then levels
 off: it rises towards 1/|gamma| but never reaches it, instead of growing without
 limit. Survival therefore never drops to zero, and the model predicts that some
-animals never fail (a cure fraction, in survival-analysis terms). \code{\link[=H0inv_of]{H0inv_of()}}
-gives the time by which a chosen fraction of animals has failed; when that
+individuals never fail (a cure fraction, in survival-analysis terms). \code{\link[=H0inv_of]{H0inv_of()}}
+gives the time by which a chosen fraction of individuals has failed; when that
 fraction is never reached it returns \code{NaN} for the time, rather than a large
 number standing in for "never".
 }

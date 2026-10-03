@@ -192,7 +192,7 @@ test_that("log_lik_hazard_mixed reproduces the survived, interval, and known-tim
 })
 
 
-test_that("vint1 selects the failure term, and is ignored when the animal survived", {
+test_that("vint1 selects the failure term, and is ignored when the individual survived", {
   set.seed(5)
   mu  <- matrix(rnorm(50), nrow = 50, ncol = 1)   # 50 draws, 1 observation
   lam <- exp(mu[, 1])

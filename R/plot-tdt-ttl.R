@@ -76,7 +76,7 @@
 }
 
 # The ColorBrewer RdYlBu colours, from red through pale yellow to blue, for
-# survival: red where most animals have failed, blue where most survive, and the
+# survival: red where most individuals have failed, blue where most survive, and the
 # pale middle on a survival of one half. A diverging scale suits survival because
 # one half is a meaningful midpoint, and as a fill its pale middle stays visible.
 .rdylbu <- c("#A50026", "#D73027", "#F46D43", "#FDAE61", "#FEE090", "#FFFFBF",
@@ -202,7 +202,7 @@
 #' Plot the thermal death time curves
 #'
 #' Draws the thermal death time curves from [derive_tdt_ttl()]: the time until a
-#' fraction `p` of animals has failed, against constant temperature, as the
+#' fraction `p` of individuals has failed, against constant temperature, as the
 #' posterior median with its credible interval. The result is a ggplot object, which 
 #' be refined by the user with further ggplot2 layers, scales, labels and themes.
 #'
@@ -311,14 +311,15 @@ plot_tdt <- function(x, facet = TRUE, colour_by = NULL, interval = is.null(colou
 #'
 #' Draws the thermal tolerance landscape from [derive_tdt_ttl()]: survival over
 #' constant temperature and elapsed exposure time. The result is a ggplot object, to
-#' be refinedby the user with further ggplot2 layers, scales, labels and themes.
+#' be refined by the user with further ggplot2 layers, scales, labels and themes.
 #'
 #' With `type = "surface"` the whole landscape is drawn as a map, elapsed time across
 #' and temperature up, coloured by the posterior median survival from red (most have
 #' failed) through pale yellow (a survival of one half) to blue (most survive), with
 #' contour lines at the survival levels in `survival`, each labelled with its level.
-#' The credible interval is not shown on it. With `type = "curves"` survival is drawn against elapsed time at a
-#' few temperatures, each as the posterior median with its credible interval.
+#' The credible interval is not shown on it. With `type = "curves"` survival is
+#' drawn against elapsed time at a few temperatures, each as the posterior median
+#' with its credible interval.
 #'
 #' Elapsed time is on a log scale, unless the times include zero. The panels follow
 #' the same rule as in [plot_tdt()], except that the map needs a panel for each

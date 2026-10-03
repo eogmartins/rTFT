@@ -23,7 +23,7 @@ derive_tdt_ttl(
 derive. It must hold every covariate in the model's parameter formulas. May be
 \code{NULL} for a model without covariates.}
 
-\item{p}{A numeric vector of the fractions of animals failing at which sCTmax and
+\item{p}{A numeric vector of the fractions of individuals failing at which sCTmax and
 the thermal death time curves are derived, each strictly between 0 and 1.}
 
 \item{t_ref}{A single positive number, the reference exposure time for sCTmax, in
@@ -73,7 +73,7 @@ steepness, co-stressors) are read from the fit. Random effects are set to zero, 
 the results are those of a typical group.
 }
 \details{
-sCTmax is the constant temperature at which a fraction \code{p} of animals fail within
+sCTmax is the constant temperature at which a fraction \code{p} of individuals fail within
 the reference exposure time \code{t_ref}, the static critical thermal maximum of
 Jorgensen et al. (2021), who report it for one hour. Under a constant
 temperature, survival is exp(-M(T) H0(t_ref)), so for each posterior draw sCTmax

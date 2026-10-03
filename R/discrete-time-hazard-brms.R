@@ -139,13 +139,13 @@ posterior_epred_cloglog_bern <- function(prep) {
 #' Response distribution for a table mixing interval-censored and known-time failures
 #'
 #' Some failures are known only to have fallen within an interval, others at a
-#' known time. This family fits both kinds in one model. A row where the animal
+#' known time. This family fits both kinds in one model. A row where the individual
 #' survived its interval contributes the same amount either way, so only the row
 #' recording the failure differs: an interval-censored failure contributes the
 #' probability of failing somewhere inside the interval, whereas a failure seen at a
 #' known time contributes the density at that recorded time. A per-row flag, passed
 #' to brms through `vint()`, tells the model which of the two to use, so a single
-#' fit can contain animals whose failures were recorded as either kind.
+#' fit can contain individuals whose failures were recorded as either kind.
 #'
 #' @return A `customfamily` for use with [fit_hazard()].
 #' @export
@@ -310,7 +310,7 @@ M_catalogue <- list(
 #'
 #' This catalogue contains the four baseline hazard functions h0(tau), the factor
 #' in elapsed exposure time that multiplies the failure rate M(T). `mem` is the
-#' memoryless case, in which the hazard does not depend on how long the animal
+#' memoryless case, in which the hazard does not depend on how long the individual
 #' has already been exposed; `weibull`, `llogis` and `gompertz` allow
 #' it to rise or fall with elapsed exposure.
 #'
@@ -521,7 +521,7 @@ brms_log_h0 <- list(
 
 #' Declare a co-stressor for a failure-rate hazard model
 #'
-#' Describes one non-temperature environmental variable (Z) the animal is exposed to
+#' Describes one non-temperature environmental variable (Z) the individual is exposed to
 #' and that co-determines the failure rate: dissolved oxygen, salinity, pH, a
 #' toxicant concentration, or, for a terrestrial ectotherm, humidity. The failure
 #' rate then becomes a surface M(T, Z). The co-stressor enters log M(T) as its own
@@ -941,7 +941,7 @@ build_hazard_data <- function(ind, path, observation = c("interval", "continuous
   # takes the continuous grid, built from t_event) but sets the likelihood's
   # `exact` flag with `type == "continuous"` (so any other value comes out 0, i.e.
   # interval-censored). A typo or NA level would thus get a continuous grid while
-  # being flagged interval-censored (two observation schemes for one animal, with
+  # being flagged interval-censored (two observation schemes for one individual, with
   # nothing to signal it). Rejecting unknown levels here keeps them aligned.
   if (observation == "mixed") {
     if (!"obs_type" %in% names(ind))

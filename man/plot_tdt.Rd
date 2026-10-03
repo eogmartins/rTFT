@@ -34,7 +34,7 @@ A ggplot object.
 }
 \description{
 Draws the thermal death time curves from \code{\link[=derive_tdt_ttl]{derive_tdt_ttl()}}: the time until a
-fraction \code{p} of animals has failed, against constant temperature, as the
+fraction \code{p} of individuals has failed, against constant temperature, as the
 posterior median with its credible interval. The result is a ggplot object, which
 be refined by the user with further ggplot2 layers, scales, labels and themes.
 }
