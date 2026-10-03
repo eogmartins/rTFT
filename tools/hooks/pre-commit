@@ -1,11 +1,15 @@
 #!/bin/sh
-# pre-commit - gate the two things that can drift without a failure showing: the
-# test count and the help pages.
+# pre-commit - gate the three things that can drift without a failure showing: the
+# test count, the help pages, and non-ASCII characters in the R code.
 #
 # Each gate fires only when a commit touches what it is about. The 
 # expectation-count gate covers R/, tests/ and tools/ -- tools/ included so 
 # a control cannot be edited with nothing firing. The help-page gate covers 
 # R/ and DESCRIPTION, the only things that can leave man/ or NAMESPACE stale.
+# The non-ASCII gate covers the R files of R/ and tests/ in the commit: R CMD
+# check warns about a character outside ASCII in R code (a degree sign typed
+# directly rather than as \u00b0), but takes minutes to say so, and the tests
+# pass either way.
 #
 # .git/hooks is not version-controlled, so a fresh clone has no hook until
 # `tools/hooks/install` is run. Nothing does that automatically or announces
@@ -49,6 +53,31 @@ if printf '%s\n' "$staged" | grep -qE '^(R/|DESCRIPTION$)'; then
     echo "  The regenerated files are in the working tree now; read the diff and"
     echo "  stage them with the change that caused them:"
     git diff --stat -- man NAMESPACE | sed 's/^/    /'
+    exit 1
+  fi
+fi
+
+r_files=$(printf '%s\n' "$staged" | grep -E '^(R|tests)/.*\.R$')
+if [ -n "$r_files" ]; then
+  echo "pre-commit: checking the R code for non-ASCII characters..."
+  if ! printf '%s\n' "$r_files" | Rscript -e '
+    files <- readLines("stdin")
+    files <- files[file.exists(files)]
+    found <- FALSE
+    for (f in files) {
+      lines <- readLines(f, warn = FALSE)
+      shown <- iconv(lines, "latin1", "ASCII", sub = "byte")
+      hit   <- which(is.na(iconv(lines, "latin1", "ASCII")))
+      if (length(hit)) {
+        cat(f, sprintf("    line %d: %s", hit, shown[hit]), sep = "\n")
+        found <- TRUE
+      }
+    }
+    if (found) quit(status = 1)'; then
+    echo ""
+    echo "pre-commit: non-ASCII characters in the R code. Commit aborted."
+    echo "  In a string, write the character as a \\uxxxx escape (a degree sign is"
+    echo "  \\u00b0); in a comment, spell it in ASCII."
     exit 1
   fi
 fi
