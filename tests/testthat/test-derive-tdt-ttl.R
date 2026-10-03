@@ -486,6 +486,9 @@ test_that("a model fitted with fit_hazard carries its settings", {
   # times within the two-hour trial
   expect_true(st$Ta_range[1] >= 20 && st$Ta_range[2] <= 50)
   expect_true(st$tau_range[1] > 0 && st$tau_range[2] <= 120)
+  # the individual of each row of the fitted data: 40 individuals
+  expect_length(st$id, nrow(fit_exp$data))
+  expect_equal(length(unique(st$id)), 40)
 })
 
 

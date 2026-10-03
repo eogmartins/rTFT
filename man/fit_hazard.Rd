@@ -54,9 +54,10 @@ the same one.}
 \value{
 A \code{brmsfit}, carrying in \verb{$rtft} the settings it was fitted with: the
 failure-rate and baseline functions, the observation mode, the reference
-temperature \code{Tr}, the softening steepness, the co-stressors, and the ranges of
-temperature and elapsed exposure time the data cover. The reporting functions
-read them from there, so they are never re-entered by hand.
+temperature \code{Tr}, the softening steepness, the co-stressors, the ranges of
+temperature and elapsed exposure time the data cover, and the individual each
+row of \code{long} belongs to. The reporting functions read them from there, so they
+are never re-entered by hand.
 }
 \description{
 Assembles the formula and family with \link{build_hazard_spec}, the default prior with

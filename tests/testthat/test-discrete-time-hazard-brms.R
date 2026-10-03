@@ -1157,6 +1157,7 @@ test_that(".hazard_settings records what the reporting functions need", {
   expect_equal(st$Tr, long_int$Tr[1])                    # the reference of the data
   expect_equal(st$Ta_range, range(long_int$Ta))          # the ranges the data cover
   expect_equal(st$tau_range, range(long_int$tau))
+  expect_equal(st$id, long_int$id)                       # the individual of each row
   expect_equal(st$k_sw, 50)                              # the catalogue steepness
   expect_equal(.hazard_settings(long_int, "exp_threshold", "mem", "interval", 20,
                                 list())$k_sw, 20)        # a custom one

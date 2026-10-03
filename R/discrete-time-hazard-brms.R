@@ -1431,7 +1431,9 @@ build_hazard_prior <- function(m_form, baseline = "mem", dpar_formulas = list(),
 # used, and the co-stressors. It also records the ranges of temperature and of
 # elapsed exposure time the data cover, which the reporting functions use as their
 # default grids, since a model with a memoryless baseline does not keep elapsed
-# time in its data. fit_hazard() attaches the record to the fit it returns. The
+# time in its data, and the individual each row of `long` belongs to, which the
+# fitted data do not keep and which cross-validation needs to leave whole
+# individuals out. fit_hazard() attaches the record to the fit it returns. The
 # steepness is resolved quietly here, since build_hazard_spec() has already warned
 # about a `k_sw` it ignores.
 .hazard_settings <- function(long, m_form, baseline, observation, k_sw, costressors) {
@@ -1442,7 +1444,8 @@ build_hazard_prior <- function(m_form, baseline = "mem", dpar_formulas = list(),
        k_sw        = suppressWarnings(.resolve_k_sw(m_form, k_sw)),
        costressors = costressors,
        Ta_range    = range(long$Ta),
-       tau_range   = range(long$tau))
+       tau_range   = range(long$tau),
+       id          = long$id)
 }
 
 # Read the settings fit_hazard() attached to a fit, or stop when there are none: a
@@ -1503,9 +1506,10 @@ build_hazard_prior <- function(m_form, baseline = "mem", dpar_formulas = list(),
 #'   [brms::brm] for the full set.
 #' @return A `brmsfit`, carrying in `$rtft` the settings it was fitted with: the
 #'   failure-rate and baseline functions, the observation mode, the reference
-#'   temperature `Tr`, the softening steepness, the co-stressors, and the ranges of
-#'   temperature and elapsed exposure time the data cover. The reporting functions
-#'   read them from there, so they are never re-entered by hand.
+#'   temperature `Tr`, the softening steepness, the co-stressors, the ranges of
+#'   temperature and elapsed exposure time the data cover, and the individual each
+#'   row of `long` belongs to. The reporting functions read them from there, so they
+#'   are never re-entered by hand.
 #' @examples
 #' \dontrun{
 #' path <- data.frame(path_id = "A", time = c(0, 60), temp = c(20, 35))
