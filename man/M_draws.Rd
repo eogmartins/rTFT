@@ -7,7 +7,7 @@
 M_draws(fit, Ta, newdata = NULL, levels = NULL, n_draws = NULL)
 }
 \arguments{
-\item{fit}{A model fitted with \code{\link[=fit_hazard]{fit_hazard()}}.}
+\item{fit}{A \code{brmsfit}, a model fitted with \code{\link[=fit_hazard]{fit_hazard()}}.}
 
 \item{Ta}{A numeric vector of temperatures at which to evaluate the rate.}
 
@@ -20,8 +20,8 @@ without covariates.}
 measurement scale, e.g. \code{c(DO = 6)} for 6 mg/L of dissolved oxygen. Required
 when the model has co-stressors.}
 
-\item{n_draws}{An optional number of posterior draws to keep, evenly spaced
-through the posterior. \code{NULL} (the default) keeps them all.}
+\item{n_draws}{An optional single number, the number of posterior draws to keep,
+evenly spaced through the posterior. \code{NULL} (the default) keeps them all.}
 }
 \value{
 A tibble with one row per draw, temperature and row of \code{newdata}: the

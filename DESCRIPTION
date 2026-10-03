@@ -16,11 +16,14 @@ Imports:
     brms (>= 2.20.0),
     cli,
     dplyr,
+    ggplot2 (>= 3.5.2),
+    grDevices,
     purrr,
     stats,
     tibble,
     utils
 Suggests:
+    plotly,
     posterior,
     testthat (>= 3.0.0)
 Config/testthat/edition: 3

@@ -1,3 +1,4 @@
 file,expectations
 test-discrete-time-hazard-brms.R,325
 test-derive-tdt-ttl.R,182
+test-plot-tdt-ttl.R,154

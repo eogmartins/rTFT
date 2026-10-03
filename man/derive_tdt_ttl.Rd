@@ -17,36 +17,38 @@ derive_tdt_ttl(
 )
 }
 \arguments{
-\item{fit}{A model fitted with \code{\link[=fit_hazard]{fit_hazard()}}.}
+\item{fit}{A \code{brmsfit}, a model fitted with \code{\link[=fit_hazard]{fit_hazard()}}.}
 
 \item{newdata}{A data frame of covariate values, one row per setting at which to
 derive. It must hold every covariate in the model's parameter formulas. May be
 \code{NULL} for a model without covariates.}
 
-\item{p}{The fractions of animals failing at which sCTmax is derived, each
-strictly between 0 and 1.}
+\item{p}{A numeric vector of the fractions of animals failing at which sCTmax and
+the thermal death time curves are derived, each strictly between 0 and 1.}
 
-\item{t_ref}{The reference exposure time for sCTmax, in the time unit of the data
-the model was fitted to (for example \code{60} for one hour when times are in
-minutes).
-It has no default, because the fit does not record that unit.}
+\item{t_ref}{A single positive number, the reference exposure time for sCTmax, in
+the time unit of the data the model was fitted to (for example \code{60} for one hour
+when times are in minutes). It has no default, because the fit does not record
+that unit.}
 
-\item{Ta}{The constant temperatures for the thermal death time curves and the
-tolerance landscape. \code{NULL} (the default) takes 50 evenly spaced across the
-temperatures the data cover.}
+\item{Ta}{An optional numeric vector of the constant temperatures for the thermal
+death time curves and the tolerance landscape. \code{NULL} (the default) takes 50
+evenly spaced across the temperatures the data cover.}
 
-\item{tau}{The elapsed exposure times for the tolerance landscape, in the time unit
-of the data. \code{NULL} (the default) takes 50 spaced evenly on a log scale across
-the times the data cover. A time of zero is allowed, and gives a survival of 1,
-so that a survival curve can start there.}
+\item{tau}{An optional numeric vector of the elapsed exposure times for the
+tolerance landscape, in the time unit of the data, none negative. \code{NULL} (the
+default) takes 50 spaced evenly on a log scale across the times the data cover.
+A time of zero is allowed, and gives a survival of 1, so that a survival curve
+can start there.}
 
 \item{levels}{A named numeric vector giving the level of each co-stressor, on its
 measurement scale, e.g. \code{c(DO = 6)}. Required when the model has co-stressors.}
 
-\item{prob}{The coverage of the credible intervals.}
+\item{prob}{A single number strictly between 0 and 1, the coverage of the
+credible intervals.}
 
-\item{n_draws}{The number of posterior draws to use, evenly spaced through the
-posterior; \code{NULL} uses them all.}
+\item{n_draws}{An optional single number, the number of posterior draws to use,
+evenly spaced through the posterior. \code{NULL} uses them all.}
 }
 \value{
 A list of four tibbles, each starting with the columns of \code{newdata} and
@@ -102,10 +104,10 @@ failure endpoint.
 A posterior draw for which a quantity is never reached (an sCTmax the rate
 cannot attain within 1000 degrees of the reference temperature, or at all; a time
 to failure that never comes, under a Gompertz baseline whose cumulative hazard
-levels off) counts as infinite rather than being dropped, so the summaries describe the whole
-posterior. \code{n_unreached} counts these draws, and a message lists the quantities
-that have any. With coverage \code{prob}, let u = (1 - prob) / 2 (0.025 for a 95\%
-interval):
+levels off) counts as infinite rather than being dropped, so the summaries
+describe the whole posterior. \code{n_unreached} counts these draws, and a message
+lists the quantities that have any. With coverage \code{prob}, let u = (1 - prob) / 2
+(0.025 for a 95\% interval):
 \itemize{
 \item fewer than a share u of the draws unreached: both bounds are finite; report
 the summary as it stands.

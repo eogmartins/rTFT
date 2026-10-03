@@ -551,7 +551,7 @@ H0inv_of <- function(baseline) {
 #' The draws are returned as they are, not summarised, for plotting the rate with
 #' its uncertainty or for further calculation.
 #'
-#' @param fit A model fitted with [fit_hazard()].
+#' @param fit A `brmsfit`, a model fitted with [fit_hazard()].
 #' @param Ta A numeric vector of temperatures at which to evaluate the rate.
 #' @param newdata A data frame of covariate values, one row per setting at which to
 #'   evaluate the rate. It must hold every covariate in the model's parameter
@@ -560,8 +560,8 @@ H0inv_of <- function(baseline) {
 #' @param levels A named numeric vector giving the level of each co-stressor, on its
 #'   measurement scale, e.g. `c(DO = 6)` for 6 mg/L of dissolved oxygen. Required
 #'   when the model has co-stressors.
-#' @param n_draws An optional number of posterior draws to keep, evenly spaced
-#'   through the posterior. `NULL` (the default) keeps them all.
+#' @param n_draws An optional single number, the number of posterior draws to keep,
+#'   evenly spaced through the posterior. `NULL` (the default) keeps them all.
 #' @return A tibble with one row per draw, temperature and row of `newdata`: the
 #'   columns of `newdata`, `.draw` (the draw's number in the fit, so draws from
 #'   different calls can be matched), `Ta` and the failure rate `M`.
@@ -744,10 +744,10 @@ M_draws <- function(fit, Ta, newdata = NULL, levels = NULL, n_draws = NULL) {
 #' A posterior draw for which a quantity is never reached (an sCTmax the rate
 #' cannot attain within 1000 degrees of the reference temperature, or at all; a time
 #' to failure that never comes, under a Gompertz baseline whose cumulative hazard
-#' levels off) counts as infinite rather than being dropped, so the summaries describe the whole
-#' posterior. `n_unreached` counts these draws, and a message lists the quantities
-#' that have any. With coverage `prob`, let u = (1 - prob) / 2 (0.025 for a 95%
-#' interval):
+#' levels off) counts as infinite rather than being dropped, so the summaries
+#' describe the whole posterior. `n_unreached` counts these draws, and a message
+#' lists the quantities that have any. With coverage `prob`, let u = (1 - prob) / 2
+#' (0.025 for a 95% interval):
 #'
 #' * fewer than a share u of the draws unreached: both bounds are finite; report
 #'   the summary as it stands.
@@ -757,28 +757,30 @@ M_draws <- function(fit, Ta, newdata = NULL, levels = NULL, n_draws = NULL) {
 #' * half or more: the median is infinite; the quantity is not estimable there. Ask
 #'   at a lower `p` or a shorter `t_ref`.
 #'
-#' @param fit A model fitted with [fit_hazard()].
+#' @param fit A `brmsfit`, a model fitted with [fit_hazard()].
 #' @param newdata A data frame of covariate values, one row per setting at which to
 #'   derive. It must hold every covariate in the model's parameter formulas. May be
 #'   `NULL` for a model without covariates.
-#' @param p The fractions of animals failing at which sCTmax is derived, each
-#'   strictly between 0 and 1.
-#' @param t_ref The reference exposure time for sCTmax, in the time unit of the data
-#'   the model was fitted to (for example `60` for one hour when times are in
-#'   minutes).
-#'   It has no default, because the fit does not record that unit.
-#' @param Ta The constant temperatures for the thermal death time curves and the
-#'   tolerance landscape. `NULL` (the default) takes 50 evenly spaced across the
-#'   temperatures the data cover.
-#' @param tau The elapsed exposure times for the tolerance landscape, in the time unit
-#'   of the data. `NULL` (the default) takes 50 spaced evenly on a log scale across
-#'   the times the data cover. A time of zero is allowed, and gives a survival of 1,
-#'   so that a survival curve can start there.
+#' @param p A numeric vector of the fractions of animals failing at which sCTmax and
+#'   the thermal death time curves are derived, each strictly between 0 and 1.
+#' @param t_ref A single positive number, the reference exposure time for sCTmax, in
+#'   the time unit of the data the model was fitted to (for example `60` for one hour
+#'   when times are in minutes). It has no default, because the fit does not record
+#'   that unit.
+#' @param Ta An optional numeric vector of the constant temperatures for the thermal
+#'   death time curves and the tolerance landscape. `NULL` (the default) takes 50
+#'   evenly spaced across the temperatures the data cover.
+#' @param tau An optional numeric vector of the elapsed exposure times for the
+#'   tolerance landscape, in the time unit of the data, none negative. `NULL` (the
+#'   default) takes 50 spaced evenly on a log scale across the times the data cover.
+#'   A time of zero is allowed, and gives a survival of 1, so that a survival curve
+#'   can start there.
 #' @param levels A named numeric vector giving the level of each co-stressor, on its
 #'   measurement scale, e.g. `c(DO = 6)`. Required when the model has co-stressors.
-#' @param prob The coverage of the credible intervals.
-#' @param n_draws The number of posterior draws to use, evenly spaced through the
-#'   posterior; `NULL` uses them all.
+#' @param prob A single number strictly between 0 and 1, the coverage of the
+#'   credible intervals.
+#' @param n_draws An optional single number, the number of posterior draws to use,
+#'   evenly spaced through the posterior. `NULL` uses them all.
 #' @return A list of four tibbles, each starting with the columns of `newdata` and
 #'   ending with the posterior summary `median`, `lower`, `upper`, `prob`, `n_draws`
 #'   and `n_unreached`:
