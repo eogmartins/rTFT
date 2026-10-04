@@ -1209,11 +1209,12 @@ build_hazard_spec <- function(m_form, baseline = "mem", dpar_formulas = list(),
   split_plus(f[[length(f)]])
 }
 
-# Checks if a term is a random effect group `(... | ...)`: a group parses as a parenthesis
-# call wrapping a `|` call.
+# Checks if a term is a random effect group `(... | ...)`, or `(... || ...)` for
+# uncorrelated effects: a group parses as a parenthesis call wrapping a `|` or `||`
+# call.
 .is_bar <- function(term)
-  is.call(term) && identical(term[[1]], quote(`(`)) &&
-    is.call(term[[2]]) && identical(term[[2]][[1]], quote(`|`))
+  is.call(term) && identical(term[[1]], quote(`(`)) && is.call(term[[2]]) &&
+    (identical(term[[2]][[1]], quote(`|`)) || identical(term[[2]][[1]], quote(`||`)))
 
 # Checks if a one-sided formula contain a random effect term
 .has_re <- function(f)

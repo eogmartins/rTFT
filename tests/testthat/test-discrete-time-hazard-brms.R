@@ -758,6 +758,7 @@ test_that(".has_re and .has_slopes read the formula parse tree, not its text", {
   expect_false(.has_slopes(~ 1 + (1 | g)))         # random effect only, no fixed slope
   expect_true(.has_slopes(~ 1 + a * b))            # an interaction is a slope
   expect_true(.has_re(~ 1 + (1 | g) + (1 | h)))    # several random effects
+  expect_true(.has_re(~ 1 + (1 + a || g)))           # uncorrelated effects, a double bar
   expect_false(.has_re(~ 1 + a))
   expect_false(.has_re(NULL))
   expect_false(.has_slopes(NULL))
