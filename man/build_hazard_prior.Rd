@@ -11,7 +11,8 @@ build_hazard_prior(
   intercept_priors = list(),
   slope_prior = "normal(0, 1)",
   sd_prior = "exponential(2)",
-  costressors = list()
+  costressors = list(),
+  tau_ref
 )
 }
 \arguments{
@@ -40,6 +41,13 @@ applied to each parameter that has one. Defaults to \code{"exponential(2)"}.}
 \item{costressors}{An optional list of \link{costressor} objects, as in
 \link{build_hazard_spec}. Each adds an intercept prior for its main effect and, when
 the temperature interaction is kept, its interaction coefficient. Defaults to none.}
+
+\item{tau_ref}{A single positive number, the reference time the defaults for
+\code{loga}, \code{logc}, \code{logscale} and \code{gam} are scaled by, in the time unit of the data.
+It has no default: give the reference time of the data the prior is for, the
+constant \code{tau_ref} column \link{build_hazard_data} writes, e.g.
+\code{tau_ref = long$tau_ref[1]}. \code{\link[=fit_hazard]{fit_hazard()}} does this itself when it builds the
+default prior.}
 }
 \value{
 A \code{brmsprior}.
@@ -61,13 +69,14 @@ whole set with your own \code{prior} when fitting with \code{\link[=fit_hazard]{
 The default intercept priors, all weakly-informative and meant to be changed to
 suit your study, are:
 \itemize{
-\item \code{loga ~ normal(-5, 2)} -- log amplitude (the failure rate at the reference \code{Tr})
+\item \code{loga ~ normal(-1 - log(tau_ref), 2)} with the memoryless or Gompertz baseline,
+\code{normal(-1, 2)} with the Weibull or log-logistic -- log amplitude
 \item \code{logb ~ normal(-0.7, 1)} -- log temperature sensitivity
-\item \code{logc ~ normal(-5, 2)} -- log baseline term of the power form
+\item \code{logc}, as \code{loga} -- log baseline term of the power form
 \item \code{Tc ~ normal(30, 3)} -- critical temperature
 \item \code{logshape ~ normal(0, 1)} -- log Weibull / log-logistic shape
-\item \code{logscale ~ normal(log(60), 1)} -- log Weibull / log-logistic scale
-\item \code{gam ~ normal(0, 1)} -- Gompertz rate
+\item \code{logscale ~ normal(log(tau_ref), 1)} -- log log-logistic scale
+\item \code{gam ~ normal(0, 3 / tau_ref)} -- Gompertz rate
 }
 
 with \code{normal(0, 1)} on any covariate slope and \code{exponential(2)} on any
@@ -75,21 +84,41 @@ random-effect standard deviation. Each co-stressor in \code{costressors} adds a
 \code{normal(0, 1)} on its main effect \verb{c<name>} and a tighter \code{normal(0, 0.5)} on its
 temperature interaction \verb{dT<name>}, both overridable through \code{intercept_priors}.
 
-Prior values for \code{loga} and \code{logscale} assume exposure time is measured in minutes
-(a small failure rate per minute, and a trial about an hour long), so rescale them
-for other time units. \code{Tc} assumes a temperature near many ectotherms' critical range.
-\code{gam} is centred at zero, the memoryless case where the baseline hazard is flat in
-elapsed exposure time, so unless the data show a trend the fit stays near that flat
-baseline rather than assuming the hazard rises or falls over time.
+Four of these depend on the unit time is measured in and on how long the
+exposures last, so they are scaled by the reference time \code{tau_ref}, which
+\code{\link[=fit_hazard]{fit_hazard()}} takes from the data (see \link{build_hazard_data}). They then say the
+same thing whether a trial lasts minutes or days, and whatever the time unit:
+\itemize{
+\item \code{loga}: the cumulative hazard reached over \code{tau_ref} at the temperature where
+M(T) = a (the reference \code{Tr}, for the functions anchored there) is centred at
+exp(-1), about 0.37, and lies between about 0.007 and 20 with 95\% probability.
+With the memoryless and Gompertz baselines a is a rate per unit time, so the
+centre is -1 - log(tau_ref); with the Weibull, whose cumulative baseline hazard
+at \code{tau_ref} is 1, a is that cumulative hazard itself and the centre is -1. The
+same centre serves the log-logistic, for which it is approximate, since its scale
+is estimated.
+\item \code{logc}: the term of the power function that remains at \code{Tr}, in the units of a,
+so it takes the same prior as \code{loga}.
+\item \code{logscale}: the log-logistic scale is centred at \code{tau_ref}.
+\item \code{gam}: the baseline hazard changes by a factor of exp(gamma tau_ref) across the
+reference time. With a standard deviation of 3 / tau_ref, that factor lies
+within about 400-fold either way with 95\% probability. It is centred at zero,
+the memoryless case where the baseline hazard is flat in elapsed exposure time,
+so unless the data show a trend the fit stays near that flat baseline rather
+than assuming the hazard rises or falls over time.
+}
+
+\code{Tc} assumes a temperature near many ectotherms' critical range.
 }
 \examples{
-# Default weakly-informative priors for an exponential-threshold + Weibull model.
-build_hazard_prior("exp_threshold", baseline = "weibull")
+# Default weakly-informative priors for an exponential-threshold + Weibull model,
+# for data whose reference time is 60 (an hour, with times in minutes).
+build_hazard_prior("exp_threshold", baseline = "weibull", tau_ref = 60)
 
 # Override a couple of priors (a cooler species, a tighter amplitude) and narrow
 # the covariate-slope prior; every other parameter keeps its default.
 build_hazard_prior("exp_threshold", baseline = "weibull",
   dpar_formulas = list(loga = ~ 1 + acclim),
   intercept_priors = list(Tc = "normal(26, 4)", loga = "normal(-6, 1.5)"),
-  slope_prior = "normal(0, 0.5)")
+  slope_prior = "normal(0, 0.5)", tau_ref = 60)
 }

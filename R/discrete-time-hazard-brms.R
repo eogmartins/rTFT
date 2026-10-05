@@ -1282,25 +1282,44 @@ build_hazard_spec <- function(m_form, baseline = "mem", dpar_formulas = list(),
 #' The default intercept priors, all weakly-informative and meant to be changed to
 #' suit your study, are:
 #'
-#' * `loga ~ normal(-5, 2)` -- log amplitude (the failure rate at the reference `Tr`)
+#' * `loga ~ normal(-1 - log(tau_ref), 2)` with the memoryless or Gompertz baseline,
+#'   `normal(-1, 2)` with the Weibull or log-logistic -- log amplitude
 #' * `logb ~ normal(-0.7, 1)` -- log temperature sensitivity
-#' * `logc ~ normal(-5, 2)` -- log baseline term of the power form
+#' * `logc`, as `loga` -- log baseline term of the power form
 #' * `Tc ~ normal(30, 3)` -- critical temperature
 #' * `logshape ~ normal(0, 1)` -- log Weibull / log-logistic shape
-#' * `logscale ~ normal(log(60), 1)` -- log Weibull / log-logistic scale
-#' * `gam ~ normal(0, 1)` -- Gompertz rate
+#' * `logscale ~ normal(log(tau_ref), 1)` -- log log-logistic scale
+#' * `gam ~ normal(0, 3 / tau_ref)` -- Gompertz rate
 #'
 #' with `normal(0, 1)` on any covariate slope and `exponential(2)` on any
 #' random-effect standard deviation. Each co-stressor in `costressors` adds a
 #' `normal(0, 1)` on its main effect `c<name>` and a tighter `normal(0, 0.5)` on its
 #' temperature interaction `dT<name>`, both overridable through `intercept_priors`.
 #'
-#' Prior values for `loga` and `logscale` assume exposure time is measured in minutes
-#' (a small failure rate per minute, and a trial about an hour long), so rescale them
-#' for other time units. `Tc` assumes a temperature near many ectotherms' critical range.
-#' `gam` is centred at zero, the memoryless case where the baseline hazard is flat in 
-#' elapsed exposure time, so unless the data show a trend the fit stays near that flat 
-#' baseline rather than assuming the hazard rises or falls over time.
+#' Four of these depend on the unit time is measured in and on how long the
+#' exposures last, so they are scaled by the reference time `tau_ref`, which
+#' [fit_hazard()] takes from the data (see [build_hazard_data]). They then say the
+#' same thing whether a trial lasts minutes or days, and whatever the time unit:
+#'
+#' * `loga`: the cumulative hazard reached over `tau_ref` at the temperature where
+#'   M(T) = a (the reference `Tr`, for the functions anchored there) is centred at
+#'   exp(-1), about 0.37, and lies between about 0.007 and 20 with 95% probability.
+#'   With the memoryless and Gompertz baselines a is a rate per unit time, so the
+#'   centre is -1 - log(tau_ref); with the Weibull, whose cumulative baseline hazard
+#'   at `tau_ref` is 1, a is that cumulative hazard itself and the centre is -1. The
+#'   same centre serves the log-logistic, for which it is approximate, since its scale
+#'   is estimated.
+#' * `logc`: the term of the power function that remains at `Tr`, in the units of a,
+#'   so it takes the same prior as `loga`.
+#' * `logscale`: the log-logistic scale is centred at `tau_ref`.
+#' * `gam`: the baseline hazard changes by a factor of exp(gamma tau_ref) across the
+#'   reference time. With a standard deviation of 3 / tau_ref, that factor lies
+#'   within about 400-fold either way with 95% probability. It is centred at zero,
+#'   the memoryless case where the baseline hazard is flat in elapsed exposure time,
+#'   so unless the data show a trend the fit stays near that flat baseline rather
+#'   than assuming the hazard rises or falls over time.
+#'
+#' `Tc` assumes a temperature near many ectotherms' critical range.
 #'
 #' @param m_form A character string denoting a key of [M_catalogue] (e.g. `"exp"` or
 #'   `"exp_threshold"`).
@@ -1321,34 +1340,59 @@ build_hazard_spec <- function(m_form, baseline = "mem", dpar_formulas = list(),
 #' @param costressors An optional list of [costressor] objects, as in
 #'   [build_hazard_spec]. Each adds an intercept prior for its main effect and, when
 #'   the temperature interaction is kept, its interaction coefficient. Defaults to none.
+#' @param tau_ref A single positive number, the reference time the defaults for
+#'   `loga`, `logc`, `logscale` and `gam` are scaled by, in the time unit of the data.
+#'   It has no default: give the reference time of the data the prior is for, the
+#'   constant `tau_ref` column [build_hazard_data] writes, e.g.
+#'   `tau_ref = long$tau_ref[1]`. [fit_hazard()] does this itself when it builds the
+#'   default prior.
 #' @return A `brmsprior`.
 #' @examples
-#' # Default weakly-informative priors for an exponential-threshold + Weibull model.
-#' build_hazard_prior("exp_threshold", baseline = "weibull")
+#' # Default weakly-informative priors for an exponential-threshold + Weibull model,
+#' # for data whose reference time is 60 (an hour, with times in minutes).
+#' build_hazard_prior("exp_threshold", baseline = "weibull", tau_ref = 60)
 #'
 #' # Override a couple of priors (a cooler species, a tighter amplitude) and narrow
 #' # the covariate-slope prior; every other parameter keeps its default.
 #' build_hazard_prior("exp_threshold", baseline = "weibull",
 #'   dpar_formulas = list(loga = ~ 1 + acclim),
 #'   intercept_priors = list(Tc = "normal(26, 4)", loga = "normal(-6, 1.5)"),
-#'   slope_prior = "normal(0, 0.5)")
+#'   slope_prior = "normal(0, 0.5)", tau_ref = 60)
 #' @export
 build_hazard_prior <- function(m_form, baseline = "mem", dpar_formulas = list(),
                                intercept_priors = list(),
                                slope_prior = "normal(0, 1)",
                                sd_prior = "exponential(2)",
-                               costressors = list()) {
+                               costressors = list(), tau_ref) {
   m_spec  <- .m_form_spec(m_form)
   h0_spec <- .baseline_spec(baseline)
   .check_costressors(costressors)
+  if (missing(tau_ref))
+    cli::cli_abort(c(
+      "Give {.arg tau_ref}, the reference time the default priors are scaled by.",
+      "i" = "It is the {.field tau_ref} column of the table from {.fn build_hazard_data}, e.g. {.code tau_ref = long$tau_ref[1]}."
+    ), class = "rTFT_bad_tau_ref")
+  if (!is.numeric(tau_ref) || length(tau_ref) != 1L || !is.finite(tau_ref) || tau_ref <= 0)
+    cli::cli_abort(c(
+      "{.arg tau_ref} must be a single positive time, in the time unit of the data.",
+      "x" = "You supplied {.val {tau_ref}}."
+    ), class = "rTFT_bad_tau_ref")
   needed  <- c(m_spec$dpars, h0_spec$dpars, .costressor_dpars(costressors))
 
   # Intercept prior per parameter, on the parameter's own scale (the log-scale
-  # parameters carry priors in log units).
-  icpt <- c(loga = "normal(-5, 2)", logb = "normal(-0.7, 1)", Tc = "normal(30, 3)",
-            logc = "normal(-5, 2)", logshape = "normal(0, 1)",
-            logscale = paste0("normal(", round(log(60), 3), ", 1)"),
-            gam = "normal(0, 1)")
+  # parameters carry priors in log units). Those of loga, logc, logscale and gam are
+  # scaled by the reference time. For loga, and logc in the same units, the centre puts the cumulative hazard
+  # over tau_ref at exp(-1): a is a rate per unit time with the memoryless and
+  # Gompertz baselines, whose cumulative baseline hazard at tau_ref is about
+  # tau_ref, and the cumulative hazard itself with the Weibull and log-logistic,
+  # where it is 1 or close to it.
+  loga_centre <- if (baseline %in% c("mem", "gompertz")) -1 - log(tau_ref) else -1
+  icpt <- c(loga = paste0("normal(", signif(loga_centre, 4), ", 2)"),
+            logb = "normal(-0.7, 1)", Tc = "normal(30, 3)",
+            logc = paste0("normal(", signif(loga_centre, 4), ", 2)"),
+            logshape = "normal(0, 1)",
+            logscale = paste0("normal(", signif(log(tau_ref), 4), ", 1)"),
+            gam = paste0("normal(0, ", signif(3 / tau_ref, 4), ")"))
 
   # Each co-stressor's coefficients get a weakly-informative prior: the main effect
   # `c<name>` a wider Normal, the temperature interaction `dT<name>` a tighter one,
@@ -1424,12 +1468,12 @@ build_hazard_prior <- function(m_form, baseline = "mem", dpar_formulas = list(),
 
 # .check_tau_ref() -------------------------------------------------------------
 
-# Fail before fitting a Weibull baseline to a table with no reference time, which
-# its scale is fixed at.
-.check_tau_ref <- function(long, baseline) {
-  if (baseline != "weibull" || "tau_ref" %in% names(long)) return(invisible(NULL))
+# Fail before fitting to a table with no reference time, which the Weibull baseline's
+# scale is fixed at and the default priors are scaled by.
+.check_tau_ref <- function(long) {
+  if ("tau_ref" %in% names(long)) return(invisible(NULL))
   cli::cli_abort(c(
-    "The {.val weibull} baseline needs the reference time {.field tau_ref}, which {.arg long} lacks.",
+    "{.arg long} has no reference time {.field tau_ref}.",
     "i" = "Build the table with {.fn build_hazard_data}, which adds it."
   ), class = "rTFT_no_tau_ref")
 }
@@ -1445,7 +1489,7 @@ build_hazard_prior <- function(m_form, baseline = "mem", dpar_formulas = list(),
                              sd_prior = NULL, costressors = list(), k_sw = NULL) {
   observation <- .match_observation(observation)
   .check_Tr(long, m_form)
-  .check_tau_ref(long, baseline)
+  .check_tau_ref(long)
   spec <- build_hazard_spec(m_form, baseline, dpar_formulas, observation,
                             k_sw = k_sw, costressors = costressors)
 
@@ -1454,7 +1498,8 @@ build_hazard_prior <- function(m_form, baseline = "mem", dpar_formulas = list(),
   # strings stay defined in one place (build_hazard_prior).
   if (is.null(prior)) {
     pa <- list(m_form = m_form, baseline = baseline, dpar_formulas = dpar_formulas,
-               intercept_priors = intercept_priors, costressors = costressors)
+               intercept_priors = intercept_priors, costressors = costressors,
+               tau_ref = long$tau_ref[1])   # scales the defaults that depend on time
     if (!is.null(slope_prior)) pa$slope_prior <- slope_prior
     if (!is.null(sd_prior))    pa$sd_prior    <- sd_prior
     prior <- do.call(build_hazard_prior, pa)
