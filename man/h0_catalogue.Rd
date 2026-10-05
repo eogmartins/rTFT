@@ -46,13 +46,25 @@ risk depends on elapsed exposure time, independent of temperature.
 
 Each entry gives the integer the Stan code dispatches on (\code{stan_id}) and the
 parameters of each baseline function (\code{dpars}), as in \link{M_catalogue}. \code{mem} has
-no parameters. \code{weibull} and \code{llogis} have shape and scale parameters on the
-log scale (\code{logshape}, \code{logscale}). \code{gompertz} has the rate constant gamma (\code{gam})
-parameter in reciprocal time, left on the natural scale and unconstrained in
-sign (a positive value is a hazard rising with elapsed exposure time and a negative
-one a hazard falling). The amplitude of the Gompertz hazard is not included,
-because it is the same quantity as \code{loga} in M(T), and \code{mem} omits a parameter
-for the same reason.
+no parameters. \code{weibull} has a shape parameter and \code{llogis} shape and scale
+parameters, on the log scale (\code{logshape}, \code{logscale}). \code{gompertz} has the rate
+constant gamma (\code{gam}) parameter in reciprocal time, left on the natural scale and
+unconstrained in sign (a positive value is a hazard rising with elapsed exposure
+time and a negative one a hazard falling). The amplitude of the Gompertz hazard is
+not included, because it is the same quantity as \code{loga} in M(T), and \code{mem} omits a
+parameter for the same reason.
+
+The scale of the \code{weibull} baseline is not estimated. It is fixed at the reference
+time \code{tau_ref} set in \link{build_hazard_data}, so that
+h0(tau) = (k / tau_ref) (tau / tau_ref)^(k - 1) and the cumulative baseline hazard
+at \code{tau_ref} is 1. A Weibull scale s and the amplitude a of M(T) enter the hazard
+only through a / s^k, so the data cannot tell them apart and only one of them can
+be estimated. With the scale fixed, a is the cumulative hazard reached over the
+reference time at the temperature where M(T) = a (the reference temperature \code{Tr},
+for the functions anchored there). The scale of \code{llogis} also enters where its
+hazard turns from rising to falling, so it is estimated; the data inform it only
+weakly when few failures come after that turn, and its posterior then leans on
+its prior.
 }
 \references{
 Kingsolver, J. G. and Umbanhowar, J. (2018). The analysis and interpretation

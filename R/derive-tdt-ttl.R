@@ -609,17 +609,25 @@ M_draws <- function(fit, Ta, newdata = NULL, levels = NULL, n_draws = NULL) {
 
 # Each draw's baseline shape and scale, in the (shape, scale) form H0_of() and
 # H0inv_of() take: 1 and 1 for the memoryless baseline, the rate constant gamma and
-# an unused 1 for the Gompertz, and exp(logshape), exp(logscale) otherwise.
-.baseline_draws <- function(baseline, d, nd) {
+# an unused 1 for the Gompertz, exp(logshape) and the reference time `tau_ref` the
+# scale is fixed at for the Weibull, and exp(logshape), exp(logscale) for the
+# log-logistic.
+.baseline_draws <- function(baseline, d, nd, tau_ref = NULL) {
+  if (baseline == "weibull" && is.null(tau_ref))
+    cli::cli_abort(c(
+      "This model has a {.val weibull} baseline but no recorded reference time.",
+      "i" = "It was fitted before the Weibull scale was fixed at {.field tau_ref}; refit it with {.fn fit_hazard}."
+    ), class = "rTFT_no_tau_ref")
   switch(baseline,
-    mem      = list(shape = rep(1, nd), scale = rep(1, nd)),
-    gompertz = list(shape = d$gam,      scale = rep(1, nd)),
-    list(shape = exp(d$logshape), scale = exp(d$logscale)))
+    mem      = list(shape = rep(1, nd),       scale = rep(1, nd)),
+    gompertz = list(shape = d$gam,            scale = rep(1, nd)),
+    weibull  = list(shape = exp(d$logshape),  scale = rep(tau_ref, nd)),
+    llogis   = list(shape = exp(d$logshape),  scale = exp(d$logscale)))
 }
 
 # The draws of each reported parameter, on its natural scale: a, b and c from their
-# logarithms, Tc as it is, the baseline's shape and scale or its rate constant, and
-# each co-stressor's coefficients. Which parameters are reported is decided by the
+# logarithms, Tc as it is, the baseline's shape, its scale where that is estimated
+# (the log-logistic) or its rate constant, and each co-stressor's coefficients. Which parameters are reported is decided by the
 # failure-rate function, the baseline and the co-stressors, never by which draws
 # happen to be in `d`. Where a co-stressor interacts with temperature,
 # the thermal sensitivity at the chosen levels, b + sum of dT z, is added as
@@ -627,18 +635,17 @@ M_draws <- function(fit, Ta, newdata = NULL, levels = NULL, n_draws = NULL) {
 # log time against temperature, the exponential rate with the memoryless or Weibull
 # baseline, where the time to a given fraction failing scales as M^(-1/k), so
 # log10 t falls by b / (k log 10) per degree and z = k log(10) / b.
-.param_draws <- function(m_form, baseline, d, costressors = list(), z_at = list()) {
+.param_draws <- function(m_form, baseline, d, costressors = list(), z_at = list(),
+                         tau_ref = NULL) {
   nd     <- length(d$loga)
   m_pars <- M_catalogue[[m_form]]$dpars
   out    <- list(a = exp(d$loga))
   if ("logb" %in% m_pars) out$b  <- exp(d$logb)
   if ("logc" %in% m_pars) out$c  <- exp(d$logc)
   if ("Tc"   %in% m_pars) out$Tc <- d$Tc
-  bl <- .baseline_draws(baseline, d, nd)
-  if (baseline %in% c("weibull", "llogis")) {
-    out$shape <- bl$shape
-    out$scale <- bl$scale
-  }
+  bl <- .baseline_draws(baseline, d, nd, tau_ref)
+  if (baseline %in% c("weibull", "llogis")) out$shape <- bl$shape
+  if (baseline == "llogis")                 out$scale <- bl$scale
   if (baseline == "gompertz") out$gamma <- bl$shape
   for (cs in costressors) {
     out[[paste0("c", cs$name)]] <- d[[paste0("c", cs$name)]]
@@ -770,7 +777,7 @@ M_draws <- function(fit, Ta, newdata = NULL, levels = NULL, n_draws = NULL) {
 
   rows <- purrr::map(seq_len(nrow(newdata)), \(r) {
     d  <- purrr::map(dr, \(m) m[, r])
-    bl <- .baseline_draws(st$baseline, d, nd)
+    bl <- .baseline_draws(st$baseline, d, nd, st$tau_ref)
     sctmax <- purrr::map(p, \(pp) {
       target <- -log1p(-pp) / H0(t_ref, bl$shape, bl$scale)
       .sctmax_draws(st$m_form, d, target, st$Tr, k, cs, levels)
@@ -785,7 +792,7 @@ M_draws <- function(fit, Ta, newdata = NULL, levels = NULL, n_draws = NULL) {
     # its own rate.
     H0_tau  <- H0(matrix(tau, nd, length(tau), byrow = TRUE), bl$shape, bl$scale)
     surface <- purrr::map(seq_along(Ta), \(j) exp(-M[, j] * H0_tau))
-    list(params = .param_draws(st$m_form, st$baseline, d, cs, z_at),
+    list(params = .param_draws(st$m_form, st$baseline, d, cs, z_at, st$tau_ref),
          sctmax = sctmax, tdt = tdt, surface = surface)
   })
   list(newdata = newdata, p = p, t_ref = t_ref, Ta = Ta, tau = tau, rows = rows)
@@ -840,7 +847,8 @@ M_draws <- function(fit, Ta, newdata = NULL, levels = NULL, n_draws = NULL) {
 #' ramping experiment records (their dynamic CTmax).
 #'
 #' The parameters reported are a, and where the failure-rate function has them b,
-#' c and Tc; the baseline's shape and scale (Weibull, log-logistic) or its rate
+#' c and Tc; the baseline's shape (Weibull, log-logistic), its scale (log-logistic;
+#' the Weibull's is fixed at the reference time, see [h0_catalogue]) or its rate
 #' constant gamma (Gompertz); and each co-stressor's coefficients. With a
 #' co-stressor that interacts with temperature, `b_at_levels` is the thermal
 #' sensitivity b + dT z at the chosen levels. The thermal sensitivity z, the

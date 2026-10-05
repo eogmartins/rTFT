@@ -617,9 +617,14 @@ test_that("an unused co-stressor level is warned about once, not once per row an
 test_that(".param_draws reports z only where the curve is straight", {
   d <- list(loga = c(-5, -4), logb = log(c(0.5, 0.4)), Tc = c(34, 35),
             logshape = log(c(2, 3)), logscale = log(c(60, 70)), gam = c(0.01, -0.02))
-  # exp + Weibull: shape and scale reported, z = k log(10) / b
-  q <- .param_draws("exp", "weibull", d)
-  expect_equal(names(q), c("a", "b", "shape", "scale", "z"))
+  # exp + Weibull: the shape is reported, the scale is fixed and is not;
+  # z = k log(10) / b
+  q <- .param_draws("exp", "weibull", d, tau_ref = 60)
+  expect_equal(names(q), c("a", "b", "shape", "z"))
+  # a Weibull model with no recorded reference time cannot be reported
+  expect_error(.param_draws("exp", "weibull", d), class = "rTFT_no_tau_ref")
+  # exp + log-logistic: shape and scale both reported
+  expect_equal(names(.param_draws("exp", "llogis", d)), c("a", "b", "shape", "scale"))
   # what is reported follows the function and baseline, not the draws present: d
   # also holds Tc and the baseline parameters, which exp + memoryless has none of
   expect_equal(names(.param_draws("exp", "mem", d)), c("a", "b", "z"))
@@ -632,6 +637,20 @@ test_that(".param_draws reports z only where the curve is straight", {
   expect_false("z" %in% names(q))
   # a failure-rate function whose log is not linear in temperature: no z
   expect_false("z" %in% names(.param_draws("zeropower", "mem", d)))
+})
+
+
+test_that(".baseline_draws fixes the Weibull scale at the reference time", {
+  d <- list(logshape = log(c(2, 3)), logscale = log(c(60, 70)), gam = c(0.01, -0.02))
+  expect_equal(.baseline_draws("weibull", d, 2, tau_ref = 90),
+               list(shape = c(2, 3), scale = c(90, 90)))
+  expect_equal(.baseline_draws("llogis", d, 2, tau_ref = 90),
+               list(shape = c(2, 3), scale = c(60, 70)))        # estimated, not fixed
+  expect_equal(.baseline_draws("mem", d, 2), list(shape = c(1, 1), scale = c(1, 1)))
+  expect_equal(.baseline_draws("gompertz", d, 2)$shape, c(0.01, -0.02))
+  # so the cumulative baseline hazard at the reference time is 1 for every draw
+  bl <- .baseline_draws("weibull", d, 2, tau_ref = 90)
+  expect_equal(H0_of("weibull")(90, bl$shape, bl$scale), c(1, 1))
 })
 
 

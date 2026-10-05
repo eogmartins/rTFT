@@ -343,13 +343,25 @@ M_catalogue <- list(
 #'
 #' Each entry gives the integer the Stan code dispatches on (`stan_id`) and the
 #' parameters of each baseline function (`dpars`), as in [M_catalogue]. `mem` has
-#' no parameters. `weibull` and `llogis` have shape and scale parameters on the
-#' log scale (`logshape`, `logscale`). `gompertz` has the rate constant gamma (`gam`)
-#' parameter in reciprocal time, left on the natural scale and unconstrained in
-#' sign (a positive value is a hazard rising with elapsed exposure time and a negative
-#' one a hazard falling). The amplitude of the Gompertz hazard is not included,
-#' because it is the same quantity as `loga` in M(T), and `mem` omits a parameter
-#' for the same reason.
+#' no parameters. `weibull` has a shape parameter and `llogis` shape and scale
+#' parameters, on the log scale (`logshape`, `logscale`). `gompertz` has the rate
+#' constant gamma (`gam`) parameter in reciprocal time, left on the natural scale and
+#' unconstrained in sign (a positive value is a hazard rising with elapsed exposure
+#' time and a negative one a hazard falling). The amplitude of the Gompertz hazard is
+#' not included, because it is the same quantity as `loga` in M(T), and `mem` omits a
+#' parameter for the same reason.
+#'
+#' The scale of the `weibull` baseline is not estimated. It is fixed at the reference
+#' time `tau_ref` set in [build_hazard_data], so that
+#' h0(tau) = (k / tau_ref) (tau / tau_ref)^(k - 1) and the cumulative baseline hazard
+#' at `tau_ref` is 1. A Weibull scale s and the amplitude a of M(T) enter the hazard
+#' only through a / s^k, so the data cannot tell them apart and only one of them can
+#' be estimated. With the scale fixed, a is the cumulative hazard reached over the
+#' reference time at the temperature where M(T) = a (the reference temperature `Tr`,
+#' for the functions anchored there). The scale of `llogis` also enters where its
+#' hazard turns from rising to falling, so it is estimated; the data inform it only
+#' weakly when few failures come after that turn, and its posterior then leans on
+#' its prior.
 #'
 #' @references
 #' Kingsolver, J. G. and Umbanhowar, J. (2018). The analysis and interpretation
@@ -360,7 +372,7 @@ M_catalogue <- list(
 #' @export
 h0_catalogue <- list(
   mem      = list(stan_id = 1L, dpars = character(0)),
-  weibull  = list(stan_id = 2L, dpars = c("logshape", "logscale")),
+  weibull  = list(stan_id = 2L, dpars = "logshape"),
   llogis   = list(stan_id = 3L, dpars = c("logshape", "logscale")),
   gompertz = list(stan_id = 4L, dpars = "gam")
 )
@@ -407,7 +419,8 @@ brms_log_M <- list(
 #' Each entry is the expression string of log h0(tau) for one function of
 #' [h0_catalogue], which brms uses to build the model formula. The strings are
 #' written in terms of the parameter names and the data columns `log_tau` (the log
-#' of the row's elapsed exposure time) and, for `gompertz`, `tau` itself (the
+#' of the row's elapsed exposure time), for `weibull` `tau_ref` (the reference time
+#' its scale is fixed at) and, for `gompertz`, `tau` itself (the
 #' elapsed exposure time: the midpoint for an interval row, or the exact time for
 #' a known-time failure). `mem` is the empty string, because a memoryless
 #' baseline contributes nothing: h0(tau) = 1 and the hazard is M(T) alone.
@@ -421,7 +434,7 @@ brms_log_M <- list(
 #' @export
 brms_log_h0 <- list(
   mem      = "",
-  weibull  = "logshape - logscale + (exp(logshape) - 1) * (log_tau - logscale)",
+  weibull  = "logshape - log(tau_ref) + (exp(logshape) - 1) * (log_tau - log(tau_ref))",
   llogis   = paste0("logshape - logscale + (exp(logshape) - 1) * (log_tau - logscale)",
                     " - log1p(exp(exp(logshape) * (log_tau - logscale)))"),
   gompertz = "gam * tau"
@@ -845,6 +858,14 @@ costressor <- function(name, column, ref, scale, direction,
 #'   or below the minimum temperature in the data, so it defaults (`NULL`) to the
 #'   coldest temperature in `path`. It must be set to a common value across datasets 
 #'   when comparing `loga`, whose meaning is anchored at `Tr`.
+#' @param tau_ref A single positive number, the reference time, in the time unit of
+#'   the data, written to a constant `tau_ref` column. The scale of the `weibull`
+#'   baseline is fixed at it (see [h0_catalogue]), and the default priors of the
+#'   parameters that depend on the time unit are scaled by it (see
+#'   [build_hazard_prior]). It defaults (`NULL`) to the longest exposure in the data,
+#'   the latest time any individual was observed. Like `Tr`, set it to a common value
+#'   across datasets when comparing `loga` under a `weibull` baseline, whose meaning
+#'   is anchored at it.
 #' @param checks An optional data frame with `path_id`, `time` giving the
 #'   failure-check schedule per path (i.e., the times at which each individual was
 #'   inspected for failure). Defaults to the distinct `path` times (logger reading =
@@ -863,7 +884,7 @@ costressor <- function(name, column, ref, scale, direction,
 #'   column of `ind`. Defaults to none.
 #' @return A long-format data frame, one row per individual and at-risk interval,
 #'   holding the identifiers `id` and `path_id`; the model columns `Ta`, `Tr`,
-#'   `tau`, `log_tau`, `exposure`, `log_exposure`; the carried covariates; one
+#'   `tau`, `log_tau`, `tau_ref`, `exposure`, `log_exposure`; the carried covariates; one
 #'   `z_<name>` column per co-stressor; the 0/1 response column `failed`; and, for
 #'   mixed observation, the integer `exact` flag the family branches on.
 #' @examples
@@ -896,10 +917,16 @@ costressor <- function(name, column, ref, scale, direction,
 #' build_hazard_data(ind, path, "interval", covariates = "mass", Tr = 15, checks = checks)
 #' @export
 build_hazard_data <- function(ind, path, observation = c("interval", "continuous", "mixed"),
-                              covariates = character(0), Tr = NULL, checks = NULL,
-                              grid_dt = NULL, costressors = list()) {
+                              covariates = character(0), Tr = NULL, tau_ref = NULL,
+                              checks = NULL, grid_dt = NULL, costressors = list()) {
   observation <- .match_observation(observation)
   .check_costressors(costressors)
+  if (!is.null(tau_ref) && (!is.numeric(tau_ref) || length(tau_ref) != 1L ||
+                            !is.finite(tau_ref) || tau_ref <= 0))
+    cli::cli_abort(c(
+      "{.arg tau_ref} must be a single positive time, in the time unit of the data.",
+      "x" = "You supplied {.val {tau_ref}}."
+    ), class = "rTFT_bad_tau_ref")
 
   # Fail on a missing input column, rather than letting a NULL slip into an
   # approxfun() call: approxfun(time, NULL) does not error, it silently
@@ -1010,10 +1037,15 @@ build_hazard_data <- function(ind, path, observation = c("interval", "continuous
                      \(i) { r <- ind[i, , drop = FALSE]; build_one(r, type_of(r)) }) |>
     purrr::list_rbind()
 
+  # The reference time defaults to the longest exposure in the data: the end of the
+  # last at-risk interval of the individual observed longest.
+  if (is.null(tau_ref)) tau_ref <- max(long$tau + long$exposure / 2)
+
   cov_tbl <- dplyr::select(ind, id, dplyr::all_of(covariates))
   out <- long |>
     dplyr::left_join(cov_tbl, by = "id") |>
-    dplyr::mutate(Tr = Tr, log_tau = log(tau), log_exposure = log(exposure))
+    dplyr::mutate(Tr = Tr, log_tau = log(tau), tau_ref = tau_ref,
+                  log_exposure = log(exposure))
 
   # One standardised column per co-stressor, z = direction * (X - ref) / scale (or
   # the supplied transform). The raw measurement X is read from the co-stressor's
@@ -1150,7 +1182,7 @@ build_hazard_spec <- function(m_form, baseline = "mem", dpar_formulas = list(),
   # Paste the stored log-scale strings into the linear predictor: log M(T) (with
   # the softening steepness written in and any co-stressor terms appended), the log
   # baseline hazard (unless memoryless, whose string is empty), and the log exposure
-  # of the interval. build_hazard_data() supplies Ta, Tr, tau, log_tau and
+  # of the interval. build_hazard_data() supplies Ta, Tr, tau, log_tau, tau_ref and
   # log_exposure; the parameters (loga, logb, Tc, ...) are what the model estimates.
   k_sw_used <- .resolve_k_sw(m_form, k_sw)   # validates k_sw, even where it is unused
   log_M     <- .log_M_string(m_form, k_sw_used, costressors)
@@ -1390,6 +1422,18 @@ build_hazard_prior <- function(m_form, baseline = "mem", dpar_formulas = list(),
   }
 }
 
+# .check_tau_ref() -------------------------------------------------------------
+
+# Fail before fitting a Weibull baseline to a table with no reference time, which
+# its scale is fixed at.
+.check_tau_ref <- function(long, baseline) {
+  if (baseline != "weibull" || "tau_ref" %in% names(long)) return(invisible(NULL))
+  cli::cli_abort(c(
+    "The {.val weibull} baseline needs the reference time {.field tau_ref}, which {.arg long} lacks.",
+    "i" = "Build the table with {.fn build_hazard_data}, which adds it."
+  ), class = "rTFT_no_tau_ref")
+}
+
 # .hazard_brm_args() -----------------------------------------------------------
 
 # Assemble the argument list for brms::brm(), everything fit_hazard() does except
@@ -1401,6 +1445,7 @@ build_hazard_prior <- function(m_form, baseline = "mem", dpar_formulas = list(),
                              sd_prior = NULL, costressors = list(), k_sw = NULL) {
   observation <- .match_observation(observation)
   .check_Tr(long, m_form)
+  .check_tau_ref(long, baseline)
   spec <- build_hazard_spec(m_form, baseline, dpar_formulas, observation,
                             k_sw = k_sw, costressors = costressors)
 
@@ -1428,20 +1473,21 @@ build_hazard_prior <- function(m_form, baseline = "mem", dpar_formulas = list(),
 # Record the settings a failure-rate model is fitted with, which the reporting
 # functions need to evaluate its failure rate exactly as it was fitted: the
 # failure-rate and baseline functions, the observation mode, the reference
-# temperature (the constant `Tr` column of `long`), the softening steepness actually
-# used, and the co-stressors. It also records the ranges of temperature and of
-# elapsed exposure time the data cover, which the reporting functions use as their
-# default grids, since a model with a memoryless baseline does not keep elapsed
-# time in its data, and the individual each row of `long` belongs to, which the
-# fitted data do not keep and which cross-validation needs to leave whole
-# individuals out. fit_hazard() attaches the record to the fit it returns. The
-# steepness is resolved quietly here, since build_hazard_spec() has already warned
-# about a `k_sw` it ignores.
+# temperature and reference time (the constant `Tr` and `tau_ref` columns of `long`),
+# the softening steepness actually used, and the co-stressors. It also records the 
+# ranges of temperature and of elapsed exposure time the data cover, which the 
+# reporting functions use as their default grids, since a model with a memoryless 
+# baseline does not keep elapsed time in its data, and the individual each row of 
+# `long` belongs to, which the fitted data do not keep and which cross-validation 
+# needs to leave whole individuals out. fit_hazard() attaches the record to the fit
+# it returns. The steepness is resolved quietly here, since build_hazard_spec() has
+# already warned about a `k_sw` it ignores.
 .hazard_settings <- function(long, m_form, baseline, observation, k_sw, costressors) {
   list(m_form      = m_form,
        baseline    = baseline,
        observation = .match_observation(observation),
        Tr          = long$Tr[1],
+       tau_ref     = long$tau_ref[1],
        k_sw        = suppressWarnings(.resolve_k_sw(m_form, k_sw)),
        costressors = costressors,
        Ta_range    = range(long$Ta),

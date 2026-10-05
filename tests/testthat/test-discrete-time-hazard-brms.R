@@ -339,18 +339,22 @@ test_that("brms_log_M threshold guards stay finite below and at Tc; zero forms v
 # brms_log_h0 against the baseline hazards ------------------------------------
 
 test_that("brms_log_h0 reproduces the baseline hazards, and llogis is the hazard not the density", {
-  shape <- 1.8; scale <- 20; gam <- 0.05; tau <- 12
+  shape <- 1.8; scale <- 20; gam <- 0.05; tau <- 12; tau_ref <- 45
   env <- list(logshape = log(shape), logscale = log(scale), gam = gam,
-              tau = tau, log_tau = log(tau))
+              tau = tau, log_tau = log(tau), tau_ref = tau_ref)
   ev <- function(s) exp(eval(parse(text = s), env))
 
   z <- (tau / scale)^shape
-  h_weibull  <- (shape / scale) * (tau / scale)^(shape - 1)
+  # the Weibull scale is the reference time, not a parameter
+  h_weibull  <- (shape / tau_ref) * (tau / tau_ref)^(shape - 1)
   h_llogis   <- (shape / scale) * (tau / scale)^(shape - 1) / (1 + z)   # hazard
   h_gompertz <- exp(gam * tau)                                          # amplitude in loga
   f_llogis   <- h_llogis / (1 + z)                                      # density (factor-2 error)
 
   expect_equal(ev(brms_log_h0[["weibull"]]),  h_weibull)
+  expect_false(grepl("logscale", brms_log_h0[["weibull"]]))
+  expect_equal(h0_catalogue$weibull$dpars, "logshape")
+  expect_equal(h0_catalogue$llogis$dpars, c("logshape", "logscale"))
   expect_equal(ev(brms_log_h0[["llogis"]]),   h_llogis)
   expect_equal(ev(brms_log_h0[["gompertz"]]), h_gompertz)
   # mem is the empty string: a memoryless baseline adds nothing to the predictor
@@ -409,13 +413,39 @@ test_that("a right-censored survivor never fails and runs to its last check", {
 })
 
 
+test_that("the reference time is the longest exposure unless given", {
+  ind <- data.frame(id = 1:2, path_id = "A", event = c(1, 0), t_upper = c(30, 50))
+  out <- build_hazard_data(ind, ramp_traj, "interval", checks = ramp_checks)
+  expect_equal(unique(out$tau_ref), 50)                 # the end of the last interval
+  # a known-time failure: its exact time, not the midpoint of its last interval
+  ind_c <- data.frame(id = 1, path_id = "A", event = 1, t_event = 42)
+  expect_equal(unique(build_hazard_data(ind_c, ramp_traj, "continuous",
+                                        checks = ramp_checks)$tau_ref), 42)
+  given <- build_hazard_data(ind, ramp_traj, "interval", tau_ref = 60, checks = ramp_checks)
+  expect_equal(unique(given$tau_ref), 60)
+  for (bad in list(0, -5, c(30, 60), "60", NA_real_, Inf))
+    expect_error(build_hazard_data(ind, ramp_traj, "interval", tau_ref = bad,
+                                   checks = ramp_checks), class = "rTFT_bad_tau_ref")
+})
+
+
+test_that("a Weibull baseline is refused for a table with no reference time", {
+  ind <- data.frame(id = 1:2, path_id = "A", event = c(1, 0), t_upper = c(30, 50))
+  out <- build_hazard_data(ind, ramp_traj, "interval", checks = ramp_checks)
+  no_ref <- out[setdiff(names(out), "tau_ref")]
+  expect_error(.hazard_brm_args(no_ref, "exp", "weibull"), class = "rTFT_no_tau_ref")
+  expect_no_error(.hazard_brm_args(no_ref, "exp", "mem"))      # other baselines do not need it
+  expect_no_error(.hazard_brm_args(out, "exp", "weibull"))
+})
+
+
 test_that("the output columns and their derived quantities are correct", {
   ind <- data.frame(id = 1, path_id = "A", event = 1, t_upper = 30)
   out <- build_hazard_data(ind, ramp_traj, "interval", checks = ramp_checks)
 
   expect_setequal(names(out),
                   c("id", "path_id", "tau", "exposure", "Ta", "failed",
-                    "Tr", "log_tau", "log_exposure"))
+                    "Tr", "log_tau", "tau_ref", "log_exposure"))
   expect_equal(out$log_tau, log(out$tau))
   expect_equal(out$log_exposure, log(out$exposure))
   expect_false("exact" %in% names(out))                 # exact is mixed-mode only
@@ -563,7 +593,7 @@ test_that("the linear predictor is log h0 + log M + log_exposure, in that order"
   # a weibull baseline prepends its log h0; exp_threshold contributes its gate with
   # the catalogue k_sw = 50 substituted in for the placeholder
   eta_thr_wb <- paste(
-    "logshape - logscale + (exp(logshape) - 1) * (log_tau - logscale)",
+    "logshape - log(tau_ref) + (exp(logshape) - 1) * (log_tau - log(tau_ref))",
     "+ loga + exp(logb) * (Ta - Tc) - log1p(exp(-50 * (Ta - Tc)))",
     "+ log_exposure")
   expect_equal(main_rhs(build_hazard_spec("exp_threshold", "weibull")),
@@ -625,8 +655,11 @@ test_that("observation sets the response LHS and the family", {
 
 test_that("each needed parameter gets a sub-formula, defaulting to intercept-only", {
   f <- build_hazard_spec("exp_threshold", "weibull")
-  # exp_threshold needs loga, logb, Tc; weibull adds logshape, logscale
-  expect_setequal(names(f$formula$pforms), c("loga", "logb", "Tc", "logshape", "logscale"))
+  # exp_threshold needs loga, logb, Tc; weibull adds logshape (its scale is fixed)
+  expect_setequal(names(f$formula$pforms), c("loga", "logb", "Tc", "logshape"))
+  # the log-logistic keeps its scale
+  expect_setequal(names(build_hazard_spec("exp", "llogis")$formula$pforms),
+                  c("loga", "logb", "logshape", "logscale"))
   # every parameter defaults to ~ 1 (RHS is the bare intercept)
   expect_true(all(vapply(f$formula$pforms, \(p) deparse1(p[[3]]) == "1", logical(1))))
 })
@@ -693,10 +726,12 @@ test_that("the default intercept priors match the documented values", {
   expect_equal(icpt_of(p1, "logb"), "normal(-0.7, 1)")
   expect_equal(icpt_of(p1, "logc"), "normal(-5, 2)")
 
-  p2 <- build_hazard_prior("exp_threshold", "weibull")   # + Tc, logshape, logscale
+  p2 <- build_hazard_prior("exp_threshold", "llogis")    # + Tc, logshape, logscale
   expect_equal(icpt_of(p2, "Tc"), "normal(30, 3)")
   expect_equal(icpt_of(p2, "logshape"), "normal(0, 1)")
   expect_equal(icpt_of(p2, "logscale"), "normal(4.094, 1)")   # normal(log(60), 1)
+  # the Weibull scale is fixed, so it has no prior
+  expect_false("logscale" %in% build_hazard_prior("exp", "weibull")$nlpar)
 
   p3 <- build_hazard_prior("const", "gompertz")          # loga, gam
   expect_equal(icpt_of(p3, "gam"), "normal(0, 1)")
@@ -719,7 +754,7 @@ test_that("slope and sd priors are added only when the parameter has those terms
 
 
 test_that("intercept_priors override the named centres and leave the rest default", {
-  p <- build_hazard_prior("exp_threshold", "weibull",
+  p <- build_hazard_prior("exp_threshold", "llogis",
          intercept_priors = list(Tc = "normal(26, 4)", loga = "normal(-6, 1.5)"))
   expect_equal(icpt_of(p, "Tc"),   "normal(26, 4)")       # overridden
   expect_equal(icpt_of(p, "loga"), "normal(-6, 1.5)")     # overridden
@@ -1156,6 +1191,7 @@ test_that(".hazard_settings records what the reporting functions need", {
   expect_equal(st[c("m_form", "baseline", "observation")],
                list(m_form = "exp_threshold", baseline = "mem", observation = "interval"))
   expect_equal(st$Tr, long_int$Tr[1])                    # the reference of the data
+  expect_equal(st$tau_ref, long_int$tau_ref[1])          # and the reference time
   expect_equal(st$Ta_range, range(long_int$Ta))          # the ranges the data cover
   expect_equal(st$tau_range, range(long_int$tau))
   expect_equal(st$id, long_int$id)                       # the individual of each row

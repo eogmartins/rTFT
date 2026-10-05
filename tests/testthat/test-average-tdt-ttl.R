@@ -133,13 +133,14 @@ test_that("models cross-validated with fewer folds than the others are named", {
   k_fold <- purrr::map(cv3, \(x) make_cv(x$pointwise[, 1], column = "elpd_kfold"))
   # leave-one-out for two models, ten folds over the 30 units for the third
   mixed <- list(poor = cv3$poor, good = cv3$good, middle = with_K(k_fold$middle, 10))
-  expect_message(hazard_weights(mixed), "middle", class = "rTFT_mixed_cv")
+  expect_message(suppressMessages(hazard_weights(mixed), classes = "rTFT_weights"),
+                 "middle", class = "rTFT_mixed_cv")
   # one fold per unit estimates what leave-one-out does: nothing to say
   as_loo <- list(poor = cv3$poor, good = cv3$good, middle = with_K(k_fold$middle, 30))
-  expect_no_message(hazard_weights(as_loo), class = "rTFT_mixed_cv")
+  expect_false(any(grepl("number of folds", testthat::capture_messages(hazard_weights(as_loo)))))
   # all refitted with the same number of folds: nothing to say either
   same_K <- purrr::map(k_fold, with_K, K = 10)
-  expect_no_message(hazard_weights(same_K), class = "rTFT_mixed_cv")
+  expect_false(any(grepl("number of folds", testthat::capture_messages(hazard_weights(same_K)))))
   expect_equal(suppressMessages(hazard_weights(mixed))$weight,
                suppressMessages(hazard_weights(cv3))$weight)       # the weights are not altered
 })

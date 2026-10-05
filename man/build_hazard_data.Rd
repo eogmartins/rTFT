@@ -10,6 +10,7 @@ build_hazard_data(
   observation = c("interval", "continuous", "mixed"),
   covariates = character(0),
   Tr = NULL,
+  tau_ref = NULL,
   checks = NULL,
   grid_dt = NULL,
   costressors = list()
@@ -64,6 +65,15 @@ or below the minimum temperature in the data, so it defaults (\code{NULL}) to th
 coldest temperature in \code{path}. It must be set to a common value across datasets
 when comparing \code{loga}, whose meaning is anchored at \code{Tr}.}
 
+\item{tau_ref}{A single positive number, the reference time, in the time unit of
+the data, written to a constant \code{tau_ref} column. The scale of the \code{weibull}
+baseline is fixed at it (see \link{h0_catalogue}), and the default priors of the
+parameters that depend on the time unit are scaled by it (see
+\link{build_hazard_prior}). It defaults (\code{NULL}) to the longest exposure in the data,
+the latest time any individual was observed. Like \code{Tr}, set it to a common value
+across datasets when comparing \code{loga} under a \code{weibull} baseline, whose meaning
+is anchored at it.}
+
 \item{checks}{An optional data frame with \code{path_id}, \code{time} giving the
 failure-check schedule per path (i.e., the times at which each individual was
 inspected for failure). Defaults to the distinct \code{path} times (logger reading =
@@ -86,7 +96,7 @@ column of \code{ind}. Defaults to none.}
 \value{
 A long-format data frame, one row per individual and at-risk interval,
 holding the identifiers \code{id} and \code{path_id}; the model columns \code{Ta}, \code{Tr},
-\code{tau}, \code{log_tau}, \code{exposure}, \code{log_exposure}; the carried covariates; one
+\code{tau}, \code{log_tau}, \code{tau_ref}, \code{exposure}, \code{log_exposure}; the carried covariates; one
 \verb{z_<name>} column per co-stressor; the 0/1 response column \code{failed}; and, for
 mixed observation, the integer \code{exact} flag the family branches on.
 }

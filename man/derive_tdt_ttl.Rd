@@ -81,7 +81,8 @@ solves M(T) = -log(1 - p) / H0(t_ref). It is not the critical thermal maximum a
 ramping experiment records (their dynamic CTmax).
 
 The parameters reported are a, and where the failure-rate function has them b,
-c and Tc; the baseline's shape and scale (Weibull, log-logistic) or its rate
+c and Tc; the baseline's shape (Weibull, log-logistic), its scale (log-logistic;
+the Weibull's is fixed at the reference time, see \link{h0_catalogue}) or its rate
 constant gamma (Gompertz); and each co-stressor's coefficients. With a
 co-stressor that interacts with temperature, \code{b_at_levels} is the thermal
 sensitivity b + dT z at the chosen levels. The thermal sensitivity z, the

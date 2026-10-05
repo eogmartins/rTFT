@@ -14,7 +14,8 @@ brms_log_h0
 Each entry is the expression string of log h0(tau) for one function of
 \link{h0_catalogue}, which brms uses to build the model formula. The strings are
 written in terms of the parameter names and the data columns \code{log_tau} (the log
-of the row's elapsed exposure time) and, for \code{gompertz}, \code{tau} itself (the
+of the row's elapsed exposure time), for \code{weibull} \code{tau_ref} (the reference time
+its scale is fixed at) and, for \code{gompertz}, \code{tau} itself (the
 elapsed exposure time: the midpoint for an interval row, or the exact time for
 a known-time failure). \code{mem} is the empty string, because a memoryless
 baseline contributes nothing: h0(tau) = 1 and the hazard is M(T) alone.
