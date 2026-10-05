@@ -702,6 +702,124 @@ M_draws <- function(fit, Ta, newdata = NULL, levels = NULL, n_draws = NULL) {
 }
 
 
+# .stop_no_t_ref() / .derive_draws() / .summarise_derived() --------------------
+
+# Stop when no reference exposure time was given. `t_ref` has no default: its unit
+# is that of the data the model was fitted to, which the fit does not record, and a
+# default of 60 would silently mean 60 hours for a model fitted in hours.
+.stop_no_t_ref <- function() {
+  cli::cli_abort(c(
+    "Give {.arg t_ref}, the reference exposure time for sCTmax.",
+    "i" = "It is in the time unit of the data the model was fitted to, e.g. {.code t_ref = 60} for one hour when times are in minutes."
+  ), class = "rTFT_bad_t_ref")
+}
+
+# Compute, for a fitted model, the posterior draws of everything derive_tdt_ttl()
+# reports, before any summary: for each row of `newdata`, the draws of the
+# parameters, of sCTmax for each p, of the time to failure for each p at each
+# temperature, and of survival at each temperature and elapsed time. It checks its
+# arguments and sets the default grids. derive_tdt_ttl() summarises these draws, and
+# average_tdt_ttl() pools them across models first, so both rest on one calculation.
+.derive_draws <- function(fit, newdata, p, t_ref, Ta, tau, levels, n_draws) {
+  st <- .fit_settings(fit)
+  if (!is.numeric(p) || !length(p) || anyNA(p) || any(p <= 0 | p >= 1))
+    cli::cli_abort(c(
+      "{.arg p} must hold fractions of individuals failing, each strictly between 0 and 1.",
+      "x" = "You supplied {.val {p}}."
+    ), class = "rTFT_bad_p")
+  if (!is.numeric(t_ref) || length(t_ref) != 1L || !is.finite(t_ref) || t_ref <= 0)
+    cli::cli_abort(c(
+      "{.arg t_ref} must be a single positive exposure time, in the time unit of the data the model was fitted to.",
+      "x" = "You supplied {.val {t_ref}}."
+    ), class = "rTFT_bad_t_ref")
+  if (is.null(newdata)) newdata <- data.frame(row.names = 1L)
+
+  # The grids default to the temperatures and elapsed times the data cover: 50
+  # temperatures evenly spaced, and 50 times evenly spaced on a log scale, since
+  # times to failure and survival change over orders of magnitude in time.
+  if (is.null(Ta))  Ta  <- seq(st$Ta_range[1], st$Ta_range[2], length.out = 50)
+  if (is.null(tau)) tau <- exp(seq(log(st$tau_range[1]), log(st$tau_range[2]),
+                                   length.out = 50))
+  if (!is.numeric(Ta) || !length(Ta) || !all(is.finite(Ta)))
+    cli::cli_abort("{.arg Ta} must be a numeric vector of finite temperatures.",
+                   class = "rTFT_bad_Ta")
+  if (!is.numeric(tau) || !length(tau) || !all(is.finite(tau)) || any(tau < 0))
+    cli::cli_abort(c(
+      "{.arg tau} must be a numeric vector of elapsed exposure times, none negative.",
+      "i" = "They are in the time unit of the data the model was fitted to."
+    ), class = "rTFT_bad_tau")
+
+  cs   <- st$costressors
+  pars <- c(M_catalogue[[st$m_form]]$dpars, h0_catalogue[[st$baseline]]$dpars,
+            .costressor_dpars(cs))
+  ids  <- .thin_ids(brms::ndraws(fit), n_draws)
+  nd   <- length(ids)
+  dr   <- .fit_draws(fit, pars, newdata, draw_ids = ids)
+  k    <- if (M_catalogue[[st$m_form]]$k_sw != 0) st$k_sw
+
+  # Check the co-stressor levels once, warning once about any the model does not
+  # have; after that only the levels in use are passed on, so the calculations for
+  # each row and each p do not repeat the warning.
+  .rate_setup(st$m_form, purrr::map(dr, \(m) m[, 1]), st$Tr, k, cs, levels)
+  cs_names <- vapply(cs, `[[`, character(1), "name")
+  levels   <- if (length(cs)) levels[cs_names]
+  z_at     <- stats::setNames(purrr::map(cs, \(x) .costressor_z(x, levels[[x$name]])),
+                              cs_names)
+  H0    <- H0_of(st$baseline)
+  H0inv <- H0inv_of(st$baseline)
+
+  rows <- purrr::map(seq_len(nrow(newdata)), \(r) {
+    d  <- purrr::map(dr, \(m) m[, r])
+    bl <- .baseline_draws(st$baseline, d, nd)
+    sctmax <- purrr::map(p, \(pp) {
+      target <- -log1p(-pp) / H0(t_ref, bl$shape, bl$scale)
+      .sctmax_draws(st$m_form, d, target, st$Tr, k, cs, levels)
+    })
+    # The thermal death time curves: for each p, the time until that fraction has
+    # failed at each temperature of the grid.
+    M   <- .M_draws(st$m_form, d, Ta, st$Tr, k, cs, levels)
+    tdt <- purrr::map(p, \(pp) .tdt_draws(M, pp, H0inv, bl$shape, bl$scale))
+    # The thermal tolerance landscape: survival exp(-M(T) H0(tau)) over the grid of
+    # temperatures and elapsed times. H0(tau) is laid out one row per draw, and
+    # multiplying by the column of M at one temperature scales each draw's row by
+    # its own rate.
+    H0_tau  <- H0(matrix(tau, nd, length(tau), byrow = TRUE), bl$shape, bl$scale)
+    surface <- purrr::map(seq_along(Ta), \(j) exp(-M[, j] * H0_tau))
+    list(params = .param_draws(st$m_form, st$baseline, d, cs, z_at),
+         sctmax = sctmax, tdt = tdt, surface = surface)
+  })
+  list(newdata = newdata, p = p, t_ref = t_ref, Ta = Ta, tau = tau, rows = rows)
+}
+
+# Summarise the draws from .derive_draws() into the tables derive_tdt_ttl() returns,
+# each carrying the columns of newdata: `sctmax` with a row per p, `tdt_curves` with
+# a row per p and temperature, `ttl_surface` with a row per temperature and elapsed
+# time, and, unless `params` is FALSE, `params` with a row per parameter.
+.summarise_derived <- function(draws, prob, params = TRUE) {
+  p   <- draws$p
+  Ta  <- draws$Ta
+  tau <- draws$tau
+  per_row <- purrr::map(seq_along(draws$rows), \(r) {
+    d   <- draws$rows[[r]]
+    row <- draws$newdata[r, , drop = FALSE]
+    out <- list(
+      sctmax = dplyr::bind_rows(purrr::map(seq_along(p), \(i)
+        tibble::tibble(p = p[i], t_ref = draws$t_ref, .draw_summary(d$sctmax[[i]], prob)))),
+      tdt_curves = dplyr::bind_rows(purrr::map(seq_along(p), \(i)
+        tibble::tibble(p = p[i], Ta = Ta, .summarise_columns(d$tdt[[i]], prob)))),
+      ttl_surface = dplyr::bind_rows(purrr::map(seq_along(Ta), \(j)
+        tibble::tibble(Ta = Ta[j], tau = tau, .summarise_columns(d$surface[[j]], prob)))))
+    if (params)
+      out <- c(list(params = dplyr::bind_rows(purrr::imap(d$params, \(x, nm)
+        tibble::tibble(quantity = nm, .draw_summary(x, prob))))), out)
+    purrr::map(out, \(tbl) .with_newdata(row, tbl))
+  })
+  tables <- names(per_row[[1]])
+  purrr::map(stats::setNames(tables, tables),
+             \(tbl) dplyr::bind_rows(purrr::map(per_row, tbl)))
+}
+
+
 # derive_tdt_ttl() -------------------------------------------------------------
 
 #' Thermal tolerance derived from a fitted failure-rate model
@@ -806,98 +924,10 @@ M_draws <- function(fit, Ta, newdata = NULL, levels = NULL, n_draws = NULL) {
 derive_tdt_ttl <- function(fit, newdata = NULL, p = c(0.1, 0.5, 0.9), t_ref,
                            Ta = NULL, tau = NULL, levels = NULL, prob = 0.95,
                            n_draws = 1000) {
-  st <- .fit_settings(fit)
-  if (!is.numeric(p) || !length(p) || anyNA(p) || any(p <= 0 | p >= 1))
-    cli::cli_abort(c(
-      "{.arg p} must hold fractions of individuals failing, each strictly between 0 and 1.",
-      "x" = "You supplied {.val {p}}."
-    ), class = "rTFT_bad_p")
-  # t_ref has no default: its unit is that of the data the model was fitted to, which
-  # the fit does not record, and a default of 60 would silently mean 60 hours for a
-  # model fitted in hours.
-  if (missing(t_ref))
-    cli::cli_abort(c(
-      "Give {.arg t_ref}, the reference exposure time for sCTmax.",
-      "i" = "It is in the time unit of the data the model was fitted to, e.g. {.code t_ref = 60} for one hour when times are in minutes."
-    ), class = "rTFT_bad_t_ref")
-  if (!is.numeric(t_ref) || length(t_ref) != 1L || !is.finite(t_ref) || t_ref <= 0)
-    cli::cli_abort(c(
-      "{.arg t_ref} must be a single positive exposure time, in the time unit of the data the model was fitted to.",
-      "x" = "You supplied {.val {t_ref}}."
-    ), class = "rTFT_bad_t_ref")
+  if (missing(t_ref)) .stop_no_t_ref()
   .check_prob(prob)
-  if (is.null(newdata)) newdata <- data.frame(row.names = 1L)
-
-  # The grids default to the temperatures and elapsed times the data cover: 50
-  # temperatures evenly spaced, and 50 times evenly spaced on a log scale, since
-  # times to failure and survival change over orders of magnitude in time.
-  if (is.null(Ta))  Ta  <- seq(st$Ta_range[1], st$Ta_range[2], length.out = 50)
-  if (is.null(tau)) tau <- exp(seq(log(st$tau_range[1]), log(st$tau_range[2]),
-                                   length.out = 50))
-  if (!is.numeric(Ta) || !length(Ta) || !all(is.finite(Ta)))
-    cli::cli_abort("{.arg Ta} must be a numeric vector of finite temperatures.",
-                   class = "rTFT_bad_Ta")
-  if (!is.numeric(tau) || !length(tau) || !all(is.finite(tau)) || any(tau < 0))
-    cli::cli_abort(c(
-      "{.arg tau} must be a numeric vector of elapsed exposure times, none negative.",
-      "i" = "They are in the time unit of the data the model was fitted to."
-    ), class = "rTFT_bad_tau")
-
-  cs   <- st$costressors
-  pars <- c(M_catalogue[[st$m_form]]$dpars, h0_catalogue[[st$baseline]]$dpars,
-            .costressor_dpars(cs))
-  ids  <- .thin_ids(brms::ndraws(fit), n_draws)
-  nd   <- length(ids)
-  dr   <- .fit_draws(fit, pars, newdata, draw_ids = ids)
-  k    <- if (M_catalogue[[st$m_form]]$k_sw != 0) st$k_sw
-
-  # Check the co-stressor levels once, warning once about any the model does not
-  # have; after that only the levels in use are passed on, so the calculations for
-  # each row and each p do not repeat the warning.
-  .rate_setup(st$m_form, purrr::map(dr, \(m) m[, 1]), st$Tr, k, cs, levels)
-  cs_names <- vapply(cs, `[[`, character(1), "name")
-  levels   <- if (length(cs)) levels[cs_names]
-  z_at     <- stats::setNames(purrr::map(cs, \(x) .costressor_z(x, levels[[x$name]])),
-                              cs_names)
-  H0    <- H0_of(st$baseline)
-  H0inv <- H0inv_of(st$baseline)
-
-  per_row <- purrr::map(seq_len(nrow(newdata)), \(r) {
-    d  <- purrr::map(dr, \(m) m[, r])
-    bl <- .baseline_draws(st$baseline, d, nd)
-    q  <- .param_draws(st$m_form, st$baseline, d, cs, z_at)
-    params <- dplyr::bind_rows(purrr::imap(q, \(x, nm)
-      tibble::tibble(quantity = nm, .draw_summary(x, prob))))
-    sctmax <- dplyr::bind_rows(purrr::map(p, \(pp) {
-      target <- -log1p(-pp) / H0(t_ref, bl$shape, bl$scale)
-      x <- .sctmax_draws(st$m_form, d, target, st$Tr, k, cs, levels)
-      tibble::tibble(p = pp, t_ref = t_ref, .draw_summary(x, prob))
-    }))
-
-    # The thermal death time curves: for each p, the time until that fraction has
-    # failed at each temperature of the grid.
-    M <- .M_draws(st$m_form, d, Ta, st$Tr, k, cs, levels)
-    curves <- dplyr::bind_rows(purrr::map(p, \(pp)
-      tibble::tibble(p = pp, Ta = Ta,
-                     .summarise_columns(.tdt_draws(M, pp, H0inv, bl$shape, bl$scale), prob))))
-
-    # The thermal tolerance landscape: survival exp(-M(T) H0(tau)) over the grid of
-    # temperatures and elapsed times. H0(tau) is laid out one row per draw, and
-    # multiplying by the column of M at one temperature scales each draw's row by
-    # its own rate.
-    H0_tau  <- H0(matrix(tau, nd, length(tau), byrow = TRUE), bl$shape, bl$scale)
-    surface <- dplyr::bind_rows(purrr::map(seq_along(Ta), \(j)
-      tibble::tibble(Ta = Ta[j], tau = tau,
-                     .summarise_columns(exp(-M[, j] * H0_tau), prob))))
-
-    row <- newdata[r, , drop = FALSE]
-    list(params = .with_newdata(row, params), sctmax = .with_newdata(row, sctmax),
-         tdt_curves = .with_newdata(row, curves), ttl_surface = .with_newdata(row, surface))
-  })
-
-  out <- purrr::map(c(params = "params", sctmax = "sctmax", tdt_curves = "tdt_curves",
-                      ttl_surface = "ttl_surface"),
-                    \(tbl) dplyr::bind_rows(purrr::map(per_row, tbl)))
+  draws <- .derive_draws(fit, newdata, p, t_ref, Ta, tau, levels, n_draws)
+  out   <- .summarise_derived(draws, prob)
   .report_unreached(out)
   out
 }
