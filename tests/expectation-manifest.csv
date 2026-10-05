@@ -2,4 +2,4 @@ file,expectations
 test-discrete-time-hazard-brms.R,327
 test-derive-tdt-ttl.R,184
 test-plot-tdt-ttl.R,154
-test-loo-hazard.R,61
+test-loo-hazard.R,99

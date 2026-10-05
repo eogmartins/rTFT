@@ -199,3 +199,118 @@ test_that("loo_hazard needs a fit with its settings and a valid unit", {
   expect_error(loo_hazard(fit_trials, unit = "tank"), class = "rTFT_bad_unit")
   expect_error(loo_hazard(fit_exp, unit = "mass"), class = "rTFT_bad_unit")   # a covariate
 })
+
+
+# ===========================================================================
+# 3. Leave-one-unit-out by refitting (kfold_hazard)
+# ===========================================================================
+
+# Refitting takes minutes, so these tests replace the refit with a stand-in that
+# records what each refit would have been given and returns a known value per unit
+# left out: minus the unit's position among all the units. The fold logic and the
+# assembly are then checked exactly; the refit itself is the brms update() and
+# log_lik() already relied on, checked by hand and in the vignettes.
+stand_in_refit <- function(record) {
+  function(fit, data, train, unit_values, ...) {
+    record$calls[[length(record$calls) + 1]] <- list(
+      train = train, held_out = unique(as.character(unit_values[!train])),
+      args = list(...), from = fit$from)
+    held <- unique(as.character(unit_values[!train]))
+    # the "refit" is a stand-in object recording which fold made it
+    list(elpd = stats::setNames(-match(held, unique(as.character(unit_values))), held),
+         fit = list(from = length(record$calls)))
+  }
+}
+
+test_that(".log_mean_exp is the log of the mean, even for very negative values", {
+  x <- cbind(c(-1, -2, -3), c(-0.5, -0.5, -0.5))
+  expect_equal(.log_mean_exp(x), log(colMeans(exp(x))))
+  far <- cbind(c(-1000, -1001))                          # exp() of these is 0 in R
+  expect_equal(.log_mean_exp(far), -1000 + log(mean(exp(c(0, -1)))))
+})
+
+
+test_that(".assign_folds gives each unit a fold, as evenly as possible", {
+  units <- paste0("T", 1:8)
+  expect_equal(unname(.assign_folds(units, 8)), 1:8)     # one per unit
+  set.seed(3)
+  f <- .assign_folds(units, 3)
+  expect_equal(names(f), units)
+  expect_equal(sort(as.vector(table(f))), c(2, 3, 3))   # as even as possible
+  set.seed(3)
+  expect_equal(.assign_folds(units, 3), f)               # the same with the same seed
+})
+
+
+test_that("kfold_hazard refits once per trial, leaving each trial out in turn", {
+  record <- new.env()
+  record$calls <- list()
+  local_mocked_bindings(.refit_fold = stand_in_refit(record))
+  out <- suppressMessages(kfold_hazard(fit_trials))
+  expect_length(record$calls, 8)                         # one refit per trial
+  held <- vapply(record$calls, \(cl) cl$held_out, character(1))
+  expect_setequal(held, paste0("T", 1:8))                # each trial left out once
+  # each refit is given every row except the left-out trial's
+  trial <- as.character(fit_trials$data$trial)
+  for (cl in record$calls) expect_equal(cl$train, trial != cl$held_out)
+  # the first fold is refitted from the original fit, each later one from the refit
+  # before it, which saves compiling the model again
+  expect_null(record$calls[[1]]$from)
+  expect_equal(vapply(record$calls[-1], \(cl) cl$from, numeric(1)), 1:7)
+  # the result: one value per trial, their sum, and the standard error over trials
+  expect_s3_class(out, c("kfold", "loo"))
+  expect_equal(out$unit, "trial")
+  expect_equal(unname(out$pointwise[, "elpd_kfold"]), -(1:8))
+  expect_equal(unname(out$estimates["elpd_kfold", ]), c(-36, sqrt(8 * var(-(1:8)))))
+})
+
+
+test_that("kfold_hazard with K folds leaves out every unit exactly once", {
+  record <- new.env()
+  record$calls <- list()
+  local_mocked_bindings(.refit_fold = stand_in_refit(record))
+  set.seed(5)
+  out <- suppressMessages(kfold_hazard(fit_trials, K = 3))
+  expect_length(record$calls, 3)
+  held <- unlist(lapply(record$calls, \(cl) cl$held_out))
+  expect_setequal(held, paste0("T", 1:8))
+  expect_length(held, 8)                                 # none twice
+  expect_equal(sort(as.vector(table(out$folds))), c(2, 3, 3))
+  expect_equal(unname(out$pointwise[, "elpd_kfold"]), -(1:8))  # in the units' order
+})
+
+
+test_that("kfold_hazard uses loo_hazard's choice of unit, and passes options to the refits", {
+  record <- new.env()
+  record$calls <- list()
+  local_mocked_bindings(.refit_fold = stand_in_refit(record))
+  # each call gives several messages; the one checked is caught and the rest kept
+  # out of the test output
+  suppressMessages(
+    expect_message(kfold_hazard(fit_trials, K = 2, chains = 1), class = "rTFT_loo_unit"))
+  expect_equal(record$calls[[1]]$args, list(chains = 1))
+  suppressMessages(
+    expect_message(kfold_hazard(fit_trials, K = 2), class = "rTFT_kfold_progress"))
+  expect_warning(suppressMessages(kfold_hazard(fit_trials, unit = "id", K = 2)),
+                 class = "rTFT_loo_leak")
+})
+
+
+test_that("kfold_hazard needs a sensible number of folds", {
+  for (bad in list(1, 9, 2.5, "four", c(2, 3)))
+    expect_error(suppressMessages(kfold_hazard(fit_trials, K = bad)), class = "rTFT_bad_K")
+})
+
+
+test_that("two kfold_hazard results can be compared with loo_compare", {
+  record <- new.env()
+  record$calls <- list()
+  local_mocked_bindings(.refit_fold = stand_in_refit(record))
+  a <- suppressMessages(kfold_hazard(fit_trials, K = 2))
+  b <- a
+  b$pointwise[, "elpd_kfold"] <- b$pointwise[, "elpd_kfold"] - 0.5
+  b$estimates["elpd_kfold", "Estimate"] <- sum(b$pointwise[, "elpd_kfold"])
+  comparison <- loo::loo_compare(list(a = a, b = b))
+  expect_equal(rownames(comparison), c("a", "b"))
+  expect_equal(unname(comparison["b", "elpd_diff"]), -4)
+})

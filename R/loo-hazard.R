@@ -185,6 +185,24 @@
 }
 
 
+# .check_fit_rows() ------------------------------------------------------------
+
+# Check that the fit's record of which individual each row belongs to still lines
+# up with its data. `st$id` has one entry per row, each individual repeated once for
+# each of its rows. A different length means rows were dropped after the record was
+# made (brms drops rows with missing values in any variable the model uses), and
+# rows would be paired with the wrong individuals.
+.check_fit_rows <- function(st, data) {
+  if (length(st$id) != nrow(data))
+    cli::cli_abort(c(
+      "The fit's record of which individual each row belongs to does not match its data.",
+      "x" = "{length(st$id)} row{?s} recorded for {nrow(data)} row{?s} in the fitted data.",
+      "i" = "brms drops rows with missing values; remove them before fitting with {.fn fit_hazard}."
+    ), class = "rTFT_rows_mismatch")
+  invisible(st)
+}
+
+
 # ===========================================================================
 # 2. Leave-one-unit-out for a fitted model
 # ===========================================================================
@@ -222,8 +240,8 @@
 #'
 #' Leaving out a large unit can change the posterior too much for PSIS to stand in
 #' for refitting. Where the Pareto k diagnostic of any unit is above the threshold
-#' for the number of draws, a warning says so; the exact alternative is to refit
-#' the model with each unit left out.
+#' for the number of draws, a warning says so, and [kfold_hazard()] gives an exact
+#' estimate by refitting.
 #'
 #' Models compared with [loo::loo_compare()] must be cross-validated with the same
 #' unit.
@@ -252,20 +270,140 @@
 loo_hazard <- function(fit, unit = NULL) {
   st   <- .fit_settings(fit)
   data <- fit$data
-  # `st$id` holds the individual of each row of the fitted data, so it has one entry
-  # per row, each individual repeated once for each of its rows. A different length
-  # means rows were dropped after the record was made (brms drops rows with missing
-  # values in any variable the model uses), and rows would be paired with the wrong
-  # individuals.
-  if (length(st$id) != nrow(data))
-    cli::cli_abort(c(
-      "The fit's record of which individual each row belongs to does not match its data.",
-      "x" = "{length(st$id)} row{?s} recorded for {nrow(data)} row{?s} in the fitted data.",
-      "i" = "brms drops rows with missing values; remove them before fitting with {.fn fit_hazard}."
-    ), class = "rTFT_rows_mismatch")
+  .check_fit_rows(st, data)
   u <- .choose_unit(data, st$id, .grouping_terms(fit), unit)
 
   ll <- brms::log_lik(fit)
   chain_id <- rep(seq_len(brms::nchains(fit)), each = nrow(ll) / brms::nchains(fit))
   .loo_units(.sum_by_unit(ll, u$values), chain_id, u$name, u$label)
 }
+
+
+# ===========================================================================
+# 3. Leave-one-unit-out by refitting
+# ===========================================================================
+
+# .log_mean_exp() / .assign_folds() / .refit_fold() / .kfold_result() ----------
+
+# log(mean(exp(x))) for each column of a matrix, the log of a unit's predictive
+# density averaged over the draws. The column's largest value is taken out first, so
+# the exponentials neither overflow nor vanish for the very negative values a whole
+# trial's log-likelihood can reach.
+.log_mean_exp <- function(x) {
+  top <- apply(x, 2, max)
+  top + log(colMeans(exp(sweep(x, 2, top))))
+}
+
+# Assign each unit to one of K folds: a fold per unit when K is the number of units,
+# and otherwise at random, as evenly as possible. Returns the fold of each unit,
+# named by unit. Call set.seed() first for the same folds again.
+.assign_folds <- function(units, K) {
+  n <- length(units)
+  fold <- if (K == n) seq_len(n) else sample(rep_len(seq_len(K), n))
+  stats::setNames(fold, units)
+}
+
+# Refit the model to the rows in `train`, and return the log predictive density of
+# each unit left out, averaged over the refit's draws, together with the refit. A
+# unit's rows are summed within each draw before averaging, so the value is the
+# unit's joint predictive density, as loo_hazard() estimates it. A unit's
+# group-level effect is drawn from the fitted population distribution when the
+# unit's level was left out entirely, so a left-out trial is predicted as a new
+# trial.
+#
+# The refit is returned so the next fold can be refitted from it: a model loaded
+# from a saved file has lost its compiled code and is compiled again on refitting,
+# while a refit made in this session carries its compiled code, so refitting from
+# it compiles nothing.
+.refit_fold <- function(fit, data, train, unit_values, ...) {
+  refit <- stats::update(fit, newdata = data[train, , drop = FALSE], refresh = 0, ...)
+  ll <- brms::log_lik(refit, newdata = data[!train, , drop = FALSE],
+                      allow_new_levels = TRUE, sample_new_levels = "gaussian")
+  list(elpd = .log_mean_exp(.sum_by_unit(ll, unit_values[!train])), fit = refit)
+}
+
+# Assemble the result in the layout of a loo kfold object, so that
+# loo::loo_compare() can use it: the summed estimate with its standard error over 
+# the units, and one pointwise value per unit.
+.kfold_result <- function(elpd, unit, K, folds) {
+  n  <- length(elpd)
+  se <- sqrt(n * stats::var(elpd))
+  out <- list(
+    estimates = cbind(Estimate = c(elpd_kfold = sum(elpd), kfoldic = -2 * sum(elpd)),
+                      SE = c(elpd_kfold = se, kfoldic = 2 * se)),
+    pointwise = cbind(elpd_kfold = elpd, kfoldic = -2 * elpd),
+    unit = unit, K = K, folds = folds)
+  class(out) <- c("kfold", "loo")
+  out
+}
+
+# kfold_hazard() ---------------------------------------------------------------
+
+#' Cross-validation by refitting, leaving out whole individuals or groups
+#'
+#' Estimates how well a model fitted with [fit_hazard()] predicts data it was not
+#' fitted to, exactly, by refitting it with each unit left out in turn and
+#' predicting the unit from the refit. It answers the same question as
+#' [loo_hazard()], with the same choice of unit, but without its approximation: use
+#' it where [loo_hazard()] warns that PSIS cannot be trusted, which is typical when
+#' whole trials with a strong trial effect are left out.
+#'
+#' The units are split into `K` folds, and the model is refitted once per fold
+#' without that fold's units. A unit's rows are summed within each draw of the
+#' refit, so its value is its joint log predictive density, averaged over the
+#' draws. Where the unit's level of a group-level term was left out entirely (a
+#' whole trial), its effect is drawn from the fitted population distribution, so
+#' the trial is predicted as a new trial would be.
+#'
+#' The refits take time: one model fit per fold. With `K` smaller than the number
+#' of units, the units are assigned to folds at random; call [set.seed()] first to
+#' get the same folds again.
+#'
+#' @param fit A `brmsfit`, a model fitted with [fit_hazard()].
+#' @param unit An optional character string, the unit to leave out, as in
+#'   [loo_hazard()].
+#' @param K An optional single whole number, the number of folds, from 2 to the
+#'   number of units. `NULL` (the default) gives one fold per unit, leaving out each
+#'   unit on its own.
+#' @param ... Further arguments for the refits, passed to [brms::brm()] through
+#'   [stats::update()], such as `chains`, `iter` or `cores`.
+#' @return A `kfold` object in the layout of [loo::kfold()], with one pointwise value
+#'   per unit, which [loo::loo_compare()] accepts, and extra elements `unit` (its
+#'   name), `K`, and `folds` (the fold of each unit).
+#' @examples
+#' \dontrun{
+#' fit <- fit_hazard(long, "exp", dpar_formulas = list(loga = ~ 1 + (1 | trial)))
+#' cv  <- kfold_hazard(fit, cores = 4)       # one refit per trial
+#' }
+#' @export
+kfold_hazard <- function(fit, unit = NULL, K = NULL, ...) {
+  st   <- .fit_settings(fit)
+  data <- fit$data
+  .check_fit_rows(st, data)
+  u <- .choose_unit(data, st$id, .grouping_terms(fit), unit)
+
+  units <- unique(as.character(u$values))
+  n <- length(units)
+  if (is.null(K)) K <- n
+  if (!is.numeric(K) || length(K) != 1L || !is.finite(K) || K != round(K) ||
+      K < 2 || K > n)
+    cli::cli_abort(c(
+      "{.arg K} must be a whole number of folds from 2 to the number of units, {n}.",
+      "x" = "You supplied {.val {K}}."
+    ), class = "rTFT_bad_K")
+
+  folds <- .assign_folds(units, K)
+  row_fold <- unname(folds[as.character(u$values)])     # the fold of each row
+  elpd <- stats::setNames(numeric(n), units)
+  base <- fit                                            # refitted from, fold by fold
+  for (k in seq_len(K)) {
+    cli::cli_inform(
+      "Refitting without fold {k} of {K}: {sum(folds == k)} of the {n} units left out, one {u$label} each.",
+      class = "rTFT_kfold_progress")
+    fold <- .refit_fold(base, data, row_fold != k, u$values, ...)
+    elpd[names(fold$elpd)] <- fold$elpd
+    base <- fold$fit
+  }
+  .kfold_result(elpd, u$name, K, folds)
+}
+
