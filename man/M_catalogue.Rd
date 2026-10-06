@@ -50,6 +50,25 @@ critical temperature is zero on either side of it and undefined at the step
 itself, so the sampler gets no slope to move that temperature along, whereas a
 smooth switch supplies one.
 }
+\section{The units of M(T)}{
+
+The hazard is h0(tau) M(T), and which of the two factors carries the unit of
+reciprocal time depends on the baseline (see \link{h0_catalogue}). With the memoryless
+and Gompertz baselines h0(tau) has no unit, so M(T) is a rate per unit time, and
+a is the failure rate at the temperature where M(T) = a. With the Weibull and
+log-logistic baselines h0(tau) is itself per unit time, so M(T) is a multiplier
+with no unit; with the Weibull, a is the cumulative hazard reached over the
+reference time at that temperature. The value of a therefore cannot be compared
+between models with different baselines, nor between datasets timed in different
+units when the baseline is memoryless or Gompertz.
+
+Whatever the baseline, survival at a constant temperature is
+exp(-M(T) H0(tau)), with H0 the cumulative baseline hazard. \code{\link[=derive_tdt_ttl]{derive_tdt_ttl()}}
+derives the critical thermal maximum, the thermal death time curves and the
+thermal tolerance landscape from that expression, and those can be compared
+between models.
+}
+
 \references{
 Kingsolver, J. G. and Umbanhowar, J. (2018). The analysis and interpretation
 of critical temperatures. Journal of Experimental Biology 221, jeb167858.

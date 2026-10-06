@@ -38,6 +38,12 @@ especially \code{max_dev_hot}, the worst deviation in the upper temperature quar
 where the failure rate M(T) is steepest) are small relative to \code{log(10) / b}, the
 number of degrees for a tenfold change in an exponential M(T): half that distance
 already multiplies M(T) by \code{sqrt(10)}, about threefold.
+
+That distance is not always the z that \code{\link[=derive_tdt_ttl]{derive_tdt_ttl()}} reports. z is the
+number of degrees for a tenfold change in the time to failure, \verb{k log(10) / b},
+with k the shape of a Weibull baseline. The two are the same under the memoryless
+baseline, where k = 1, and differ by the factor k under a Weibull one. Judge the
+deviations against \code{log(10) / b}, not against a reported z.
 }
 \examples{
 # A logged temperature series close to a 0.3 degree/min ramp, with a small mid-run wobble.

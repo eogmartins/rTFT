@@ -1,5 +1,30 @@
 # derive-tdt-ttl.R
 
+# Functions to derive thermal tolerance from a fitted failure-rate model, with the
+# posterior uncertainty carried through. Nothing here is fitted: survival to an
+# elapsed exposure tau at a constant temperature T is S(tau, T) = exp(-M(T) H0(tau)),
+# and every quantity reported is read off that expression, one posterior draw at a
+# time. The failure rate M(T) is evaluated from the same log M(T) expression the
+# model was fitted with, and the cumulative baseline hazard H0 and its inverse have
+# closed forms. The quantities are the model's parameters on their natural scale,
+# the static critical thermal maximum sCTmax (the constant temperature at which a
+# given fraction fail within a reference time), the thermal death time (TDT) curves
+# (the time until a given fraction have failed, against temperature) and the
+# thermal tolerance landscape (survival over temperature and elapsed time).
+#
+# The path is derive_tdt_ttl(), which calls .derive_draws() to compute the posterior
+# draws of every quantity and .summarise_derived() to reduce them to a median and a
+# credible interval. The sections below build up to it: the baseline cumulative
+# hazard, the failure rate for each draw, the summaries, sCTmax by bisection, and
+# the reading of draws out of a fitted model at chosen covariate values. A draw
+# that never reaches a quantity counts as infinite and is kept in the summaries.
+# M_draws() returns the fitted failure rate itself, and H0_of() and H0inv_of() the
+# baseline cumulative hazard and its inverse.
+#
+# "Thermal death time" is the literature's name for that curve, kept here so the
+# package connects to it, whatever the failure endpoint: loss of equilibrium,
+# knockdown or death. Everywhere else the package speaks of failure.
+
 # ===========================================================================
 # 1. Baseline cumulative hazard H0(tau) and its inverse
 # ===========================================================================
@@ -12,7 +37,9 @@
 #   gompertz  h0 = e^(g tau)            H0(tau) = (e^(g tau) - 1)/g    H0^-1(x) = log(1 + g x)/g
 #
 # Shape (k) and scale (s) arrive as per-draw vectors; tau or x may be a vector or a
-# matrix whose rows are draws, and recycle column-wise over draws. The Gompertz shape
+# matrix whose rows are draws, and recycle column-wise over draws. The Weibull scale
+# is not estimated: it is the reference time tau_ref, the same for every draw, so
+# its H0 is 1 at tau_ref. The Gompertz shape
 # holds its rate constant gamma in the first slot and ignores the second, because
 # its amplitude is loga in M(T) rather than a parameter of its own.
 #
