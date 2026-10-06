@@ -7,3 +7,4 @@ test-average-tdt-ttl.R,90
 test-predict-survival.R,93
 test-plot-survival.R,84
 test-check-hazard.R,66
+test-plot-check.R,29
