@@ -66,6 +66,10 @@ families need, and hands it all to \link[brms:brm]{brms::brm}. Anything in \code
 \code{brm} (chains, iterations, cores, backend, initial values, and so on).
 }
 \details{
+A missing value in any variable the model uses is an error. brms would drop the
+rows concerned without saying so, leaving some individuals with only part of
+their exposure, so remove those individuals or fill in the values first.
+
 Before fitting, the temperature is checked against the reference \code{Tr} for the
 failure rates that take a logarithm or fractional power of \code{Ta - Tr} (\code{zeroexp},
 \code{power}, \code{zeropower}): these are undefined where the temperature reaches \code{Tr}

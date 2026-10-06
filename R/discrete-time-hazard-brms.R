@@ -1478,6 +1478,26 @@ build_hazard_prior <- function(m_form, baseline = "mem", dpar_formulas = list(),
   ), class = "rTFT_no_tau_ref")
 }
 
+# .check_no_missing() ----------------------------------------------------------
+
+# Fail before fitting if any variable the model uses has a missing value. brms
+# drops such rows without saying so, and the fit would then rest on fewer rows than
+# the table it was given, with part of some individuals' exposure history gone.
+.check_no_missing <- function(long, formula) {
+  used <- unique(c(all.vars(formula$formula),
+                   unlist(purrr::map(formula$pforms, all.vars))))
+  used <- intersect(used, names(long))
+  n_missing <- vapply(long[used], \(x) sum(is.na(x)), numeric(1))
+  with_missing <- used[n_missing > 0]
+  if (!length(with_missing)) return(invisible(NULL))
+  n_rows <- sum(!stats::complete.cases(long[with_missing]))
+  cli::cli_abort(c(
+    "{.arg long} has missing values in {cli::qty(length(with_missing))}{?a column/columns} the model uses: {.field {with_missing}}.",
+    "x" = "{n_rows} of {nrow(long)} row{?s} {cli::qty(n_rows)}{?has/have} a missing value.",
+    "i" = "Remove the individuals concerned, or fill in the values, before fitting; a model cannot be fitted to part of an individual's exposure."
+  ), class = "rTFT_missing_values")
+}
+
 # .hazard_brm_args() -----------------------------------------------------------
 
 # Assemble the argument list for brms::brm(), everything fit_hazard() does except
@@ -1492,6 +1512,7 @@ build_hazard_prior <- function(m_form, baseline = "mem", dpar_formulas = list(),
   .check_tau_ref(long)
   spec <- build_hazard_spec(m_form, baseline, dpar_formulas, observation,
                             k_sw = k_sw, costressors = costressors)
+  .check_no_missing(long, spec$formula)
 
   # Build the default prior only when none is supplied, forwarding the override
   # arguments; slope_prior / sd_prior are passed on only when set, so their default
@@ -1565,6 +1586,10 @@ build_hazard_prior <- function(m_form, baseline = "mem", dpar_formulas = list(),
 #' [build_hazard_prior] (unless you supply your own), selects the Stan code the custom
 #' families need, and hands it all to [brms::brm]. Anything in `...` is forwarded to
 #' `brm` (chains, iterations, cores, backend, initial values, and so on).
+#'
+#' A missing value in any variable the model uses is an error. brms would drop the
+#' rows concerned without saying so, leaving some individuals with only part of
+#' their exposure, so remove those individuals or fill in the values first.
 #'
 #' Before fitting, the temperature is checked against the reference `Tr` for the
 #' failure rates that take a logarithm or fractional power of `Ta - Tr` (`zeroexp`,

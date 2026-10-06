@@ -897,6 +897,34 @@ test_that("the family and stanvars follow the observation mode", {
 })
 
 
+test_that("missing values in a variable the model uses are refused", {
+  with_na <- function(column, rows = 2) {
+    out <- long_int
+    if (!column %in% names(out)) out[[column]] <- seq_len(nrow(out))
+    out[[column]][rows] <- NA
+    out
+  }
+  # the temperature and the exposure are used by every model
+  expect_error(.hazard_brm_args(with_na("Ta"), "exp"), class = "rTFT_missing_values")
+  expect_error(.hazard_brm_args(with_na("log_exposure"), "exp"), class = "rTFT_missing_values")
+  # elapsed time only by a baseline that depends on it
+  expect_no_error(.hazard_brm_args(with_na("log_tau"), "exp", "mem"))
+  expect_error(.hazard_brm_args(with_na("log_tau"), "exp", "weibull"),
+               class = "rTFT_missing_values")
+  # a covariate or a grouping only where a parameter's formula has it
+  expect_no_error(.hazard_brm_args(with_na("mass"), "exp"))
+  expect_error(.hazard_brm_args(with_na("mass"), "exp", dpar_formulas = list(loga = ~ 1 + mass)),
+               class = "rTFT_missing_values")
+  expect_error(.hazard_brm_args(with_na("trial"), "exp",
+                                dpar_formulas = list(loga = ~ 1 + (1 | trial))),
+               class = "rTFT_missing_values")
+  # the message names the columns and counts the rows, each row once
+  both <- with_na("Ta", rows = 1:2); both$log_exposure[2:3] <- NA
+  expect_error(.hazard_brm_args(both, "exp"), "3 of [0-9]+ rows", class = "rTFT_missing_values")
+  expect_error(.hazard_brm_args(both, "exp"), "Ta.*log_exposure", class = "rTFT_missing_values")
+})
+
+
 test_that("the default prior is built when none is supplied, and a supplied prior is used as-is", {
   a <- .hazard_brm_args(long_int, "exp")                 # default prior built
   expect_equal(a$prior$prior[a$prior$nlpar == "loga" & a$prior$coef == "Intercept"],
