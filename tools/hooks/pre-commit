@@ -43,7 +43,7 @@ if printf '%s\n' "$staged" | grep -qE '^(R/|DESCRIPTION$)'; then
     echo "  checked. Install it rather than committing past this."
     exit 1
   fi
-  if ! Rscript -e 'suppressMessages(roxygen2::roxygenise(load_code = "source"))' >/dev/null; then
+  if ! Rscript -e 'suppressMessages(roxygen2::roxygenise(load_code = "pkgload"))' >/dev/null; then
     echo "pre-commit: roxygenise() failed. Commit aborted."
     exit 1
   fi
