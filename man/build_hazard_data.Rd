@@ -60,10 +60,14 @@ is always kept, so an individual-level grouping term needs no entry here.}
 functions can form \code{Ta - Tr}. It is a single model reference, not the
 per-trial starting temperature (see \link{M_catalogue}); the per-trial starts live
 in the temperature trajectories (\code{path}). For the forms that take a logarithm or
-fractional power of \code{Ta - Tr} (\code{zeroexp}, \code{power}, \code{zeropower}) it must lie at
-or below the minimum temperature in the data, so it defaults (\code{NULL}) to the
-coldest temperature in \code{path}. It must be set to a common value across datasets
-when comparing \code{loga}, whose meaning is anchored at \code{Tr}.}
+fractional power of \code{Ta - Tr} (\code{zeroexp}, \code{power}, \code{zeropower}) it is the
+temperature at which the rate is zero (or, for \code{power}, falls to its baseline),
+so it must be given, at or below the coldest temperature in the data. Otherwise
+it defaults (\code{NULL}) to the median temperature at which failures were observed,
+which places \code{loga} where the data are and keeps it from being tied to the
+thermal sensitivity b; a reference far from the failures makes the two hard to
+tell apart. It must be set to a common value across datasets when comparing
+\code{loga}, whose meaning is anchored at \code{Tr}.}
 
 \item{tau_ref}{A single positive number, the reference time, in the time unit of
 the data, written to a constant \code{tau_ref} column. The scale of the \code{weibull}

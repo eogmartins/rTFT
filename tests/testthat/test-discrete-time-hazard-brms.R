@@ -453,10 +453,21 @@ test_that("the output columns and their derived quantities are correct", {
 })
 
 
-test_that("Tr defaults to the coldest path temperature and can be overridden", {
-  ind <- data.frame(id = 1, path_id = "A", event = 1, t_upper = 30)
+test_that("Tr defaults to the median temperature at failure and can be overridden", {
+  # the ramp is 20 + 0.25 t; failures found at the 30, 40 and 60 minute checks fall
+  # in intervals whose midpoints are at 26.25, 28.75 and 33.75 degrees
+  ind <- data.frame(id = 1:4, path_id = "A", event = c(1, 1, 1, 0), t_upper = c(30, 40, 60, 60))
   out_def <- build_hazard_data(ind, ramp_traj, "interval", checks = ramp_checks)
-  expect_true(all(out_def$Tr == 20))                    # min(ramp_traj$temp)
+  expect_true(all(out_def$Tr == 28.75))                 # the survivor does not count
+  expect_equal(.typical_failure_temp(out_def), 28.75)
+  # with no failures, the median over every interval at risk stands in
+  none <- build_hazard_data(transform(ind, event = 0), ramp_traj, "interval",
+                            checks = ramp_checks)
+  expect_equal(unique(none$Tr), stats::median(none$Ta))
+  # a zero-type rate cannot use that default: the reference must be given
+  expect_error(.hazard_brm_args(out_def, "zeroexp"), class = "rTFT_Tr_below_data")
+  cold <- build_hazard_data(ind, ramp_traj, "interval", checks = ramp_checks, Tr = 19)
+  expect_no_error(.hazard_brm_args(cold, "zeroexp"))
 
   out_15 <- build_hazard_data(ind, ramp_traj, "interval", checks = ramp_checks, Tr = 15)
   expect_true(all(out_15$Tr == 15))                     # a constant column at the set value
@@ -708,12 +719,16 @@ test_that("build_hazard_spec returns the formula, family, and observation", {
 # The prior string for a parameter's intercept, covariate slope, or random-effect sd
 # (an intercept has coef "Intercept"; a slope and an sd have the empty coef).
 icpt_of  <- function(p, dp) p$prior[p$class == "b"  & p$coef == "Intercept" & p$nlpar == dp]
+# The least a table needs for the default priors: its reference time and
+# temperature, and a failure at the temperature failures are typical of.
+prior_long <- function(tau_ref = 60, Tr = 28, T_fail = 28)
+  data.frame(Ta = T_fail, failed = 1L, Tr = Tr, tau_ref = tau_ref)
 slope_of <- function(p, dp) p$prior[p$class == "b"  & p$coef == ""          & p$nlpar == dp]
 sd_of    <- function(p, dp) p$prior[p$class == "sd" & p$nlpar == dp]
 
 
 test_that("build_hazard_prior returns a brmsprior with an intercept per needed parameter", {
-  p <- build_hazard_prior("exp", "mem", tau_ref = 60)
+  p <- build_hazard_prior("exp", "mem", long = prior_long())
   expect_s3_class(p, "brmsprior")
   # exp + mem needs loga and logb, and nothing else
   ib <- p[p$class == "b" & p$coef == "Intercept", ]
@@ -722,48 +737,108 @@ test_that("build_hazard_prior returns a brmsprior with an intercept per needed p
 
 
 test_that("the default intercept priors match the documented values", {
-  p1 <- build_hazard_prior("power", "mem", tau_ref = 60)               # loga, logb, logc
+  p1 <- build_hazard_prior("power", "mem", long = prior_long())       # loga, logb, logc
   expect_equal(icpt_of(p1, "loga"), "normal(-5.094, 2)")      # normal(-1 - log(60), 2)
   expect_equal(icpt_of(p1, "logb"), "normal(-0.7, 1)")
-  expect_equal(icpt_of(p1, "logc"), "normal(-5.094, 2)")      # as loga
+  expect_equal(icpt_of(p1, "logc"), "normal(-8.7, 2)")        # normal(log(0.01) - log(60), 2)
 
-  p2 <- build_hazard_prior("exp_threshold", "llogis", tau_ref = 60)    # + Tc, logshape, logscale
-  expect_equal(icpt_of(p2, "Tc"), "normal(30, 3)")
+  p2 <- build_hazard_prior("exp_threshold", "llogis", long = prior_long())   # + Tc, shape, scale
+  expect_equal(icpt_of(p2, "Tc"), "normal(28, 3)")            # at the failures
   expect_equal(icpt_of(p2, "logshape"), "normal(0, 1)")
   expect_equal(icpt_of(p2, "logscale"), "normal(4.094, 1)")   # normal(log(60), 1)
   # the Weibull scale is fixed, so it has no prior
-  expect_false("logscale" %in% build_hazard_prior("exp", "weibull", tau_ref = 60)$nlpar)
+  expect_false("logscale" %in% build_hazard_prior("exp", "weibull", long = prior_long())$nlpar)
 
-  p3 <- build_hazard_prior("const", "gompertz", tau_ref = 60)          # loga, gam
+  p3 <- build_hazard_prior("const", "gompertz", long = prior_long())  # loga, gam
   expect_equal(icpt_of(p3, "gam"), "normal(0, 0.05)")         # normal(0, 3 / 60)
 })
 
 
+centre <- function(p, par) as.numeric(sub("normal\\(([^,]+),.*", "\\1", icpt_of(p, par)))
+spread <- function(p, par) as.numeric(sub(".*, ([^)]+)\\)", "\\1", icpt_of(p, par)))
+
 test_that("the priors that depend on time are scaled by the reference time", {
   # an hour-long exposure timed in minutes, in hours, and a ten-hour one in minutes
-  centre <- function(p, par) as.numeric(sub("normal\\(([^,]+),.*", "\\1", icpt_of(p, par)))
-  spread <- function(p, par) as.numeric(sub(".*, ([^)]+)\\)", "\\1", icpt_of(p, par)))
   for (tau_ref in c(60, 1, 600)) {
-    mem <- build_hazard_prior("power", "mem", tau_ref = tau_ref)
+    mem <- build_hazard_prior("power", "mem", long = prior_long(tau_ref))
     expect_equal(centre(mem, "loga"), -1 - log(tau_ref), tolerance = 1e-3)
-    expect_equal(centre(mem, "logc"), -1 - log(tau_ref), tolerance = 1e-3)
-    gom <- build_hazard_prior("exp", "gompertz", tau_ref = tau_ref)
+    expect_equal(centre(mem, "logc"), log(0.01) - log(tau_ref), tolerance = 1e-3)
+    gom <- build_hazard_prior("exp", "gompertz", long = prior_long(tau_ref))
     expect_equal(centre(gom, "loga"), -1 - log(tau_ref), tolerance = 1e-3)
     expect_equal(spread(gom, "gam"), 3 / tau_ref, tolerance = 1e-3)
-    llo <- build_hazard_prior("exp", "llogis", tau_ref = tau_ref)
+    llo <- build_hazard_prior("exp", "llogis", long = prior_long(tau_ref))
     expect_equal(centre(llo, "logscale"), log(tau_ref), tolerance = 1e-3)
     # with the Weibull and log-logistic, a has no time unit and its prior does not move
     expect_equal(icpt_of(llo, "loga"), "normal(-1, 2)")
-    expect_equal(icpt_of(build_hazard_prior("exp", "weibull", tau_ref = tau_ref), "loga"),
-                 "normal(-1, 2)")
+    expect_equal(icpt_of(build_hazard_prior("exp", "weibull", long = prior_long(tau_ref)),
+                         "loga"), "normal(-1, 2)")
+    expect_equal(icpt_of(build_hazard_prior("power", "weibull", long = prior_long(tau_ref)),
+                         "logc"), "normal(-4.605, 2)")           # normal(log(0.01), 2)
   }
   # what does not depend on time is left alone
-  expect_equal(icpt_of(build_hazard_prior("exp", "mem", tau_ref = 600), "logb"),
+  expect_equal(icpt_of(build_hazard_prior("exp", "mem", long = prior_long(600)), "logb"),
                "normal(-0.7, 1)")
-  for (bad in list(0, -1, c(1, 2), "60", NA_real_))
-    expect_error(build_hazard_prior("exp", tau_ref = bad), class = "rTFT_bad_tau_ref")
-  # and it has no default: a prior cannot be scaled without it
-  expect_error(build_hazard_prior("exp"), class = "rTFT_bad_tau_ref")
+})
+
+
+test_that(".loga_prior carries the prior from the failures back to the reference", {
+  b_median <- exp(-0.7)
+  b_sd     <- sqrt((exp(1) - 1) * exp(2 * -0.7 + 1))
+  # at the failures it is the prior stated there
+  expect_equal(.loga_prior("exp", -1, 0), list(centre = -1, sd = 2))
+  # the exponential rate: log M at the failures is loga + b d
+  far <- .loga_prior("exp", -1, 14.3)
+  expect_equal(far$centre, -1 - b_median * 14.3)
+  expect_equal(far$sd, sqrt(4 + (14.3 * b_sd)^2))
+  # a reference above the failures moves the centre the other way, as wide
+  above <- .loga_prior("exp", -1, -5)
+  expect_equal(above$centre, -1 + b_median * 5)
+  expect_equal(above$sd, sqrt(4 + (5 * b_sd)^2))
+  # the zero-type exponential: loga + log(exp(b d) - 1), close to exp far away
+  zero <- .loga_prior("zeroexp", -1, 14.3)
+  expect_equal(zero$centre, -1 - log(expm1(b_median * 14.3)))
+  expect_equal(zero$centre, far$centre, tolerance = 1e-3)
+  expect_gt(zero$sd, far$sd)
+  # the power-type rates: loga + b log(d), a much gentler dependence
+  pw <- .loga_prior("zeropower", -1, 14.3)
+  expect_equal(pw$centre, -1 - b_median * log(14.3))
+  expect_equal(pw$sd, sqrt(4 + (log(14.3) * b_sd)^2))
+  expect_equal(.loga_prior("power", -1, 14.3), pw)
+  # the rates that do not use the reference are left as stated
+  for (form in c("const", "exp_threshold", "zeroexp_threshold", "zeropower_threshold"))
+    expect_equal(.loga_prior(form, -1, 14.3), list(centre = -1, sd = 2))
+})
+
+
+test_that("the priors on loga and Tc follow where the failures are", {
+  # failures at 28 degrees, the reference 14 degrees below them
+  far <- build_hazard_prior("exp", "weibull", long = prior_long(Tr = 14, T_fail = 28))
+  expect_equal(centre(far, "loga"), -1 - exp(-0.7) * 14, tolerance = 1e-3)
+  expect_gt(spread(far, "loga"), 15)
+  # at the failures, the usual prior
+  near <- build_hazard_prior("exp", "weibull", long = prior_long(Tr = 28, T_fail = 28))
+  expect_equal(icpt_of(near, "loga"), "normal(-1, 2)")
+  # the critical temperature is centred at the failures, whatever the organism
+  for (T_fail in c(22, 28, 40))
+    expect_equal(icpt_of(build_hazard_prior("exp_threshold",
+                                            long = prior_long(Tr = 14, T_fail = T_fail)), "Tc"),
+                 sprintf("normal(%d, 3)", T_fail))
+  # and loga of a threshold function does not depend on the reference
+  expect_equal(icpt_of(build_hazard_prior("exp_threshold", "weibull",
+                                          long = prior_long(Tr = 14, T_fail = 28)), "loga"),
+               "normal(-1, 2)")
+})
+
+
+test_that("build_hazard_prior needs the table the prior is for", {
+  expect_error(build_hazard_prior("exp"), class = "rTFT_no_prior_data")
+  expect_error(build_hazard_prior("exp", long = 60), class = "rTFT_no_prior_data")
+  expect_error(build_hazard_prior("exp", long = prior_long()[c("Ta", "failed", "Tr")]),
+               class = "rTFT_no_prior_data")
+  # the table from build_hazard_data() is all it needs
+  ind <- data.frame(id = 1:2, path_id = "A", event = c(1, 0), t_upper = c(30, 60))
+  expect_no_error(build_hazard_prior(
+    "exp", long = build_hazard_data(ind, ramp_traj, "interval", checks = ramp_checks)))
 })
 
 
@@ -782,7 +857,7 @@ test_that("fit_hazard scales the default priors by the reference time of the dat
 
 test_that("slope and sd priors are added only when the parameter has those terms", {
   p <- build_hazard_prior("exp", "mem",
-         dpar_formulas = list(loga = ~ 1 + acclim, logb = ~ 1 + (1 | trial)), tau_ref = 60)
+         dpar_formulas = list(loga = ~ 1 + acclim, logb = ~ 1 + (1 | trial)), long = prior_long())
   # loga has a covariate: a slope prior, no sd prior
   expect_equal(slope_of(p, "loga"), "normal(0, 1)")
   expect_length(sd_of(p, "loga"), 0)
@@ -790,14 +865,14 @@ test_that("slope and sd priors are added only when the parameter has those terms
   expect_equal(sd_of(p, "logb"), "exponential(2)")
   expect_length(slope_of(p, "logb"), 0)
   # with neither, there are no slope or sd rows at all (only intercepts)
-  p0 <- build_hazard_prior("exp", "mem", tau_ref = 60)
+  p0 <- build_hazard_prior("exp", "mem", long = prior_long())
   expect_equal(nrow(p0[p0$coef == "" & p0$class %in% c("b", "sd"), ]), 0L)
 })
 
 
 test_that("intercept_priors override the named centres and leave the rest default", {
   p <- build_hazard_prior("exp_threshold", "llogis",
-         intercept_priors = list(Tc = "normal(26, 4)", loga = "normal(-6, 1.5)"), tau_ref = 60)
+         intercept_priors = list(Tc = "normal(26, 4)", loga = "normal(-6, 1.5)"), long = prior_long())
   expect_equal(icpt_of(p, "Tc"),   "normal(26, 4)")       # overridden
   expect_equal(icpt_of(p, "loga"), "normal(-6, 1.5)")     # overridden
   expect_equal(icpt_of(p, "logb"), "normal(-0.7, 1)")     # untouched default
@@ -808,24 +883,24 @@ test_that("intercept_priors override the named centres and leave the rest defaul
 test_that("slope_prior and sd_prior override the generic slope and sd priors", {
   p <- build_hazard_prior("exp", "mem",
          dpar_formulas = list(loga = ~ 1 + acclim, logb = ~ 1 + (1 | trial)),
-         slope_prior = "normal(0, 0.5)", sd_prior = "exponential(3)", tau_ref = 60)
+         slope_prior = "normal(0, 0.5)", sd_prior = "exponential(3)", long = prior_long())
   expect_equal(slope_of(p, "loga"), "normal(0, 0.5)")
   expect_equal(sd_of(p, "logb"), "exponential(3)")
 })
 
 
 test_that("intercept_priors is validated: unnamed errors, an unused name warns", {
-  expect_error(build_hazard_prior("exp", intercept_priors = list("normal(0, 1)"), tau_ref = 60),
+  expect_error(build_hazard_prior("exp", intercept_priors = list("normal(0, 1)"), long = prior_long()),
                class = "rTFT_bad_intercept_priors")
   # Tc is not a parameter of the plain exponential form
-  expect_warning(build_hazard_prior("exp", intercept_priors = list(Tc = "normal(1, 1)"), tau_ref = 60),
+  expect_warning(build_hazard_prior("exp", intercept_priors = list(Tc = "normal(1, 1)"), long = prior_long()),
                  class = "rTFT_unused_intercept_prior")
 })
 
 
 test_that("build_hazard_prior rejects an unknown m_form or baseline", {
-  expect_error(build_hazard_prior("nope", tau_ref = 60), class = "rTFT_unknown_m_form")
-  expect_error(build_hazard_prior("exp", baseline = "nope", tau_ref = 60), class = "rTFT_unknown_baseline")
+  expect_error(build_hazard_prior("nope", long = prior_long()), class = "rTFT_unknown_m_form")
+  expect_error(build_hazard_prior("exp", baseline = "nope", long = prior_long()), class = "rTFT_unknown_baseline")
 })
 
 
@@ -848,7 +923,7 @@ test_that("a grouping helper term with inner parentheses is still one random eff
   expect_true(.has_re(f))                          # the group is recognised
   expect_true(.has_slopes(f))                      # acclim is still a fixed slope
   # and it flows through to the prior: both an sd prior and the slope prior appear
-  p <- build_hazard_prior("exp", dpar_formulas = list(loga = f), tau_ref = 60)
+  p <- build_hazard_prior("exp", dpar_formulas = list(loga = f), long = prior_long())
   expect_equal(sd_of(p, "loga"), "exponential(2)")
   expect_equal(slope_of(p, "loga"), "normal(0, 1)")
 })
@@ -1220,16 +1295,16 @@ test_that("co-stressor coefficients get a sub-formula, and dpar_formulas can tar
 
 
 test_that("build_hazard_prior sets the co-stressor coefficient priors", {
-  p <- build_hazard_prior("exp", costressors = list(do_cs), tau_ref = 60)
+  p <- build_hazard_prior("exp", costressors = list(do_cs), long = prior_long())
   expect_equal(icpt_of(p, "cDO"), "normal(0, 1)")      # main effect, wider
   expect_equal(icpt_of(p, "dTDO"), "normal(0, 0.5)")   # interaction, tighter
   # interaction off: no dTDO prior at all
   do_noint <- costressor("DO", "do", 8.5, 1, -1, interaction = FALSE)
-  p0 <- build_hazard_prior("exp", costressors = list(do_noint), tau_ref = 60)
+  p0 <- build_hazard_prior("exp", costressors = list(do_noint), long = prior_long())
   expect_length(icpt_of(p0, "dTDO"), 0)
   # and intercept_priors overrides a co-stressor coefficient
   p2 <- build_hazard_prior("exp", costressors = list(do_cs),
-                           intercept_priors = list(cDO = "normal(0, 2)"), tau_ref = 60)
+                           intercept_priors = list(cDO = "normal(0, 2)"), long = prior_long())
   expect_equal(icpt_of(p2, "cDO"), "normal(0, 2)")
 })
 

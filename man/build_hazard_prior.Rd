@@ -12,7 +12,7 @@ build_hazard_prior(
   slope_prior = "normal(0, 1)",
   sd_prior = "exponential(2)",
   costressors = list(),
-  tau_ref
+  long
 )
 }
 \arguments{
@@ -42,12 +42,11 @@ applied to each parameter that has one. Defaults to \code{"exponential(2)"}.}
 \link{build_hazard_spec}. Each adds an intercept prior for its main effect and, when
 the temperature interaction is kept, its interaction coefficient. Defaults to none.}
 
-\item{tau_ref}{A single positive number, the reference time the defaults for
-\code{loga}, \code{logc}, \code{logscale} and \code{gam} are scaled by, in the time unit of the data.
-It has no default: give the reference time of the data the prior is for, the
-constant \code{tau_ref} column \link{build_hazard_data} writes, e.g.
-\code{tau_ref = long$tau_ref[1]}. \code{\link[=fit_hazard]{fit_hazard()}} does this itself when it builds the
-default prior.}
+\item{long}{A data frame, the row-per-interval table from \link{build_hazard_data}
+that the prior is for. The defaults read from it the reference time \code{tau_ref},
+the reference temperature \code{Tr} and the temperatures at which failures were
+observed. It has no default. \code{\link[=fit_hazard]{fit_hazard()}} passes its own table when it builds
+the default prior.}
 }
 \value{
 A \code{brmsprior}.
@@ -66,59 +65,87 @@ standard-deviation priors through \code{slope_prior} and \code{sd_prior}; or rep
 whole set with your own \code{prior} when fitting with \code{\link[=fit_hazard]{fit_hazard()}}.
 }
 \details{
-The default intercept priors, all weakly-informative and meant to be changed to
-suit your study, are:
+The defaults take three things from the data in \code{long}, so that they say the same
+thing whatever the organism, the time unit and the length of the exposures: the
+reference time \code{tau_ref}, the reference temperature \code{Tr}, and the median
+temperature at which failures were observed, T_f. They are weakly-informative and
+meant to be changed to suit your study:
 \itemize{
-\item \code{loga ~ normal(-1 - log(tau_ref), 2)} with the memoryless or Gompertz baseline,
-\code{normal(-1, 2)} with the Weibull or log-logistic -- log amplitude
+\item \code{loga} -- log amplitude. Stated where the failures are: at T_f, the cumulative
+hazard reached over \code{tau_ref} is centred at exp(-1), about 0.37, with a standard
+deviation of 2 on the log scale (about 0.007 to 20). With the memoryless and
+Gompertz baselines a is a rate per unit time, so that centre is
+-1 - log(tau_ref); with the Weibull and log-logistic it is -1. The prior is then
+carried from T_f back to the temperature a refers to (see below).
 \item \code{logb ~ normal(-0.7, 1)} -- log temperature sensitivity
-\item \code{logc}, as \code{loga} -- log baseline term of the power form
-\item \code{Tc ~ normal(30, 3)} -- critical temperature
+\item \code{logc} -- log baseline term of the power function (see below)
+\item \code{Tc ~ normal(T_f, 3)} -- critical temperature, centred where failures were
+observed
 \item \code{logshape ~ normal(0, 1)} -- log Weibull / log-logistic shape
 \item \code{logscale ~ normal(log(tau_ref), 1)} -- log log-logistic scale
-\item \code{gam ~ normal(0, 3 / tau_ref)} -- Gompertz rate
+\item \code{gam ~ normal(0, 3 / tau_ref)} -- Gompertz rate: the baseline hazard changes by
+a factor of exp(gamma tau_ref) across the reference time, within about 400-fold
+either way with 95\% probability. It is centred at zero, the memoryless case, so
+unless the data show a trend the fit stays near a flat baseline.
 }
 
 with \code{normal(0, 1)} on any covariate slope and \code{exponential(2)} on any
 random-effect standard deviation. Each co-stressor in \code{costressors} adds a
 \code{normal(0, 1)} on its main effect \verb{c<name>} and a tighter \code{normal(0, 0.5)} on its
 temperature interaction \verb{dT<name>}, both overridable through \code{intercept_priors}.
+}
+\section{The prior on a when the reference is far from the failures}{
 
-Four of these depend on the unit time is measured in and on how long the
-exposures last, so they are scaled by the reference time \code{tau_ref}, which
-\code{\link[=fit_hazard]{fit_hazard()}} takes from the data (see \link{build_hazard_data}). They then say the
-same thing whether a trial lasts minutes or days, and whatever the time unit:
+For the rates anchored at the reference temperature (\code{exp}, \code{zeroexp},
+\code{zeropower}, \code{power}), a is the rate at \code{Tr}, or its scale there, and \code{Tr} may lie
+a distance d = T_f - Tr from where failures were observed. The log rate at T_f is
+then loga plus a term in b and d (b d for \code{exp}), so loga is the log rate at T_f
+less that term, and it inherits the uncertainty in b across the distance:
 \itemize{
-\item \code{loga}: the cumulative hazard reached over \code{tau_ref} at the temperature where
-M(T) = a (the reference \code{Tr}, for the functions anchored there) is centred at
-exp(-1), about 0.37, and lies between about 0.007 and 20 with 95\% probability.
-With the memoryless and Gompertz baselines a is a rate per unit time, so the
-centre is -1 - log(tau_ref); with the Weibull, whose cumulative baseline hazard
-at \code{tau_ref} is 1, a is that cumulative hazard itself and the centre is -1. The
-same centre serves the log-logistic, for which it is approximate, since its scale
-is estimated.
-\item \code{logc}: the term of the power function that remains at \code{Tr}, in the units of a,
-so it takes the same prior as \code{loga}.
-\item \code{logscale}: the log-logistic scale is centred at \code{tau_ref}.
-\item \code{gam}: the baseline hazard changes by a factor of exp(gamma tau_ref) across the
-reference time. With a standard deviation of 3 / tau_ref, that factor lies
-within about 400-fold either way with 95\% probability. It is centred at zero,
-the memoryless case where the baseline hazard is flat in elapsed exposure time,
-so unless the data show a trend the fit stays near that flat baseline rather
-than assuming the hazard rises or falls over time.
+\item its centre is the centre at T_f less the term at the prior median of b;
+\item its variance is 2^2 plus the square of (the change in the term per unit of b,
+times the prior standard deviation of b).
 }
 
-\code{Tc} assumes a temperature near many ectotherms' critical range.
+For \code{exp} this is \verb{normal(centre - 0.5 d, sqrt(4 + (1.07 d)^2))}: the usual prior
+when the reference is at the failures (d = 0), and a much wider one 14 degrees
+below them. A prior of standard deviation 2 on loga at a distant reference would
+in effect be a tight prior on b, and biases it. The threshold functions are
+anchored at \code{Tc}, not \code{Tr}, and take the centre at T_f unchanged. The calculation
+uses the default prior on \code{logb}; if you change that prior and keep a distant
+reference, set \code{loga} to match.
 }
+
+\section{The baseline term c of the power function}{
+
+In M(T) = c + a (T - Tr)^b, c is the rate that remains at the reference
+temperature: failure that happens whatever the warming. Its default is centred so
+that about 1\% of individuals would fail over \code{tau_ref} for reasons unrelated to
+temperature, \code{normal(log(0.01) - log(tau_ref), 2)} with the memoryless or Gompertz
+baseline and \code{normal(log(0.01), 2)} otherwise, which covers background failure
+from about 0.02\% to 40\%. The 1\% is a judgement, not a measured value. Where
+controls were held at the reference temperature, set it from them: if a fraction q
+of controls failed over a time t, c is about -log(1 - q) / t, so for instance
+\code{intercept_priors = list(logc = "normal(log(-log(1 - 0.02) / 120), 1)")} for 1 in
+50 failing over 120 minutes.
+}
+
 \examples{
-# Default weakly-informative priors for an exponential-threshold + Weibull model,
-# for data whose reference time is 60 (an hour, with times in minutes).
-build_hazard_prior("exp_threshold", baseline = "weibull", tau_ref = 60)
+# A ramp from 20 to 35 degrees over 60 minutes, with two failures.
+path   <- ramp_path("A", T_start = 20, rate = 0.25, t_max = 60)
+checks <- data.frame(path_id = "A", time = seq(0, 60, by = 10))
+ind    <- data.frame(id = 1:3, path_id = "A", event = c(1, 1, 0),
+                     t_upper = c(30, 40, 60), acclim = c(10, 15, 15))
+long   <- build_hazard_data(ind, path, "interval", covariates = "acclim",
+                            checks = checks)
+
+# Default weakly-informative priors for an exponential-threshold + Weibull model.
+build_hazard_prior("exp_threshold", baseline = "weibull", long = long)
 
 # Override a couple of priors (a cooler species, a tighter amplitude) and narrow
 # the covariate-slope prior; every other parameter keeps its default.
 build_hazard_prior("exp_threshold", baseline = "weibull",
   dpar_formulas = list(loga = ~ 1 + acclim),
   intercept_priors = list(Tc = "normal(26, 4)", loga = "normal(-6, 1.5)"),
-  slope_prior = "normal(0, 0.5)", tau_ref = 60)
+  slope_prior = "normal(0, 0.5)", long = long)
 }

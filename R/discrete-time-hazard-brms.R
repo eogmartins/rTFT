@@ -819,6 +819,17 @@ costressor <- function(name, column, ref, scale, direction,
 # 2. Build the row-per-interval long table
 # ===========================================================================
 
+# .typical_failure_temp() ------------------------------------------------------
+
+# The median temperature at which failures were observed in a row-per-interval
+# table, the temperature of each failure being that of the interval it fell in. A
+# table with no failures has no such temperature, so the median over every at-risk
+# interval stands in.
+.typical_failure_temp <- function(long) {
+  at_failure <- long$Ta[long$failed == 1]
+  stats::median(if (length(at_failure)) at_failure else long$Ta)
+}
+
 # build_hazard_data() ----------------------------------------------------------
 
 #' Build the row-per-interval table a failure-rate model is fitted to
@@ -871,10 +882,14 @@ costressor <- function(name, column, ref, scale, direction,
 #'   functions can form `Ta - Tr`. It is a single model reference, not the
 #'   per-trial starting temperature (see [M_catalogue]); the per-trial starts live
 #'   in the temperature trajectories (`path`). For the forms that take a logarithm or
-#'   fractional power of `Ta - Tr` (`zeroexp`, `power`, `zeropower`) it must lie at
-#'   or below the minimum temperature in the data, so it defaults (`NULL`) to the
-#'   coldest temperature in `path`. It must be set to a common value across datasets 
-#'   when comparing `loga`, whose meaning is anchored at `Tr`.
+#'   fractional power of `Ta - Tr` (`zeroexp`, `power`, `zeropower`) it is the
+#'   temperature at which the rate is zero (or, for `power`, falls to its baseline),
+#'   so it must be given, at or below the coldest temperature in the data. Otherwise
+#'   it defaults (`NULL`) to the median temperature at which failures were observed,
+#'   which places `loga` where the data are and keeps it from being tied to the
+#'   thermal sensitivity b; a reference far from the failures makes the two hard to
+#'   tell apart. It must be set to a common value across datasets when comparing
+#'   `loga`, whose meaning is anchored at `Tr`.
 #' @param tau_ref A single positive number, the reference time, in the time unit of
 #'   the data, written to a constant `tau_ref` column. The scale of the `weibull`
 #'   baseline is fixed at it (see [h0_catalogue]), and the default priors of the
@@ -972,12 +987,6 @@ build_hazard_data <- function(ind, path, observation = c("interval", "continuous
         class = "rTFT_nonfinite_timing")
   }
 
-  # Reference temperature defaults to the coldest point in the trajectories, which
-  # keeps `Ta - Tr` positive for the log/power forms. A form aware check that a
-  # user-supplied Tr is not above the data (needed only for zeroexp/power/zeropower)
-  # belongs in the formula assembly step, which knows the function used.
-  if (is.null(Tr)) Tr <- min(path$temp)
-
   # In mixed mode, each individual has its own scheme in `obs_type`. Guard the
   # levels explicitly, because build_one() reads that string twice and the two
   # reads disagree on anything but the exact levels "interval" and "continuous".
@@ -1053,6 +1062,12 @@ build_hazard_data <- function(ind, path, observation = c("interval", "continuous
   long <- purrr::map(seq_len(nrow(ind)),
                      \(i) { r <- ind[i, , drop = FALSE]; build_one(r, type_of(r)) }) |>
     purrr::list_rbind()
+
+  # The reference temperature defaults to the median temperature at which failures
+  # were observed (of all at-risk intervals, in a table with no failures). Whether a
+  # reference suits the failure-rate function chosen is checked when the model is
+  # assembled, which is where the function is known.
+  if (is.null(Tr)) Tr <- .typical_failure_temp(long)
 
   # The reference time defaults to the longest exposure in the data: the end of the
   # last at-risk interval of the individual observed longest.
@@ -1280,6 +1295,36 @@ build_hazard_spec <- function(m_form, baseline = "mem", dpar_formulas = list(),
 }
 
 
+# .loga_prior() ----------------------------------------------------------------
+
+# The centre and standard deviation of the default Normal prior on loga. `centre`
+# is the centre of the log failure rate at the temperature where failures were
+# observed, where the prior is stated with a standard deviation of 2, and `distance`
+# how far that temperature lies above the reference Tr.
+#
+# For the rates anchored at Tr, the log rate at the failures is loga plus a term in
+# b and the distance: b d for exp, log(exp(b d) - 1) for zeroexp, b log(d) for
+# zeropower and for the a of power. loga is the log rate less that term, so its
+# centre takes the term at the prior median of b, and its variance adds the square
+# of (the term's slope in b times the prior standard deviation of b). At a distance
+# of zero this is the prior stated at the failures itself. The other rates do not
+# use Tr (const, and the threshold functions, anchored at Tc) and take it unchanged.
+# b has the default prior logb ~ normal(-0.7, 1).
+.loga_prior <- function(m_form, centre, distance) {
+  b_median <- exp(-0.7)
+  b_sd     <- sqrt((exp(1) - 1) * exp(2 * -0.7 + 1))
+  d <- distance
+  term <- switch(m_form,
+    exp       = c(value = b_median * d, slope = d),
+    zeroexp   = if (d > 0) c(value = log(expm1(b_median * d)),
+                             slope = d * exp(b_median * d) / expm1(b_median * d)),
+    zeropower = ,
+    power     = if (d > 0) c(value = b_median * log(d), slope = log(d)))
+  if (is.null(term)) term <- c(value = 0, slope = 0)
+  list(centre = centre - term[["value"]],
+       sd     = sqrt(2^2 + (term[["slope"]] * b_sd)^2))
+}
+
 # build_hazard_prior() ---------------------------------------------------------
 
 #' Weakly-informative default priors for a failure-rate hazard model
@@ -1296,47 +1341,64 @@ build_hazard_spec <- function(m_form, baseline = "mem", dpar_formulas = list(),
 #' standard-deviation priors through `slope_prior` and `sd_prior`; or replace the
 #' whole set with your own `prior` when fitting with [fit_hazard()].
 #'
-#' The default intercept priors, all weakly-informative and meant to be changed to
-#' suit your study, are:
+#' The defaults take three things from the data in `long`, so that they say the same
+#' thing whatever the organism, the time unit and the length of the exposures: the
+#' reference time `tau_ref`, the reference temperature `Tr`, and the median
+#' temperature at which failures were observed, T_f. They are weakly-informative and
+#' meant to be changed to suit your study:
 #'
-#' * `loga ~ normal(-1 - log(tau_ref), 2)` with the memoryless or Gompertz baseline,
-#'   `normal(-1, 2)` with the Weibull or log-logistic -- log amplitude
+#' * `loga` -- log amplitude. Stated where the failures are: at T_f, the cumulative
+#'   hazard reached over `tau_ref` is centred at exp(-1), about 0.37, with a standard
+#'   deviation of 2 on the log scale (about 0.007 to 20). With the memoryless and
+#'   Gompertz baselines a is a rate per unit time, so that centre is
+#'   -1 - log(tau_ref); with the Weibull and log-logistic it is -1. The prior is then
+#'   carried from T_f back to the temperature a refers to (see below).
 #' * `logb ~ normal(-0.7, 1)` -- log temperature sensitivity
-#' * `logc`, as `loga` -- log baseline term of the power form
-#' * `Tc ~ normal(30, 3)` -- critical temperature
+#' * `logc` -- log baseline term of the power function (see below)
+#' * `Tc ~ normal(T_f, 3)` -- critical temperature, centred where failures were
+#'   observed
 #' * `logshape ~ normal(0, 1)` -- log Weibull / log-logistic shape
 #' * `logscale ~ normal(log(tau_ref), 1)` -- log log-logistic scale
-#' * `gam ~ normal(0, 3 / tau_ref)` -- Gompertz rate
+#' * `gam ~ normal(0, 3 / tau_ref)` -- Gompertz rate: the baseline hazard changes by
+#'   a factor of exp(gamma tau_ref) across the reference time, within about 400-fold
+#'   either way with 95% probability. It is centred at zero, the memoryless case, so
+#'   unless the data show a trend the fit stays near a flat baseline.
 #'
 #' with `normal(0, 1)` on any covariate slope and `exponential(2)` on any
 #' random-effect standard deviation. Each co-stressor in `costressors` adds a
 #' `normal(0, 1)` on its main effect `c<name>` and a tighter `normal(0, 0.5)` on its
 #' temperature interaction `dT<name>`, both overridable through `intercept_priors`.
 #'
-#' Four of these depend on the unit time is measured in and on how long the
-#' exposures last, so they are scaled by the reference time `tau_ref`, which
-#' [fit_hazard()] takes from the data (see [build_hazard_data]). They then say the
-#' same thing whether a trial lasts minutes or days, and whatever the time unit:
+#' @section The prior on a when the reference is far from the failures:
+#' For the rates anchored at the reference temperature (`exp`, `zeroexp`,
+#' `zeropower`, `power`), a is the rate at `Tr`, or its scale there, and `Tr` may lie
+#' a distance d = T_f - Tr from where failures were observed. The log rate at T_f is
+#' then loga plus a term in b and d (b d for `exp`), so loga is the log rate at T_f
+#' less that term, and it inherits the uncertainty in b across the distance:
 #'
-#' * `loga`: the cumulative hazard reached over `tau_ref` at the temperature where
-#'   M(T) = a (the reference `Tr`, for the functions anchored there) is centred at
-#'   exp(-1), about 0.37, and lies between about 0.007 and 20 with 95% probability.
-#'   With the memoryless and Gompertz baselines a is a rate per unit time, so the
-#'   centre is -1 - log(tau_ref); with the Weibull, whose cumulative baseline hazard
-#'   at `tau_ref` is 1, a is that cumulative hazard itself and the centre is -1. The
-#'   same centre serves the log-logistic, for which it is approximate, since its scale
-#'   is estimated.
-#' * `logc`: the term of the power function that remains at `Tr`, in the units of a,
-#'   so it takes the same prior as `loga`.
-#' * `logscale`: the log-logistic scale is centred at `tau_ref`.
-#' * `gam`: the baseline hazard changes by a factor of exp(gamma tau_ref) across the
-#'   reference time. With a standard deviation of 3 / tau_ref, that factor lies
-#'   within about 400-fold either way with 95% probability. It is centred at zero,
-#'   the memoryless case where the baseline hazard is flat in elapsed exposure time,
-#'   so unless the data show a trend the fit stays near that flat baseline rather
-#'   than assuming the hazard rises or falls over time.
+#' * its centre is the centre at T_f less the term at the prior median of b;
+#' * its variance is 2^2 plus the square of (the change in the term per unit of b,
+#'   times the prior standard deviation of b).
 #'
-#' `Tc` assumes a temperature near many ectotherms' critical range.
+#' For `exp` this is `normal(centre - 0.5 d, sqrt(4 + (1.07 d)^2))`: the usual prior
+#' when the reference is at the failures (d = 0), and a much wider one 14 degrees
+#' below them. A prior of standard deviation 2 on loga at a distant reference would
+#' in effect be a tight prior on b, and biases it. The threshold functions are
+#' anchored at `Tc`, not `Tr`, and take the centre at T_f unchanged. The calculation
+#' uses the default prior on `logb`; if you change that prior and keep a distant
+#' reference, set `loga` to match.
+#'
+#' @section The baseline term c of the power function:
+#' In M(T) = c + a (T - Tr)^b, c is the rate that remains at the reference
+#' temperature: failure that happens whatever the warming. Its default is centred so
+#' that about 1% of individuals would fail over `tau_ref` for reasons unrelated to
+#' temperature, `normal(log(0.01) - log(tau_ref), 2)` with the memoryless or Gompertz
+#' baseline and `normal(log(0.01), 2)` otherwise, which covers background failure
+#' from about 0.02% to 40%. The 1% is a judgement, not a measured value. Where
+#' controls were held at the reference temperature, set it from them: if a fraction q
+#' of controls failed over a time t, c is about -log(1 - q) / t, so for instance
+#' `intercept_priors = list(logc = "normal(log(-log(1 - 0.02) / 120), 1)")` for 1 in
+#' 50 failing over 120 minutes.
 #'
 #' @param m_form A character string denoting a key of [M_catalogue] (e.g. `"exp"` or
 #'   `"exp_threshold"`).
@@ -1357,59 +1419,74 @@ build_hazard_spec <- function(m_form, baseline = "mem", dpar_formulas = list(),
 #' @param costressors An optional list of [costressor] objects, as in
 #'   [build_hazard_spec]. Each adds an intercept prior for its main effect and, when
 #'   the temperature interaction is kept, its interaction coefficient. Defaults to none.
-#' @param tau_ref A single positive number, the reference time the defaults for
-#'   `loga`, `logc`, `logscale` and `gam` are scaled by, in the time unit of the data.
-#'   It has no default: give the reference time of the data the prior is for, the
-#'   constant `tau_ref` column [build_hazard_data] writes, e.g.
-#'   `tau_ref = long$tau_ref[1]`. [fit_hazard()] does this itself when it builds the
-#'   default prior.
+#' @param long A data frame, the row-per-interval table from [build_hazard_data]
+#'   that the prior is for. The defaults read from it the reference time `tau_ref`,
+#'   the reference temperature `Tr` and the temperatures at which failures were
+#'   observed. It has no default. [fit_hazard()] passes its own table when it builds
+#'   the default prior.
 #' @return A `brmsprior`.
 #' @examples
-#' # Default weakly-informative priors for an exponential-threshold + Weibull model,
-#' # for data whose reference time is 60 (an hour, with times in minutes).
-#' build_hazard_prior("exp_threshold", baseline = "weibull", tau_ref = 60)
+#' # A ramp from 20 to 35 degrees over 60 minutes, with two failures.
+#' path   <- ramp_path("A", T_start = 20, rate = 0.25, t_max = 60)
+#' checks <- data.frame(path_id = "A", time = seq(0, 60, by = 10))
+#' ind    <- data.frame(id = 1:3, path_id = "A", event = c(1, 1, 0),
+#'                      t_upper = c(30, 40, 60), acclim = c(10, 15, 15))
+#' long   <- build_hazard_data(ind, path, "interval", covariates = "acclim",
+#'                             checks = checks)
+#'
+#' # Default weakly-informative priors for an exponential-threshold + Weibull model.
+#' build_hazard_prior("exp_threshold", baseline = "weibull", long = long)
 #'
 #' # Override a couple of priors (a cooler species, a tighter amplitude) and narrow
 #' # the covariate-slope prior; every other parameter keeps its default.
 #' build_hazard_prior("exp_threshold", baseline = "weibull",
 #'   dpar_formulas = list(loga = ~ 1 + acclim),
 #'   intercept_priors = list(Tc = "normal(26, 4)", loga = "normal(-6, 1.5)"),
-#'   slope_prior = "normal(0, 0.5)", tau_ref = 60)
+#'   slope_prior = "normal(0, 0.5)", long = long)
 #' @export
 build_hazard_prior <- function(m_form, baseline = "mem", dpar_formulas = list(),
                                intercept_priors = list(),
                                slope_prior = "normal(0, 1)",
                                sd_prior = "exponential(2)",
-                               costressors = list(), tau_ref) {
+                               costressors = list(), long) {
   m_spec  <- .m_form_spec(m_form)
   h0_spec <- .baseline_spec(baseline)
   .check_costressors(costressors)
-  if (missing(tau_ref))
+  if (missing(long))
     cli::cli_abort(c(
-      "Give {.arg tau_ref}, the reference time the default priors are scaled by.",
-      "i" = "It is the {.field tau_ref} column of the table from {.fn build_hazard_data}, e.g. {.code tau_ref = long$tau_ref[1]}."
-    ), class = "rTFT_bad_tau_ref")
-  if (!is.numeric(tau_ref) || length(tau_ref) != 1L || !is.finite(tau_ref) || tau_ref <= 0)
+      "Give {.arg long}, the table the prior is for.",
+      "i" = "The default priors are scaled by its reference time, reference temperature and failure temperatures; it is the table from {.fn build_hazard_data}."
+    ), class = "rTFT_no_prior_data")
+  absent <- setdiff(c("tau_ref", "Tr", "Ta", "failed"), names(long))
+  if (!is.data.frame(long) || length(absent))
     cli::cli_abort(c(
-      "{.arg tau_ref} must be a single positive time, in the time unit of the data.",
-      "x" = "You supplied {.val {tau_ref}}."
-    ), class = "rTFT_bad_tau_ref")
+      "{.arg long} must be the table from {.fn build_hazard_data}.",
+      "x" = "It lacks {.field {absent}}."
+    ), class = "rTFT_no_prior_data")
   needed  <- c(m_spec$dpars, h0_spec$dpars, .costressor_dpars(costressors))
 
+  tau_ref <- long$tau_ref[1]
+  T_fail  <- .typical_failure_temp(long)
+
+  # The centre of the log rate at the temperature where failures were observed: the
+  # cumulative hazard over tau_ref is exp(-1) there. a is a rate per unit time with
+  # the memoryless and Gompertz baselines, whose cumulative baseline hazard at
+  # tau_ref is about tau_ref, and the cumulative hazard itself with the Weibull and
+  # log-logistic, where it is 1 or close to it.
+  per_time <- if (baseline %in% c("mem", "gompertz")) -log(tau_ref) else 0
+  loga <- .loga_prior(m_form, centre = -1 + per_time, distance = T_fail - long$Tr[1])
+
   # Intercept prior per parameter, on the parameter's own scale (the log-scale
-  # parameters carry priors in log units). Those of loga, logc, logscale and gam are
-  # scaled by the reference time. For loga, and logc in the same units, the centre puts the cumulative hazard
-  # over tau_ref at exp(-1): a is a rate per unit time with the memoryless and
-  # Gompertz baselines, whose cumulative baseline hazard at tau_ref is about
-  # tau_ref, and the cumulative hazard itself with the Weibull and log-logistic,
-  # where it is 1 or close to it.
-  loga_centre <- if (baseline %in% c("mem", "gompertz")) -1 - log(tau_ref) else -1
-  icpt <- c(loga = paste0("normal(", signif(loga_centre, 4), ", 2)"),
-            logb = "normal(-0.7, 1)", Tc = "normal(30, 3)",
-            logc = paste0("normal(", signif(loga_centre, 4), ", 2)"),
+  # parameters carry priors in log units).
+  normal <- function(centre, sd) paste0("normal(", signif(centre, 4), ", ", signif(sd, 4), ")")
+  icpt <- c(loga = normal(loga$centre, loga$sd),
+            logb = "normal(-0.7, 1)",
+            Tc   = normal(T_fail, 3),
+            # background failure of about 1% over tau_ref
+            logc = normal(log(0.01) + per_time, 2),
             logshape = "normal(0, 1)",
-            logscale = paste0("normal(", signif(log(tau_ref), 4), ", 1)"),
-            gam = paste0("normal(0, ", signif(3 / tau_ref, 4), ")"))
+            logscale = normal(log(tau_ref), 1),
+            gam  = normal(0, 3 / tau_ref))
 
   # Each co-stressor's coefficients get a weakly-informative prior: the main effect
   # `c<name>` a wider Normal, the temperature interaction `dT<name>` a tighter one,
@@ -1478,7 +1555,8 @@ build_hazard_prior <- function(m_form, baseline = "mem", dpar_formulas = list(),
     cli::cli_abort(c(
       "The {.val {m_form}} failure rate requires the temperature to stay {rel} the reference {.arg Tr}.",
       "x" = "min(Ta) = {.val {min_Ta}}, Tr = {.val {Tr}}.",
-      "i" = "Set a lower {.arg Tr} in {.fn build_hazard_data}, or use a form without a logarithm or fractional power of (Ta - Tr)."
+      "i" = "For this failure rate {.arg Tr} is the temperature at which the rate is zero or at its baseline, so it has no default: give one in {.fn build_hazard_data}, at or below the coldest temperature in the data.",
+      "i" = "Or use a failure rate without a logarithm or fractional power of (Ta - Tr)."
     ), class = "rTFT_Tr_below_data")
   }
 }
@@ -1537,7 +1615,7 @@ build_hazard_prior <- function(m_form, baseline = "mem", dpar_formulas = list(),
   if (is.null(prior)) {
     pa <- list(m_form = m_form, baseline = baseline, dpar_formulas = dpar_formulas,
                intercept_priors = intercept_priors, costressors = costressors,
-               tau_ref = long$tau_ref[1])   # scales the defaults that depend on time
+               long = long)                 # scales the defaults to the data
     if (!is.null(slope_prior)) pa$slope_prior <- slope_prior
     if (!is.null(sd_prior))    pa$sd_prior    <- sd_prior
     prior <- do.call(build_hazard_prior, pa)
