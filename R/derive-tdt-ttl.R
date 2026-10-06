@@ -643,7 +643,7 @@ M_draws <- function(fit, Ta, newdata = NULL, levels = NULL, n_draws = NULL) {
   if (baseline == "weibull" && is.null(tau_ref))
     cli::cli_abort(c(
       "This model has a {.val weibull} baseline but no recorded reference time.",
-      "i" = "It was fitted before the Weibull scale was fixed at {.field tau_ref}; refit it with {.fn fit_hazard}."
+      "i" = "Its scale is fixed at {.field tau_ref}; fit it with {.fn fit_hazard} to a table from {.fn build_hazard_data}, which holds it."
     ), class = "rTFT_no_tau_ref")
   switch(baseline,
     mem      = list(shape = rep(1, nd),       scale = rep(1, nd)),

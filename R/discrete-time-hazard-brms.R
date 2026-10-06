@@ -1635,14 +1635,16 @@ build_hazard_prior <- function(m_form, baseline = "mem", dpar_formulas = list(),
 # functions need to evaluate its failure rate exactly as it was fitted: the
 # failure-rate and baseline functions, the observation mode, the reference
 # temperature and reference time (the constant `Tr` and `tau_ref` columns of `long`),
-# the softening steepness actually used, and the co-stressors. It also records the 
-# ranges of temperature and of elapsed exposure time the data cover, which the 
-# reporting functions use as their default grids, since a model with a memoryless 
-# baseline does not keep elapsed time in its data, and the individual each row of 
-# `long` belongs to, which the fitted data do not keep and which cross-validation 
-# needs to leave whole individuals out. fit_hazard() attaches the record to the fit
-# it returns. The steepness is resolved quietly here, since build_hazard_spec() has
-# already warned about a `k_sw` it ignores.
+# the softening steepness actually used, and the co-stressors. It also records the
+# ranges of temperature and of elapsed exposure time the data cover, which the
+# reporting functions use as their default grids, since a model with a memoryless
+# baseline does not keep elapsed time in its data, and, for each row of `long`, the
+# individual and the temperature trajectory it belongs to and the elapsed time at
+# which its interval ends. The fitted data do not keep these: cross-validation needs
+# the individuals to leave whole individuals out, and the checks of the model need
+# all three to follow each individual through its exposure. fit_hazard() attaches
+# the record to the fit it returns. The steepness is resolved quietly here, since
+# build_hazard_spec() has already warned about a `k_sw` it ignores.
 .hazard_settings <- function(long, m_form, baseline, observation, k_sw, costressors) {
   list(m_form      = m_form,
        baseline    = baseline,
@@ -1653,7 +1655,9 @@ build_hazard_prior <- function(m_form, baseline = "mem", dpar_formulas = list(),
        costressors = costressors,
        Ta_range    = range(long$Ta),
        tau_range   = range(long$tau),
-       id          = long$id)
+       id          = long$id,
+       path_id     = long$path_id,
+       tau_end     = long$tau + long$exposure / 2)
 }
 
 # Read the settings fit_hazard() attached to a fit, or stop when there are none: a
