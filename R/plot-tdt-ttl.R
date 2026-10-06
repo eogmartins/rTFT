@@ -16,12 +16,12 @@
 .derive_cols <- c("quantity", "p", "t_ref", "Ta", "tau", "median", "lower", "upper",
                   "prob", "n_draws", "n_unreached")
 
-# Take one table out of the output of derive_tdt_ttl(), or stop when `x` is not
-# such an output.
-.plot_table <- function(x, which) {
+# Take one table out of the output of derive_tdt_ttl() (or of the function named in
+# `from`), or stop when `x` is not such an output.
+.plot_table <- function(x, which, from = "derive_tdt_ttl") {
   if (!is.list(x) || !is.data.frame(x[[which]]))
     cli::cli_abort(c(
-      "{.arg x} must be the output of {.fn derive_tdt_ttl}.",
+      "{.arg x} must be the output of {.fn {from}}.",
       "x" = "It has no {.field {which}} table."
     ), class = "rTFT_bad_plot_input")
   x[[which]]
