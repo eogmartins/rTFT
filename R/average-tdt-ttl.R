@@ -200,6 +200,76 @@ hazard_weights <- function(cv, method = c("stacking", "pseudobma"), min_weight =
        tau = first$tau, rows = rows)
 }
 
+# .average_setup() / .each_model() ---------------------------------------------
+
+# Check the models and weights given for averaging and decide how many posterior
+# draws each model contributes. Returns the models that carry weight, in the order
+# of the weights table, the number of draws from each, and the weights table with
+# that number added.
+.average_setup <- function(fits, weights, n_draws) {
+  if (!is.list(fits) || is.null(names(fits)) || anyDuplicated(names(fits)))
+    cli::cli_abort("{.arg fits} must be a named list of fitted models.",
+                   class = "rTFT_bad_fits")
+  if (!is.data.frame(weights) || !all(c("model", "weight") %in% names(weights)))
+    cli::cli_abort("{.arg weights} must be the table {.fn hazard_weights} returns.",
+                   class = "rTFT_bad_weights")
+  used <- weights[weights$weight > 0, , drop = FALSE]
+  no_fit <- setdiff(used$model, names(fits))
+  if (length(no_fit))
+    cli::cli_abort(c(
+      "{.arg fits} has no model named {.val {no_fit}}.",
+      "i" = "The weights are for {.val {weights$model}}; {.arg fits} holds {.val {names(fits)}}."
+    ), class = "rTFT_bad_fits")
+  if (!is.numeric(n_draws) || length(n_draws) != 1L || !is.finite(n_draws) || n_draws < 1)
+    cli::cli_abort("{.arg n_draws} must be a single positive number of draws.",
+                   class = "rTFT_bad_n_draws")
+  fits <- fits[used$model]
+
+  # Averaging is over models of the same data: the same individuals in the same rows.
+  ids <- purrr::map(fits, \(f) .fit_settings(f)$id)
+  if (!all(vapply(ids, identical, logical(1), ids[[1]])))
+    cli::cli_abort(c(
+      "The models were not fitted to the same data, so they cannot be averaged.",
+      "i" = "Fit every model to the same table from {.fn build_hazard_data}."
+    ), class = "rTFT_fits_mismatch")
+
+  # Each model contributes its share of the pool. Where a model has fewer draws than
+  # its share, the pool is made smaller so the shares stay in proportion.
+  available <- vapply(fits, brms::ndraws, numeric(1))
+  share     <- used$weight / sum(used$weight)
+  n_pool    <- min(floor(n_draws), floor(min(available / share)))
+  if (n_pool < floor(n_draws)) {
+    short <- names(fits)[which.min(available / share)]
+    cli::cli_inform(c(
+      "!" = "Averaging over {n_pool} draws, not the {floor(n_draws)} asked for.",
+      "i" = "Model {.val {short}} holds {available[[short]]} draws, fewer than its share of {floor(n_draws)} ({round(share[names(fits) == short] * floor(n_draws))}).",
+      "i" = "Refit with more iterations for a larger pool."
+    ), class = "rTFT_pool_reduced")
+  }
+  n_each    <- .allocate_draws(stats::setNames(used$weight, used$model), n_pool)
+
+  weights$n_draws <- unname(n_each[weights$model])
+  weights$n_draws[is.na(weights$n_draws)] <- 0L
+  list(fits = fits[n_each > 0], n_each = n_each[n_each > 0], weights = weights)
+}
+
+# Compute something for each model in turn, giving it the model and its number of
+# draws. A warning about `levels` the models do not use would be given by every
+# model; such warnings are held back while the models are worked through, and each
+# distinct one is then given once.
+.each_model <- function(setup, compute) {
+  held <- list()
+  out <- withCallingHandlers(
+    purrr::map(names(setup$fits), \(m) compute(setup$fits[[m]], setup$n_each[[m]])),
+    rTFT_unused_levels = function(w) {
+      held[[length(held) + 1L]] <<- w
+      invokeRestart("muffleWarning")
+    })
+  said <- vapply(held, conditionMessage, character(1))
+  purrr::walk(held[!duplicated(said)], warning)
+  out
+}
+
 # average_tdt_ttl() ------------------------------------------------------------
 
 #' Thermal tolerance averaged over several fitted models
@@ -244,71 +314,17 @@ average_tdt_ttl <- function(fits, weights, newdata = NULL, p = c(0.1, 0.5, 0.9),
                             n_draws = 1000) {
   if (missing(t_ref)) .stop_no_t_ref()
   .check_prob(prob)
-  if (!is.list(fits) || is.null(names(fits)) || anyDuplicated(names(fits)))
-    cli::cli_abort("{.arg fits} must be a named list of fitted models.",
-                   class = "rTFT_bad_fits")
-  if (!is.data.frame(weights) || !all(c("model", "weight") %in% names(weights)))
-    cli::cli_abort("{.arg weights} must be the table {.fn hazard_weights} returns.",
-                   class = "rTFT_bad_weights")
-  used <- weights[weights$weight > 0, , drop = FALSE]
-  no_fit <- setdiff(used$model, names(fits))
-  if (length(no_fit))
-    cli::cli_abort(c(
-      "{.arg fits} has no model named {.val {no_fit}}.",
-      "i" = "The weights are for {.val {weights$model}}; {.arg fits} holds {.val {names(fits)}}."
-    ), class = "rTFT_bad_fits")
-  if (!is.numeric(n_draws) || length(n_draws) != 1L || !is.finite(n_draws) || n_draws < 1)
-    cli::cli_abort("{.arg n_draws} must be a single positive number of draws.",
-                   class = "rTFT_bad_n_draws")
-  fits <- fits[used$model]
-
-  # Averaging is over models of the same data: the same individuals in the same rows.
-  ids <- purrr::map(fits, \(f) .fit_settings(f)$id)
-  if (!all(vapply(ids, identical, logical(1), ids[[1]])))
-    cli::cli_abort(c(
-      "The models were not fitted to the same data, so they cannot be averaged.",
-      "i" = "Fit every model to the same table from {.fn build_hazard_data}."
-    ), class = "rTFT_fits_mismatch")
-
-  # Each model contributes its share of the pool. Where a model has fewer draws than
-  # its share, the pool is made smaller so the shares stay in proportion.
-  available <- vapply(fits, brms::ndraws, numeric(1))
-  share     <- used$weight / sum(used$weight)
-  n_pool    <- min(floor(n_draws), floor(min(available / share)))
-  if (n_pool < floor(n_draws)) {
-    short <- names(fits)[which.min(available / share)]
-    cli::cli_inform(c(
-      "!" = "Averaging over {n_pool} draws, not the {floor(n_draws)} asked for.",
-      "i" = "Model {.val {short}} holds {available[[short]]} draws, fewer than its share of {floor(n_draws)} ({round(share[names(fits) == short] * floor(n_draws))}).",
-      "i" = "Refit with more iterations for a larger pool."
-    ), class = "rTFT_pool_reduced")
-  }
-  n_each    <- .allocate_draws(stats::setNames(used$weight, used$model), n_pool)
+  setup <- .average_setup(fits, weights, n_draws)
 
   # The grids are those of the first model unless given, and the same for all.
-  grid <- .fit_settings(fits[[1]])
+  grid <- .fit_settings(setup$fits[[1]])
   if (is.null(Ta))  Ta  <- seq(grid$Ta_range[1], grid$Ta_range[2], length.out = 50)
   if (is.null(tau)) tau <- exp(seq(log(grid$tau_range[1]), log(grid$tau_range[2]),
                                    length.out = 50))
 
-  contributing <- names(n_each)[n_each > 0]
-  # A warning about `levels` the models do not use would be given by every model in
-  # turn. They are held back while the draws are computed and each distinct one is
-  # then given once.
-  held <- list()
-  per_model <- withCallingHandlers(
-    purrr::map(contributing, \(m)
-      .derive_draws(fits[[m]], newdata, p, t_ref, Ta, tau, levels, n_each[[m]])),
-    rTFT_unused_levels = function(w) {
-      held[[length(held) + 1L]] <<- w
-      invokeRestart("muffleWarning")
-    })
-  said <- vapply(held, conditionMessage, character(1))
-  purrr::walk(held[!duplicated(said)], warning)
+  per_model <- .each_model(setup, \(fit, n)
+    .derive_draws(fit, newdata, p, t_ref, Ta, tau, levels, n))
   out <- .summarise_derived(.pool_draws(per_model), prob, params = FALSE)
   .report_unreached(out)
-
-  weights$n_draws <- unname(n_each[weights$model])
-  weights$n_draws[is.na(weights$n_draws)] <- 0L
-  c(out, list(weights = weights))
+  c(out, list(weights = setup$weights))
 }
