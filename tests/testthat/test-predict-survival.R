@@ -195,15 +195,48 @@ test_that("predict_survival returns survival through time and mortality at the e
 })
 
 
-test_that("the prediction is the model's rate summed along the record, draw by draw", {
+test_that("the prediction is the model's rate integrated along the record, draw by draw", {
   one <- nd[1, , drop = FALSE]
-  pred <- quietly(predict_survival(fits$exp, rec, newdata = one, n_draws = 300))
   dr <- .fit_draws(fits$exp, c("loga", "logb"), one, draw_ids = .thin_ids(600, 300))
-  mid <- c(22.5, 24, 25.5, 25.5, 24.5, 23.5)
-  hazard <- vapply(seq_along(dr$loga[, 1]), \(i)
-    sum(exp(dr$loga[i, 1] + exp(dr$logb[i, 1]) * (mid - 20)) * 5), numeric(1))
-  expect_equal(pred$mortality$median, stats::median(1 - exp(-hazard)))
-  expect_equal(pred$mortality$lower, unname(stats::quantile(1 - exp(-hazard), 0.025)))
+  a <- exp(dr$loga[, 1]); b <- exp(dr$logb[, 1])
+  T0 <- rec$temp[-7]; T1 <- rec$temp[-1]                 # the two ends of each interval
+  # between two readings the temperature is linear, so the integral of
+  # a exp(b (T - 20)) over an interval of 5 minutes has a closed form
+  exact <- vapply(seq_along(a), \(i)
+    sum(a[i] * 5 * (exp(b[i] * (T1 - 20)) - exp(b[i] * (T0 - 20))) / (b[i] * (T1 - T0))),
+    numeric(1))
+  pred <- quietly(predict_survival(fits$exp, rec, newdata = one, n_draws = 300))
+  expect_equal(pred$mortality$median, stats::median(1 - exp(-exact)), tolerance = 1e-3)
+  expect_equal(pred$mortality$lower, unname(stats::quantile(1 - exp(-exact), 0.025)),
+               tolerance = 1e-3)
+  # one step between readings takes the rate at the midpoint of each interval,
+  # which falls short of the integral where the rate curves upward
+  mid <- (T0 + T1) / 2
+  by_midpoint <- vapply(seq_along(a), \(i) sum(a[i] * exp(b[i] * (mid - 20)) * 5), numeric(1))
+  coarse <- quietly(predict_survival(fits$exp, rec, newdata = one, n_draws = 300, grid_dT = Inf))
+  expect_equal(coarse$mortality$median, stats::median(1 - exp(-by_midpoint)))
+  expect_lt(coarse$mortality$median, pred$mortality$median)
+  expect_error(predict_survival(fits$exp, rec, newdata = one, grid_dT = 0),
+               class = "rTFT_bad_grid_dT")
+})
+
+
+test_that(".refine_intervals divides the record where temperature changes, linearly between readings", {
+  two <- data.frame(time = c(100, 110, 130), temp = c(20, 20.3, 20.3), do = c(8, 5, 5))
+  fine <- .refine_intervals(two, "do", grid_dT = 0.1)
+  # the first interval changes by 0.3 degrees: three parts; the second not at all
+  expect_equal(fine$parent, c(1, 1, 1, 2))
+  expect_equal(fine$tau_start, c(0, 10 / 3, 20 / 3, 10))
+  expect_equal(fine$tau_end, c(10 / 3, 20 / 3, 10, 30))
+  expect_equal(fine$Ta, c(20.05, 20.15, 20.25, 20.3))
+  expect_equal(fine$do, c(7.5, 6.5, 5.5, 5))             # the co-stressor follows along
+  # as given: the layout of .record_intervals()
+  whole <- .refine_intervals(two, "do", grid_dT = Inf)
+  plain <- .record_intervals(two, "do")
+  expect_equal(whole[names(plain)], plain)
+  expect_equal(whole$parent, 1:2)
+  # a cooling interval is divided as a warming one is
+  expect_equal(.refine_intervals(data.frame(time = c(0, 10), temp = c(21, 20.6)))$parent, rep(1, 4))
 })
 
 

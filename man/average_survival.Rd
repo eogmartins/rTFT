@@ -12,7 +12,8 @@ average_survival(
   levels = NULL,
   by = NULL,
   prob = 0.95,
-  n_draws = 1000
+  n_draws = 1000,
+  grid_dT = 0.1
 )
 }
 \arguments{
@@ -46,6 +47,13 @@ credible intervals.}
 model contributes its share of them, evenly spaced through its posterior.
 Where a model holds fewer draws than its share, the pool is made smaller so
 that the shares stay in proportion to the weights, and a message says so.}
+
+\item{grid_dT}{A single positive number, the largest change in temperature within
+a step along the record, in degrees. Between two readings the temperature is
+taken to change linearly, and the hazard is accrued in steps over which it
+changes by at most this much, since the failure rate at the midpoint of a step
+stands for the whole of it (see \emph{The time grid} in \link{build_hazard_data}).
+Defaults to 0.1; \code{Inf} takes one step between consecutive readings.}
 }
 \value{
 The list \code{\link[=predict_survival]{predict_survival()}} returns, with \code{weights}, the table of

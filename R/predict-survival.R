@@ -62,6 +62,29 @@
     purrr::map(stats::setNames(columns, columns), \(col) mid(record[[col]])))
 }
 
+# .refine_intervals() ----------------------------------------------------------
+
+# Divide the intervals between the readings of a record into parts over which
+# temperature changes by at most `grid_dT`, as build_hazard_data() divides the
+# intervals at risk: the hazard is taken as constant within a part, at its midpoint,
+# which is accurate only while temperature changes little within it. Between two
+# readings the temperature, and any co-stressor, is taken to change linearly.
+# Returns the parts in the layout of .record_intervals(), with `parent`, the
+# interval between readings each part belongs to.
+.refine_intervals <- function(record, columns = character(0), grid_dT = 0.1) {
+  n      <- nrow(record)
+  start  <- record$time[-n] - record$time[1]
+  end    <- record$time[-1] - record$time[1]
+  parts  <- pmax(1L, ceiling(abs(diff(record$temp)) / grid_dT - 1e-9))
+  cut    <- .subdivide(start, end, parts)
+  parent <- rep(seq_len(n - 1L), parts)
+  # how far through its parent interval the midpoint of each part lies
+  along  <- ((cut$ts + cut$te) / 2 - start[parent]) / (end - start)[parent]
+  at_mid <- function(x) x[-n][parent] + along * diff(x)[parent]
+  c(list(tau_start = cut$ts, tau_end = cut$te, Ta = at_mid(record$temp), parent = parent),
+    purrr::map(stats::setNames(columns, columns), \(col) at_mid(record[[col]])))
+}
+
 # .record_hazard() -------------------------------------------------------------
 
 # The hazard accrued in each interval of a record, for each posterior draw: a matrix
@@ -154,7 +177,7 @@
 # the record and when the record leaves the temperatures the model was fitted to.
 # predict_survival() summarises these draws, and average_survival() pools them
 # across models first.
-.record_draws <- function(fit, record, newdata, levels, by, n_draws) {
+.record_draws <- function(fit, record, newdata, levels, by, n_draws, grid_dT = 0.1) {
   st <- .fit_settings(fit)
   cs <- st$costressors
   cs_columns  <- vapply(cs, `[[`, character(1), "column")
@@ -165,7 +188,13 @@
                    class = "rTFT_bad_by")
   .check_record(record, c("time", "temp", cs_columns[in_record], by))
   if (is.null(newdata)) newdata <- data.frame(row.names = 1L)
+  if (!is.numeric(grid_dT) || length(grid_dT) != 1L || is.na(grid_dT) || grid_dT <= 0)
+    cli::cli_abort(c(
+      "{.arg grid_dT} must be a single positive number, the largest change in temperature within a step along the record.",
+      "i" = "Use {.code Inf} to take one step between consecutive readings."
+    ), class = "rTFT_bad_grid_dT")
   intervals <- .record_intervals(record, cs_columns[in_record])
+  fine      <- .refine_intervals(record, cs_columns[in_record], grid_dT)
 
   # A co-stressor the record follows needs no level; it is given a placeholder so
   # the levels can be checked as a whole, and its value in each interval is used.
@@ -183,8 +212,12 @@
   .rate_setup(st$m_form, purrr::map(dr, \(m) m[, 1]), st$Tr, k, cs, levels)
   levels <- if (length(cs)) levels[cs_names]
 
-  rows <- purrr::map(seq_len(nrow(newdata)), \(r)
-    .record_hazard(st, purrr::map(dr, \(m) m[, r]), intervals, levels))
+  # The hazard is accrued over the parts and added up within each interval between
+  # readings, which is what survival and the shares of the risk are reported for.
+  rows <- purrr::map(seq_len(nrow(newdata)), \(r) {
+    accrued <- .record_hazard(st, purrr::map(dr, \(m) m[, r]), fine, levels)
+    unname(t(rowsum(t(accrued), fine$parent, reorder = TRUE)))
+  })
   list(newdata = newdata, time = record$time,
        record = tibble::as_tibble(record[c("time", "temp", cs_columns[in_record])]),
        period = if (!is.null(by)) record[[by]][-nrow(record)], by = by,
@@ -283,10 +316,11 @@
 #' median and credible interval, at the covariate values in each row of `newdata`.
 #' Random effects are set to zero, so the prediction is for a typical group.
 #'
-#' Between two readings the cumulative hazard grows by
-#' M(T) (H0(tau_1) - H0(tau_0)): the failure rate at the temperature halfway
-#' between the readings, times the growth of the cumulative baseline hazard over the
-#' interval. Survival to a time is exp(-cumulative hazard up to it). With the
+#' Along the record the cumulative hazard grows, over each step, by
+#' M(T) (H0(tau_1) - H0(tau_0)): the failure rate at the temperature in the middle of
+#' the step, times the growth of the cumulative baseline hazard over it. A step is
+#' the interval between two readings, or a part of it where the temperature changes
+#' by more than `grid_dT` between them. Survival to a time is exp(-cumulative hazard up to it). With the
 #' memoryless baseline the growth of H0 is the length of the interval, so the
 #' cumulative hazard is the failure rate summed over the record, and it does not
 #' matter where the record begins. With the other baselines the hazard depends on
@@ -342,8 +376,14 @@
 #'   intervals. Defaults to 0.95.
 #' @param n_draws A single number, the number of posterior draws to use, evenly
 #'   spaced through the posterior. Defaults to 1000. The draws are held for every
-#'   interval of the record, so a long record with many draws needs memory in
+#'   step along the record, so a long record with many draws needs memory in
 #'   proportion to their product.
+#' @param grid_dT A single positive number, the largest change in temperature within
+#'   a step along the record, in degrees. Between two readings the temperature is
+#'   taken to change linearly, and the hazard is accrued in steps over which it
+#'   changes by at most this much, since the failure rate at the midpoint of a step
+#'   stands for the whole of it (see *The time grid* in [build_hazard_data]).
+#'   Defaults to 0.1; `Inf` takes one step between consecutive readings.
 #' @return A list of tibbles, each with the columns of `newdata`:
 #'   * `survival`: for each time of the record, the posterior `median`, `lower` and
 #'     `upper` of the probability of surviving to it (1 at the first time).
@@ -372,9 +412,9 @@
 #' }
 #' @export
 predict_survival <- function(fit, record, newdata = NULL, levels = NULL, by = NULL,
-                             prob = 0.95, n_draws = 1000) {
+                             prob = 0.95, n_draws = 1000, grid_dT = 0.1) {
   .check_prob(prob)
-  draws <- .record_draws(fit, record, newdata, levels, by, n_draws)
+  draws <- .record_draws(fit, record, newdata, levels, by, n_draws, grid_dT)
   out   <- .summarise_record(draws, prob)
   .report_record(out$coverage, draws$baseline)
   c(out, list(record = draws$record))
@@ -413,11 +453,11 @@ predict_survival <- function(fit, record, newdata = NULL, levels = NULL, by = NU
 #' }
 #' @export
 average_survival <- function(fits, weights, record, newdata = NULL, levels = NULL,
-                             by = NULL, prob = 0.95, n_draws = 1000) {
+                             by = NULL, prob = 0.95, n_draws = 1000, grid_dT = 0.1) {
   .check_prob(prob)
   setup <- .average_setup(fits, weights, n_draws)
   per_model <- .each_model(setup, \(fit, n)
-    .record_draws(fit, record, newdata, levels, by, n))
+    .record_draws(fit, record, newdata, levels, by, n, grid_dT))
   draws <- .pool_record(per_model)
   out   <- .summarise_record(draws, prob)
   .report_record(out$coverage, draws$baseline)

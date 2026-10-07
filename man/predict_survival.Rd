@@ -11,7 +11,8 @@ predict_survival(
   levels = NULL,
   by = NULL,
   prob = 0.95,
-  n_draws = 1000
+  n_draws = 1000,
+  grid_dT = 0.1
 )
 }
 \arguments{
@@ -39,8 +40,15 @@ intervals. Defaults to 0.95.}
 
 \item{n_draws}{A single number, the number of posterior draws to use, evenly
 spaced through the posterior. Defaults to 1000. The draws are held for every
-interval of the record, so a long record with many draws needs memory in
+step along the record, so a long record with many draws needs memory in
 proportion to their product.}
+
+\item{grid_dT}{A single positive number, the largest change in temperature within
+a step along the record, in degrees. Between two readings the temperature is
+taken to change linearly, and the hazard is accrued in steps over which it
+changes by at most this much, since the failure rate at the midpoint of a step
+stands for the whole of it (see \emph{The time grid} in \link{build_hazard_data}).
+Defaults to 0.1; \code{Inf} takes one step between consecutive readings.}
 }
 \value{
 A list of tibbles, each with the columns of \code{newdata}:
@@ -69,10 +77,11 @@ median and credible interval, at the covariate values in each row of \code{newda
 Random effects are set to zero, so the prediction is for a typical group.
 }
 \details{
-Between two readings the cumulative hazard grows by
-M(T) (H0(tau_1) - H0(tau_0)): the failure rate at the temperature halfway
-between the readings, times the growth of the cumulative baseline hazard over the
-interval. Survival to a time is exp(-cumulative hazard up to it). With the
+Along the record the cumulative hazard grows, over each step, by
+M(T) (H0(tau_1) - H0(tau_0)): the failure rate at the temperature in the middle of
+the step, times the growth of the cumulative baseline hazard over it. A step is
+the interval between two readings, or a part of it where the temperature changes
+by more than \code{grid_dT} between them. Survival to a time is exp(-cumulative hazard up to it). With the
 memoryless baseline the growth of H0 is the length of the interval, so the
 cumulative hazard is the failure rate summed over the record, and it does not
 matter where the record begins. With the other baselines the hazard depends on
