@@ -1,0 +1,17 @@
+^rTFT\.Rproj$
+^\.Rproj\.user$
+^LICENSE\.md$
+^\.DS_Store$
+^\.github$
+^\.git$
+^\.gitkeep$
+(^|/)\.gitkeep$
+^tools$
+^rTFT\.Rcheck$
+^rTFT_.*\.tar\.gz$
+^inst/extdata$
+Rplots\.pdf
+^data-raw$
+^vignettes/_precompute\.R$
+^vignettes/.*\.html$
+^vignettes/.*_files$
