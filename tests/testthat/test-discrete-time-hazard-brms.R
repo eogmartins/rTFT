@@ -413,10 +413,20 @@ test_that("a right-censored survivor never fails and runs to its last check", {
 })
 
 
-test_that("the reference time is the longest exposure unless given", {
+test_that("the reference time is the median time of failure unless given", {
+  # failures found at the 20, 30 and 50 minute checks, and a survivor seen to 60
+  four <- data.frame(id = 1:4, path_id = "A", event = c(1, 1, 1, 0), t_upper = c(20, 30, 50, 60))
+  expect_equal(unique(build_hazard_data(four, ramp_traj, "interval",
+                                        checks = ramp_checks)$tau_ref), 30)
+  expect_equal(.typical_failure_time(build_hazard_data(four, ramp_traj, "interval",
+                                                       checks = ramp_checks)), 30)
+  # with no failures, the longest exposure stands in
+  none <- build_hazard_data(transform(four, event = 0), ramp_traj, "interval",
+                            checks = ramp_checks)
+  expect_equal(unique(none$tau_ref), 60)
   ind <- data.frame(id = 1:2, path_id = "A", event = c(1, 0), t_upper = c(30, 50))
   out <- build_hazard_data(ind, ramp_traj, "interval", checks = ramp_checks)
-  expect_equal(unique(out$tau_ref), 50)                 # the end of the last interval
+  expect_equal(unique(out$tau_ref), 30)                 # the one failure, not the survivor
   # a known-time failure: its exact time, not the midpoint of its last interval
   ind_c <- data.frame(id = 1, path_id = "A", event = 1, t_event = 42)
   expect_equal(unique(build_hazard_data(ind_c, ramp_traj, "continuous",

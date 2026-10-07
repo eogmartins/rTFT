@@ -819,7 +819,7 @@ costressor <- function(name, column, ref, scale, direction,
 # 2. Build the row-per-interval long table
 # ===========================================================================
 
-# .typical_failure_temp() ------------------------------------------------------
+# .typical_failure_temp() / .typical_failure_time() -----------------------------
 
 # The median temperature at which failures were observed in a row-per-interval
 # table, the temperature of each failure being that of the interval it fell in. A
@@ -828,6 +828,16 @@ costressor <- function(name, column, ref, scale, direction,
 .typical_failure_temp <- function(long) {
   at_failure <- long$Ta[long$failed == 1]
   stats::median(if (length(at_failure)) at_failure else long$Ta)
+}
+
+# The median time at which failures were observed in a row-per-interval table, the
+# time of each failure being the end of the interval it fell in: the check at which
+# it was found, or the time itself when that is known. A table with no failures has
+# no such time, so the longest exposure stands in.
+.typical_failure_time <- function(long) {
+  interval_end <- long$tau + long$exposure / 2
+  at_failure   <- interval_end[long$failed == 1]
+  if (length(at_failure)) stats::median(at_failure) else max(interval_end)
 }
 
 # build_hazard_data() ----------------------------------------------------------
@@ -894,10 +904,12 @@ costressor <- function(name, column, ref, scale, direction,
 #'   the data, written to a constant `tau_ref` column. The scale of the `weibull`
 #'   baseline is fixed at it (see [h0_catalogue]), and the default priors of the
 #'   parameters that depend on the time unit are scaled by it (see
-#'   [build_hazard_prior]). It defaults (`NULL`) to the longest exposure in the data,
-#'   the latest time any individual was observed. Like `Tr`, set it to a common value
-#'   across datasets when comparing `loga` under a `weibull` baseline, whose meaning
-#'   is anchored at it.
+#'   [build_hazard_prior]). It defaults (`NULL`) to the median time at which failures
+#'   were observed, which places `loga` where the data are, as the default `Tr` does.
+#'   A reference time much longer than the times at which individuals fail makes
+#'   `loga` an extrapolation in time that depends heavily on the shape of the
+#'   baseline. Like `Tr`, set it to a common value across datasets when comparing
+#'   `loga` under a `weibull` baseline, whose meaning is anchored at it.
 #' @param checks An optional data frame with `path_id`, `time` giving the
 #'   failure-check schedule per path (i.e., the times at which each individual was
 #'   inspected for failure). Defaults to the distinct `path` times (logger reading =
@@ -1069,9 +1081,9 @@ build_hazard_data <- function(ind, path, observation = c("interval", "continuous
   # assembled, which is where the function is known.
   if (is.null(Tr)) Tr <- .typical_failure_temp(long)
 
-  # The reference time defaults to the longest exposure in the data: the end of the
-  # last at-risk interval of the individual observed longest.
-  if (is.null(tau_ref)) tau_ref <- max(long$tau + long$exposure / 2)
+  # The reference time defaults to the median time at which failures were observed
+  # (the longest exposure, in a table with no failures).
+  if (is.null(tau_ref)) tau_ref <- .typical_failure_time(long)
 
   cov_tbl <- dplyr::select(ind, id, dplyr::all_of(covariates))
   out <- long |>

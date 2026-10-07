@@ -73,10 +73,12 @@ tell apart. It must be set to a common value across datasets when comparing
 the data, written to a constant \code{tau_ref} column. The scale of the \code{weibull}
 baseline is fixed at it (see \link{h0_catalogue}), and the default priors of the
 parameters that depend on the time unit are scaled by it (see
-\link{build_hazard_prior}). It defaults (\code{NULL}) to the longest exposure in the data,
-the latest time any individual was observed. Like \code{Tr}, set it to a common value
-across datasets when comparing \code{loga} under a \code{weibull} baseline, whose meaning
-is anchored at it.}
+\link{build_hazard_prior}). It defaults (\code{NULL}) to the median time at which failures
+were observed, which places \code{loga} where the data are, as the default \code{Tr} does.
+A reference time much longer than the times at which individuals fail makes
+\code{loga} an extrapolation in time that depends heavily on the shape of the
+baseline. Like \code{Tr}, set it to a common value across datasets when comparing
+\code{loga} under a \code{weibull} baseline, whose meaning is anchored at it.}
 
 \item{checks}{An optional data frame with \code{path_id}, \code{time} giving the
 failure-check schedule per path (i.e., the times at which each individual was
