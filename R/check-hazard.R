@@ -240,8 +240,9 @@ check_survival <- function(fit, by = NULL, prob = 0.95, n_draws = 200) {
 #'   `time`, the time at which it failed or was last observed; `Ta`, the temperature
 #'   at that time; `event`, 1 for a failure and 0 for a survivor; and `residual`.
 #' @references
-#' Hartig, F. (2022). DHARMa: Residual diagnostics for hierarchical (multi-level /
-#' mixed) regression models. R package.
+#' Hartig, F. (2024). DHARMa: Residual diagnostics for hierarchical (multi-level /
+#' mixed) regression models. R package version 0.4.7.
+#' \doi{10.32614/CRAN.package.DHARMa}
 #' @seealso [plot_residuals()] to draw them, [check_survival()] for a check by
 #'   group.
 #' @examples

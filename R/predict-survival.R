@@ -311,6 +311,14 @@
 #' temperature `Tr` and are taken as zero below it. The `power` function is not
 #' defined below `Tr`, and a record that goes below it is refused.
 #'
+#' @section No recovery:
+#' The hazard accrued along the record is only ever added to, so the prediction
+#' assumes that an individual does not recover when the temperature returns to a
+#' range in which repair is expected to exceed thermal damage. Along a record that
+#' moves in and out of stressful temperatures, such as one with a daily cycle, the
+#' predicted mortality is then too high if individuals recover in between, and the
+#' more so the more cycles there are.
+#'
 #' @section Co-stressors:
 #' For a model with co-stressors, a co-stressor whose column is in `record` is
 #' followed through time, taking in each interval the value halfway between the two
