@@ -46,8 +46,8 @@ h0(tau) = (k / s) (tau / s)^(k - 1), with times in minutes. The values, stored a
 and log a = -2.13 at 26 degrees C for a 15 g fish in normoxia. log a varies among
 trials with a standard deviation of 0.3, rises by 0.03 per gram of body mass and
 by 0.3 per mg/L of dissolved oxygen below 10. At a constant temperature half the
-fish then fail in about 20 minutes at 28 degrees C, 110 minutes at 26.5 and 10
-hours at 25. \link{static_assay} was simulated from the same model.
+fish then fail in about 1 hour at 27 degrees C, 10 hours at 25 and 4 days at 23.
+\link{static_assay} was simulated from the same model.
 }
 
 \examples{

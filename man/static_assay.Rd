@@ -9,8 +9,8 @@ A tibble with 120 rows, one per fish, and 7 columns:
 \describe{
 \item{id}{Integer, the fish.}
 \item{trial}{Character, the trial the fish was in (\code{"S01"} to \code{"S12"}).}
-\item{path_id}{Character, the temperature treatment (\code{"T25"}, \code{"T26.5"},
-\code{"T28"}), the key to its temperature trajectory.}
+\item{path_id}{Character, the temperature treatment (\code{"T23"}, \code{"T25"},
+\code{"T27"}), the key to its temperature trajectory.}
 \item{temp}{Numeric, the constant temperature of the trial, degrees C.}
 \item{mass}{Numeric, body mass, g.}
 \item{event}{Integer, 1 if the fish lost equilibrium, 0 if it survived to the
@@ -29,9 +29,11 @@ static_assay
 Times to loss of equilibrium of 120 juvenile salmonids held at three constant
 temperatures, simulated from a known model so that what a fitted model estimates
 can be set against the values the data were made from. Twelve trials of ten fish,
-four at each temperature, were checked every 5 minutes for two hours and every 30
-minutes after that, to 24 hours, so each failure is known to have happened
-between two checks. Fish that had not failed by 24 hours are survivors.
+four at each temperature (23, 25 and 27 degrees C), were checked every hour for
+five days, so each failure is known to have happened between two checks. Fish
+that had not failed by the end of the fifth day are survivors. The coolest
+temperature is one a summer heat wave can reach, so that the assay informs
+predictions for the field (see \link{stream_record}).
 }
 \details{
 The data are simulated, not measured. The values are plausible for a juvenile
@@ -43,11 +45,11 @@ stored with the data as \code{attr(static_assay, "truth")}.
 head(static_assay)
 
 # The temperature trajectory of each treatment, and the checks.
-path <- data.frame(path_id = rep(c("T25", "T26.5", "T28"), each = 2),
-                   time = rep(c(0, 1440), 3),
-                   temp = rep(c(25, 26.5, 28), each = 2))
-checks <- expand.grid(path_id = c("T25", "T26.5", "T28"),
-                      time = c(seq(0, 120, by = 5), seq(150, 1440, by = 30)))
+path <- data.frame(path_id = rep(c("T23", "T25", "T27"), each = 2),
+                   time = rep(c(0, 7200), 3),
+                   temp = rep(c(23, 25, 27), each = 2))
+checks <- expand.grid(path_id = c("T23", "T25", "T27"),
+                      time = seq(0, 7200, by = 60))
 long <- build_hazard_data(static_assay, path, "interval",
                           covariates = c("mass", "trial"), checks = checks)
 head(long)

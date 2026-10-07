@@ -19,11 +19,11 @@ Simulated by \code{data-raw/make-example-data.R} in the package's repository.
 stream_record
 }
 \description{
-Thirty days of hourly water temperature, with a daily cycle and a warm spell in
-the third week that takes the afternoon maximum to about 26 degrees C. It is
-simulated, to give \code{\link[=predict_survival]{predict_survival()}} a record that passes through the
-temperatures at which the example assays recorded failures, and lies below them
-for most of its length.
+Thirty days of hourly water temperature, with a daily cycle and a heat wave in
+the third week that takes the afternoon maximum to about 24 degrees C. It is
+simulated, to give \code{\link[=predict_survival]{predict_survival()}} a record that lies below the
+temperatures of the example assays for most of its length and reaches the coolest
+of them, 23 degrees C, on the afternoons of the heat wave.
 }
 \examples{
 range(stream_record$temp)

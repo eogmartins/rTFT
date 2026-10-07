@@ -12,18 +12,19 @@
 # h0(tau) = (k / s) (tau / s)^(k - 1), times in minutes. The amplitude a varies
 # among trials, rises with body mass and rises under low dissolved oxygen. The
 # values are set so that at a constant temperature half the fish fail in about
-# 20 min at 28 degC, 110 min at 26.5 degC and 10 h at 25 degC.
+# 1 h at 27 degC, 10 h at 25 degC and 4 days at 23 degC.
 #
 # The static assay holds 12 trials of 10 fish, four at each of three constant
-# temperatures, checked every 5 min for two hours and every 30 min after that, to
-# 24 h. Its failure times are therefore known to an interval. The ramping assay
+# temperatures (23, 25 and 27 degC), checked every hour for five days. Its failure
+# times are therefore known to an interval. The coolest temperature is within reach
+# of a summer heat wave, which lets the assay inform a prediction for the field. The ramping assay
 # holds 12 trials of 10 fish warmed from 14 degC to 29.5 degC: three ramp rates by two
 # levels of dissolved oxygen, two trials of each, watched throughout, so its failure
 # times are known exactly. Either design can be observed either way; the two
 # datasets differ in this only so that both ways are shown.
 #
 # The stream record is 30 days of hourly temperature with a daily cycle and a
-# warm spell in the third week.
+# heat wave in the third week that takes the afternoon maximum to about 24 degC.
 #
 # Rerun this script from the package root to remake the datasets.
 #
@@ -86,9 +87,9 @@ trial_fish <- function(n, do) {
 
 static_design <- tibble::tibble(
   trial = sprintf("S%02d", 1:12),
-  temp  = rep(c(25, 26.5, 28), each = 4))
-static_end    <- 24 * 60
-static_checks <- c(seq(0, 120, by = 5), seq(150, static_end, by = 30))
+  temp  = rep(c(23, 25, 27), each = 4))
+static_end    <- 5 * 24 * 60
+static_checks <- seq(0, static_end, by = 60)
 
 static_assay <- do.call(rbind, lapply(seq_len(nrow(static_design)), \(i) {
   fish <- trial_fish(10, truth$do_normal)
@@ -145,7 +146,7 @@ stream_record <- tibble::tibble(
   temp = round(
     17 + 1.5 * sin(pi * day / 30) +                    # the season: warmest mid-record
       2.2 * sin(2 * pi * (hours %% 24 - 9) / 24) +     # the day: warmest mid-afternoon
-      5.5 * exp(-(day - 18)^2 / (2 * 2^2)) +           # a warm spell around day 18
+      3.5 * exp(-(day - 18)^2 / (2 * 2^2)) +           # a heat wave around day 18
       stats::rnorm(length(hours), 0, 0.15), 2))
 
 # Checks on what was simulated -------------------------------------------------
@@ -154,9 +155,13 @@ stopifnot(
   nrow(static_assay) == 120, nrow(ramp_assay) == 120,
   !anyNA(static_assay), !anyNA(ramp_assay), !anyNA(stream_record),
   all(static_assay$t_upper %in% static_checks),
-  # some fish, and not most, survive the coolest static trials
-  mean(static_assay$event[static_assay$temp == 25]) > 0.5,
-  mean(static_assay$event) < 1,
+  # at the coolest static temperature a good share of the fish fail and a good share
+  # survive the five days, and at the two warmer ones nearly all fail
+  mean(static_assay$event[static_assay$temp == 23]) > 0.25,
+  mean(static_assay$event[static_assay$temp == 23]) < 0.75,
+  mean(static_assay$event[static_assay$temp > 23]) > 0.9,
+  # the heat wave reaches the coolest static temperature and stays below the next
+  max(stream_record$temp) > 23, max(stream_record$temp) < 25,
   # nearly every fish fails before a ramp ends
   mean(ramp_assay$event) > 0.9,
   all(diff(stream_record$time) == 60))

@@ -5,9 +5,11 @@
 #' Times to loss of equilibrium of 120 juvenile salmonids held at three constant
 #' temperatures, simulated from a known model so that what a fitted model estimates
 #' can be set against the values the data were made from. Twelve trials of ten fish,
-#' four at each temperature, were checked every 5 minutes for two hours and every 30
-#' minutes after that, to 24 hours, so each failure is known to have happened
-#' between two checks. Fish that had not failed by 24 hours are survivors.
+#' four at each temperature (23, 25 and 27 degrees C), were checked every hour for
+#' five days, so each failure is known to have happened between two checks. Fish
+#' that had not failed by the end of the fifth day are survivors. The coolest
+#' temperature is one a summer heat wave can reach, so that the assay informs
+#' predictions for the field (see [stream_record]).
 #'
 #' The data are simulated, not measured. The values are plausible for a juvenile
 #' rainbow trout acclimated to 14 degrees C, and stand for no particular study. The
@@ -18,8 +20,8 @@
 #' \describe{
 #'   \item{id}{Integer, the fish.}
 #'   \item{trial}{Character, the trial the fish was in (`"S01"` to `"S12"`).}
-#'   \item{path_id}{Character, the temperature treatment (`"T25"`, `"T26.5"`,
-#'     `"T28"`), the key to its temperature trajectory.}
+#'   \item{path_id}{Character, the temperature treatment (`"T23"`, `"T25"`,
+#'     `"T27"`), the key to its temperature trajectory.}
 #'   \item{temp}{Numeric, the constant temperature of the trial, degrees C.}
 #'   \item{mass}{Numeric, body mass, g.}
 #'   \item{event}{Integer, 1 if the fish lost equilibrium, 0 if it survived to the
@@ -33,11 +35,11 @@
 #' head(static_assay)
 #'
 #' # The temperature trajectory of each treatment, and the checks.
-#' path <- data.frame(path_id = rep(c("T25", "T26.5", "T28"), each = 2),
-#'                    time = rep(c(0, 1440), 3),
-#'                    temp = rep(c(25, 26.5, 28), each = 2))
-#' checks <- expand.grid(path_id = c("T25", "T26.5", "T28"),
-#'                       time = c(seq(0, 120, by = 5), seq(150, 1440, by = 30)))
+#' path <- data.frame(path_id = rep(c("T23", "T25", "T27"), each = 2),
+#'                    time = rep(c(0, 7200), 3),
+#'                    temp = rep(c(23, 25, 27), each = 2))
+#' checks <- expand.grid(path_id = c("T23", "T25", "T27"),
+#'                       time = seq(0, 7200, by = 60))
 #' long <- build_hazard_data(static_assay, path, "interval",
 #'                           covariates = c("mass", "trial"), checks = checks)
 #' head(long)
@@ -62,8 +64,8 @@
 #' and log a = -2.13 at 26 degrees C for a 15 g fish in normoxia. log a varies among
 #' trials with a standard deviation of 0.3, rises by 0.03 per gram of body mass and
 #' by 0.3 per mg/L of dissolved oxygen below 10. At a constant temperature half the
-#' fish then fail in about 20 minutes at 28 degrees C, 110 minutes at 26.5 and 10
-#' hours at 25. [static_assay] was simulated from the same model.
+#' fish then fail in about 1 hour at 27 degrees C, 10 hours at 25 and 4 days at 23.
+#' [static_assay] was simulated from the same model.
 #'
 #' @format A tibble with 120 rows, one per fish, and 8 columns:
 #' \describe{
@@ -95,11 +97,11 @@
 
 #' A simulated record of stream temperature
 #'
-#' Thirty days of hourly water temperature, with a daily cycle and a warm spell in
-#' the third week that takes the afternoon maximum to about 26 degrees C. It is
-#' simulated, to give [predict_survival()] a record that passes through the
-#' temperatures at which the example assays recorded failures, and lies below them
-#' for most of its length.
+#' Thirty days of hourly water temperature, with a daily cycle and a heat wave in
+#' the third week that takes the afternoon maximum to about 24 degrees C. It is
+#' simulated, to give [predict_survival()] a record that lies below the
+#' temperatures of the example assays for most of its length and reaches the coolest
+#' of them, 23 degrees C, on the afternoons of the heat wave.
 #'
 #' @format A tibble with 721 rows, one per hourly reading, and 3 columns:
 #' \describe{
