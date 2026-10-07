@@ -120,13 +120,34 @@ test_that("a co-stressor in the record is followed through time", {
 })
 
 
-test_that(".record_coverage gives the share of the record's duration outside the fitted range", {
+test_that(".record_zone and .record_coverage say how much of a record, and of its risk, is outside the fitted range", {
   spans <- data.frame(time = c(0, 10, 30, 60, 100), temp = c(18, 20, 26, 32, 36))
-  cover <- .record_coverage(.record_intervals(spans), c(22, 30))   # midpoints 19, 23, 29, 34
-  expect_equal(cover$below, 0.1)
-  expect_equal(cover$within, 0.5)
-  expect_equal(cover$above, 0.4)
+  iv <- .record_intervals(spans)                         # midpoints 19, 23, 29, 34
+  zone <- .record_zone(iv, c(22, 30))
+  expect_equal(as.character(zone), c("below", "within", "within", "above"))
+  expect_equal(levels(zone), c("below", "within", "above"))
+  duration <- iv$tau_end - iv$tau_start                  # 10, 20, 30, 40
+  # two draws: the hazard accrued in each interval
+  accrued <- rbind(c(1, 1, 2, 4), c(0, 3, 3, 2))
+  cover <- .record_coverage(accrued, zone, duration, c(22, 30))
+  expect_equal(c(cover$below, cover$within, cover$above), c(0.1, 0.5, 0.4))
   expect_equal(c(cover$Ta_fitted_min, cover$Ta_fitted_max), c(22, 30))
+  # shares of the risk: draw 1 gives 1/8, 3/8, 4/8; draw 2 gives 0, 6/8, 2/8
+  expect_equal(cover$risk_below,  stats::median(c(1 / 8, 0)))
+  expect_equal(cover$risk_within, stats::median(c(3 / 8, 6 / 8)))
+  expect_equal(cover$risk_above,  stats::median(c(4 / 8, 2 / 8)))
+  # most of the time below, most of the risk within
+  warm_hours <- rbind(c(0.01, 5, 0, 0))
+  spent <- .record_coverage(warm_hours, factor(c("below", "within", "above", "above"),
+                                               levels = levels(zone)), c(90, 10, 0, 0), c(22, 30))
+  expect_equal(spent$below, 0.9)
+  expect_gt(spent$risk_within, 0.99)
+  # a draw with no hazard has no shares; with none at all, they are missing
+  none <- .record_coverage(matrix(0, 2, 4), zone, duration, c(22, 30))
+  expect_true(all(is.na(c(none$risk_below, none$risk_within, none$risk_above))))
+  expect_equal(none$within, 0.5)
+  one <- .record_coverage(rbind(accrued[1, ], 0), zone, duration, c(22, 30))
+  expect_equal(one$risk_above, 0.5)
 })
 
 
@@ -153,6 +174,8 @@ nd <- data.frame(mass = c(8, 12))
 test_that("predict_survival returns survival through time and mortality at the end", {
   pred <- quietly(predict_survival(fits$exp, rec, newdata = nd, n_draws = 300))
   expect_named(pred, c("survival", "mortality", "coverage", "record"))
+  expect_named(pred$coverage, c("mass", "Ta_fitted_min", "Ta_fitted_max", "below", "within",
+                                "above", "risk_below", "risk_within", "risk_above"))
   expect_equal(pred$record, tibble::tibble(time = rec$time, temp = rec$temp))   # not `day`
   expect_named(pred$survival, c("mass", "time", "median", "lower", "upper", "prob",
                                 "n_draws", "n_unreached"))
@@ -215,8 +238,19 @@ test_that("a record outside the fitted temperatures is said to be", {
   cool <- transform(rec, temp = temp - 6)
   expect_message(pred <- predict_survival(fits$exp, cool, newdata = nd, n_draws = 100),
                  "outside the temperatures", class = "rTFT_record_notes")
-  expect_equal(pred$coverage$below, 1)
-  expect_equal(pred$coverage$within + pred$coverage$below + pred$coverage$above, 1)
+  expect_equal(pred$coverage$below, c(1, 1))               # a row per row of newdata
+  expect_equal(pred$coverage$mass, nd$mass)
+  expect_equal(pred$coverage$within + pred$coverage$below + pred$coverage$above, c(1, 1))
+  expect_equal(pred$coverage$risk_below, c(1, 1))          # and all of the risk with it
+  expect_message(predict_survival(fits$exp, cool, newdata = nd, n_draws = 100),
+                 "100% of the predicted risk", class = "rTFT_record_notes")
+  # a record that only dips below the fitted temperatures takes little risk from there
+  dips <- transform(rec, temp = ifelse(seq_along(temp) <= 2, 19, temp + 3))
+  mostly <- quietly(predict_survival(fits$exp, dips, newdata = nd, n_draws = 100))
+  expect_gt(mostly$coverage$below[1], 0.1)
+  expect_lt(mostly$coverage$risk_below[1], mostly$coverage$below[1])
+  expect_equal(with(mostly$coverage, risk_below + risk_within + risk_above), c(1, 1),
+               tolerance = 0.02)
   # below the reference the zero-type rate gives no risk at all, and says so
   zero <- quietly(predict_survival(fits$zeroexp, cool, newdata = nd, by = "day",
                                    n_draws = 100))
@@ -253,7 +287,9 @@ test_that("average_survival returns the tables of predict_survival, with the wei
   expect_named(avg, c("survival", "mortality", "risk", "coverage", "record", "weights"))
   expect_named(avg$survival, names(one$survival))
   expect_named(avg$risk, names(one$risk))
-  expect_equal(avg$coverage, one$coverage)
+  expect_named(avg$coverage, names(one$coverage))
+  expect_equal(avg$coverage[c("mass", "below", "within", "above")],
+               one$coverage[c("mass", "below", "within", "above")])
   expect_equal(avg$weights$n_draws, c(300L, 100L))
   expect_true(all(avg$survival$n_draws == 400))
 })

@@ -49,9 +49,8 @@ that the shares stay in proportion to the weights, and a message says so.}
 }
 \value{
 The list \code{\link[=predict_survival]{predict_survival()}} returns, with \code{weights}, the table of
-weights with the number of draws each model contributed. \code{coverage} is that of
-the first model averaged; the models share their data, and so the temperatures
-they were fitted to.
+weights with the number of draws each model contributed. In \code{coverage}, the
+shares of the risk are those of the pooled draws.
 }
 \description{
 Predicts survival along a record as \code{\link[=predict_survival]{predict_survival()}} does, averaged over

@@ -51,8 +51,11 @@ A list of tibbles, each with the columns of \code{newdata}:
 \item \code{risk} (when \code{by} is given): each period's share of the hazard accrued over
 the record. The shares of a posterior draw add to one; \code{n_draws} is the
 number of draws with any hazard, which the summary rests on.
-\item \code{coverage}: the temperatures the model was fitted to and the share of the
-record, by duration, \code{below}, \code{within} and \code{above} them.
+\item \code{coverage}: the temperatures the model was fitted to; the share of the
+record's duration \code{below}, \code{within} and \code{above} them; and the share of the
+hazard accrued along the record at those temperatures, \code{risk_below},
+\code{risk_within} and \code{risk_above} (the median over the posterior draws with any
+hazard).
 \item \code{record}: the times and temperatures of the record, with any co-stressor it
 follows, kept so that \code{\link[=plot_survival]{plot_survival()}} can draw them above the survival
 they led to.
@@ -82,9 +85,12 @@ field record may lie below them. Within the temperatures of the assay the data
 hold the failure-rate function in place, so functions that fit equally well
 predict alike. Below them nothing does, and the prediction depends on which
 function was chosen: functions that fit the assay equally well can differ by
-orders of magnitude there. The \code{coverage} table gives the share of the record,
-by duration, below, within and above the temperatures the model was fitted to,
-and a message is given when any of it lies outside. Comparing the predictions
+orders of magnitude there. The \code{coverage} table gives the share of the record
+below, within and above the temperatures the model was fitted to, by duration
+and by the risk accrued. The second is the one to read: a record may spend most
+of its time at cool temperatures where little hazard accrues, and take nearly
+all of its risk from a few warm hours that the assay did cover. A message is
+given when any of the record lies outside. Comparing the predictions
 of several failure-rate functions, or averaging them with \code{\link[=average_survival]{average_survival()}},
 shows how much the prediction depends on that choice.
 

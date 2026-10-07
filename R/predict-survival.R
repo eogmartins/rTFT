@@ -104,19 +104,41 @@
   M * growth
 }
 
-# .record_coverage() -----------------------------------------------------------
+# .record_zone() / .record_coverage() ------------------------------------------
 
-# How much of a record, by duration, lies below, within and above the temperatures
-# the model was fitted to. Within them the data hold the failure-rate function in
+# Whether each interval of a record is below, within or above the temperatures the
+# model was fitted to. Within them the data hold the failure-rate function in
 # place, so functions that fit equally well predict alike. Outside them nothing
 # does, and the prediction depends on which function was chosen.
-.record_coverage <- function(intervals, Ta_range) {
-  duration <- intervals$tau_end - intervals$tau_start
-  share <- function(keep) sum(duration[keep]) / sum(duration)
+.record_zone <- function(intervals, Ta_range) {
+  zone <- ifelse(intervals$Ta < Ta_range[1], "below",
+          ifelse(intervals$Ta > Ta_range[2], "above", "within"))
+  factor(zone, levels = c("below", "within", "above"))
+}
+
+# How much of a record lies below, within and above the temperatures the model was
+# fitted to, in two senses: the share of its duration (`below`, `within`, `above`),
+# and the share of the hazard accrued along it (`risk_below`, `risk_within`,
+# `risk_above`, each the median over the posterior draws with any hazard, and
+# missing when none has any). The two can differ greatly: a record that spends most
+# of its time at cool temperatures, where little hazard accrues, may take nearly all
+# of its risk from a few warm hours.
+.record_coverage <- function(accrued, zone, duration, Ta_range) {
+  zones <- levels(zone)
+  time_share <- vapply(zones, \(z) sum(duration[zone == z]) / sum(duration), numeric(1))
+  by_zone <- vapply(zones, \(z) rowSums(accrued[, zone == z, drop = FALSE]),
+                    numeric(nrow(accrued)))
+  by_zone <- matrix(by_zone, nrow = nrow(accrued))
+  total   <- rowSums(by_zone)
+  at_risk <- total > 0
+  risk_share <- if (any(at_risk))
+    apply(by_zone[at_risk, , drop = FALSE] / total[at_risk], 2, stats::median)
+  else rep(NA_real_, length(zones))
   tibble::tibble(Ta_fitted_min = Ta_range[1], Ta_fitted_max = Ta_range[2],
-                 below  = share(intervals$Ta < Ta_range[1]),
-                 within = share(intervals$Ta >= Ta_range[1] & intervals$Ta <= Ta_range[2]),
-                 above  = share(intervals$Ta > Ta_range[2]))
+                 below = time_share[["below"]], within = time_share[["within"]],
+                 above = time_share[["above"]],
+                 risk_below = risk_share[1], risk_within = risk_share[2],
+                 risk_above = risk_share[3])
 }
 
 
@@ -166,7 +188,8 @@
   list(newdata = newdata, time = record$time,
        record = tibble::as_tibble(record[c("time", "temp", cs_columns[in_record])]),
        period = if (!is.null(by)) record[[by]][-nrow(record)], by = by,
-       coverage = .record_coverage(intervals, st$Ta_range),
+       zone = .record_zone(intervals, st$Ta_range),
+       duration = intervals$tau_end - intervals$tau_start, Ta_range = st$Ta_range,
        baseline = st$baseline, rows = rows)
 }
 
@@ -182,8 +205,8 @@
 
 # Summarise the draws from .record_draws() into the tables predict_survival()
 # returns, each carrying the columns of newdata: `survival` with a row per reading of
-# the record, `mortality` with one row, and, when the record names periods, `risk`
-# with a row per period.
+# the record, `mortality` with one row, when the record names periods `risk` with a
+# row per period, and `coverage` with one row.
 .summarise_record <- function(draws, prob) {
   per_row <- purrr::map(seq_along(draws$rows), \(r) {
     accrued <- draws$rows[[r]]
@@ -197,6 +220,7 @@
       mortality = tibble::tibble(time = draws$time[length(draws$time)],
                                  .draw_summary(1 - survival[, ncol(survival)], prob)))
     if (!is.null(draws$by)) out$risk <- .risk_by_period(accrued, draws$period, draws$by, prob)
+    out$coverage <- .record_coverage(accrued, draws$zone, draws$duration, draws$Ta_range)
     purrr::map(out, \(tbl) .with_newdata(row, tbl))
   })
   tables <- names(per_row[[1]])
@@ -227,16 +251,23 @@
 
 # Say, once, what a prediction along a record rests on beyond the fitted model:
 # where exposure is counted from, when the baseline depends on elapsed exposure, and
-# how much of the record lies outside the temperatures the model was fitted to.
-.report_record <- function(draws) {
-  cover <- draws$coverage
+# how much of the record, and of the risk predicted along it, lies outside the
+# temperatures the model was fitted to. `cover` is the coverage table, a row per row
+# of newdata; where the share of the risk differs among its rows, the largest is
+# given.
+.report_record <- function(cover, baseline) {
+  first   <- cover[1, ]
+  outside <- 1 - cover$risk_within
   lines <- c(
-    if (any(draws$baseline != "mem"))
+    if (any(baseline != "mem"))
       c("i" = "Elapsed exposure is counted from the first time in {.arg record}, since the baseline hazard depends on it."),
-    if (cover$within < 1)
+    if (first$within < 1)
       c("!" = sprintf("%.0f%% of the record, by duration, lies outside the temperatures the model was fitted to (%.4g to %.4g): %.0f%% below, %.0f%% above.",
-                      100 * (1 - cover$within), cover$Ta_fitted_min, cover$Ta_fitted_max,
-                      100 * cover$below, 100 * cover$above),
+                      100 * (1 - first$within), first$Ta_fitted_min, first$Ta_fitted_max,
+                      100 * first$below, 100 * first$above),
+        if (!all(is.na(outside)))
+          c("!" = sprintf("About %.0f%% of the predicted risk is accrued at those temperatures.",
+                          100 * max(outside, na.rm = TRUE))),
         "i" = "There the data do not constrain the failure-rate function, so the prediction depends on which function was chosen."))
   if (length(lines)) cli::cli_inform(lines, class = "rTFT_record_notes")
   invisible(NULL)
@@ -267,9 +298,12 @@
 #' hold the failure-rate function in place, so functions that fit equally well
 #' predict alike. Below them nothing does, and the prediction depends on which
 #' function was chosen: functions that fit the assay equally well can differ by
-#' orders of magnitude there. The `coverage` table gives the share of the record, 
-#' by duration, below, within and above the temperatures the model was fitted to, 
-#' and a message is given when any of it lies outside. Comparing the predictions
+#' orders of magnitude there. The `coverage` table gives the share of the record
+#' below, within and above the temperatures the model was fitted to, by duration
+#' and by the risk accrued. The second is the one to read: a record may spend most
+#' of its time at cool temperatures where little hazard accrues, and take nearly
+#' all of its risk from a few warm hours that the assay did cover. A message is
+#' given when any of the record lies outside. Comparing the predictions
 #' of several failure-rate functions, or averaging them with [average_survival()],
 #' shows how much the prediction depends on that choice.
 #'
@@ -309,8 +343,11 @@
 #'   * `risk` (when `by` is given): each period's share of the hazard accrued over
 #'     the record. The shares of a posterior draw add to one; `n_draws` is the
 #'     number of draws with any hazard, which the summary rests on.
-#'   * `coverage`: the temperatures the model was fitted to and the share of the
-#'     record, by duration, `below`, `within` and `above` them.
+#'   * `coverage`: the temperatures the model was fitted to; the share of the
+#'     record's duration `below`, `within` and `above` them; and the share of the
+#'     hazard accrued along the record at those temperatures, `risk_below`,
+#'     `risk_within` and `risk_above` (the median over the posterior draws with any
+#'     hazard).
 #'   * `record`: the times and temperatures of the record, with any co-stressor it
 #'     follows, kept so that [plot_survival()] can draw them above the survival
 #'     they led to.
@@ -330,9 +367,9 @@ predict_survival <- function(fit, record, newdata = NULL, levels = NULL, by = NU
                              prob = 0.95, n_draws = 1000) {
   .check_prob(prob)
   draws <- .record_draws(fit, record, newdata, levels, by, n_draws)
-  .report_record(draws)
-  c(.summarise_record(draws, prob),
-    list(coverage = draws$coverage, record = draws$record))
+  out   <- .summarise_record(draws, prob)
+  .report_record(out$coverage, draws$baseline)
+  c(out, list(record = draws$record))
 }
 
 
@@ -358,9 +395,8 @@ predict_survival <- function(fit, record, newdata = NULL, levels = NULL, by = NU
 #' @inheritParams average_tdt_ttl
 #' @inheritParams predict_survival
 #' @return The list [predict_survival()] returns, with `weights`, the table of
-#'   weights with the number of draws each model contributed. `coverage` is that of
-#'   the first model averaged; the models share their data, and so the temperatures
-#'   they were fitted to.
+#'   weights with the number of draws each model contributed. In `coverage`, the
+#'   shares of the risk are those of the pooled draws.
 #' @examples
 #' \dontrun{
 #' fits <- list("exp" = fit_exp, "zeroexp" = fit_zeroexp)
@@ -375,7 +411,7 @@ average_survival <- function(fits, weights, record, newdata = NULL, levels = NUL
   per_model <- .each_model(setup, \(fit, n)
     .record_draws(fit, record, newdata, levels, by, n))
   draws <- .pool_record(per_model)
-  .report_record(draws)
-  c(.summarise_record(draws, prob),
-    list(coverage = draws$coverage, record = draws$record, weights = setup$weights))
+  out   <- .summarise_record(draws, prob)
+  .report_record(out$coverage, draws$baseline)
+  c(out, list(record = draws$record, weights = setup$weights))
 }
