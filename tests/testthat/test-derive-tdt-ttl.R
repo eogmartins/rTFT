@@ -784,3 +784,136 @@ test_that(".report_unreached lists a thermal death time curve once per p", {
   expect_match(msg, "time until p = 0.9 fail, at some temperatures: up to 40.0% of draws",
                fixed = TRUE)
 })
+
+
+# ===========================================================================
+# 8. The dynamic critical thermal maximum, under a linear ramp
+# ===========================================================================
+
+# Hand-made settings and two posterior draws, so dCTmax can be checked against the
+# ramp's own integral without a fitted model.
+ramp_settings <- function(m_form = "exp", baseline = "mem")
+  list(m_form = m_form, baseline = baseline, Tr = 20, tau_ref = 60,
+       k_sw = M_catalogue[[m_form]]$k_sw, costressors = list())
+ramp_draws <- list(loga = c(-5, -4), logb = log(c(0.4, 0.5)), logc = c(-8, -8),
+                   logshape = log(c(2, 0.7)), logscale = log(c(40, 80)), gam = c(0.01, -0.01))
+
+test_that(".dctmax_draws solves the exponential ramp with the memoryless baseline exactly", {
+  # H(t) = a exp(b (T0 - Tr)) (exp(b r t) - 1) / (b r), so the temperature at which
+  # it reaches x is T0 + log(1 + x b r / (a exp(b (T0 - Tr)))) / b
+  a <- exp(ramp_draws$loga); b <- exp(ramp_draws$logb)
+  closed <- function(p, rate, T0)
+    T0 + log1p(-log1p(-p) * b * rate / (a * exp(b * (T0 - 20)))) / b
+  out <- .dctmax_draws(ramp_settings(), ramp_draws, rate = 0.25, T_start = 20,
+                       p = c(0.1, 0.5, 0.9), levels = NULL, T_max = 45)
+  expect_equal(dim(out), c(2L, 3L))
+  expect_equal(out[, 2], closed(0.5, 0.25, 20), tolerance = 1e-5)
+  expect_equal(out[, 1], closed(0.1, 0.25, 20), tolerance = 1e-5)
+  expect_equal(out[, 3], closed(0.9, 0.25, 20), tolerance = 1e-5)
+  # a start away from the reference
+  cold <- .dctmax_draws(ramp_settings(), ramp_draws, 0.1, 14, 0.5, NULL, 45)
+  expect_equal(cold[, 1], closed(0.5, 0.1, 14), tolerance = 1e-5)
+  # more failing takes a higher temperature, and a slower ramp a lower one
+  expect_true(all(out[, 1] < out[, 2] & out[, 2] < out[, 3]))
+  slow <- .dctmax_draws(ramp_settings(), ramp_draws, 0.05, 20, 0.5, NULL, 45)
+  expect_true(all(slow[, 1] < out[, 2]))
+})
+
+
+test_that(".dctmax_draws agrees with the ramp's integral under the other baselines", {
+  # the cumulative hazard by direct numerical integration, for the first draw
+  a <- exp(ramp_draws$loga[1]); b <- exp(ramp_draws$logb[1])
+  k <- exp(ramp_draws$logshape[1]); s_ll <- exp(ramp_draws$logscale[1]); g <- ramp_draws$gam[1]
+  rate <- 0.2; T0 <- 18
+  h0 <- list(
+    weibull  = \(t) (k / 60) * (t / 60)^(k - 1),          # the scale is the reference time
+    llogis   = \(t) (k / s_ll) * (t / s_ll)^(k - 1) / (1 + (t / s_ll)^k),
+    gompertz = \(t) exp(g * t))
+  by_integral <- function(baseline, p) {
+    hazard <- \(t) a * exp(b * (T0 + rate * t - 20)) * h0[[baseline]](t)
+    gap <- \(t) stats::integrate(hazard, 0, t, rel.tol = 1e-10)$value + log1p(-p)
+    T0 + rate * stats::uniroot(gap, c(1e-6, 200), tol = 1e-10)$root
+  }
+  for (baseline in names(h0)) {
+    out <- .dctmax_draws(ramp_settings(baseline = baseline), ramp_draws, rate, T0,
+                         p = c(0.2, 0.5), levels = NULL, T_max = 50)
+    expect_equal(out[1, 1], by_integral(baseline, 0.2), tolerance = 1e-4)
+    expect_equal(out[1, 2], by_integral(baseline, 0.5), tolerance = 1e-4)
+  }
+})
+
+
+test_that(".dctmax_draws gives Inf where the ramp ends first, and handles the zero-type rates", {
+  # followed only to 22 degrees, half have not failed
+  short <- .dctmax_draws(ramp_settings(), ramp_draws, 0.25, 20, c(0.001, 0.5), NULL, T_max = 22)
+  expect_true(all(is.finite(short[, 1])))
+  expect_equal(short[, 2], c(Inf, Inf))
+  # zeroexp below its reference accrues nothing, so a colder start changes little
+  from_ref  <- .dctmax_draws(ramp_settings("zeroexp"), ramp_draws, 0.25, 20, 0.5, NULL, 45)
+  from_cold <- .dctmax_draws(ramp_settings("zeroexp"), ramp_draws, 0.25, 15, 0.5, NULL, 45)
+  expect_equal(from_cold, from_ref, tolerance = 1e-3)
+  expect_error(.dctmax_draws(ramp_settings("power"), ramp_draws, 0.25, 15, 0.5, NULL, 45),
+               class = "rTFT_below_Tr")
+})
+
+
+test_that("derive_dctmax reports dCTmax for each row of newdata, ramp and p", {
+  nd <- data.frame(mass = c(8, 12))
+  out <- suppressMessages(derive_dctmax(fit_exp, rate = c(0.1, 0.25), T_start = 20, newdata = nd,
+                                        p = c(0.1, 0.5), n_draws = 200))
+  expect_named(out, c("mass", "rate", "T_start", "p", "median", "lower", "upper", "prob",
+                      "n_draws", "n_unreached"))
+  expect_equal(nrow(out), 2L * 2L * 2L)
+  expect_equal(out$mass, rep(c(8, 12), each = 4))
+  expect_equal(out$rate, rep(rep(c(0.1, 0.25), each = 2), 2))
+  expect_true(all(out$T_start == 20))                       # one start for every ramp
+  expect_true(all(out$lower < out$median & out$median < out$upper))
+  expect_true(all(out$n_unreached == 0))
+  one <- function(mass, rate, p) out$median[out$mass == mass & out$rate == rate & out$p == p]
+  expect_lt(one(8, 0.1, 0.5), one(8, 0.25, 0.5))            # the slower ramp, the lower
+  expect_lt(one(8, 0.25, 0.1), one(8, 0.25, 0.5))
+  expect_lt(one(12, 0.25, 0.5), one(8, 0.25, 0.5))          # heavier individuals fail sooner here
+  # the median is that of the closed form over the draws
+  dr <- .fit_draws(fit_exp, c("loga", "logb"), nd[1, , drop = FALSE],
+                   draw_ids = .thin_ids(brms::ndraws(fit_exp), 200))
+  a <- exp(dr$loga[, 1]); b <- exp(dr$logb[, 1])
+  closed <- 20 + log1p(log(2) * b * 0.25 / (a * exp(b * (20 - fit_exp$rtft$Tr)))) / b
+  expect_equal(one(8, 0.25, 0.5), stats::median(closed), tolerance = 1e-5)
+  # a start per ramp
+  two <- suppressMessages(derive_dctmax(fit_exp, rate = c(0.1, 0.25), T_start = c(18, 20),
+                                        newdata = nd[1, , drop = FALSE], n_draws = 100))
+  expect_equal(two$T_start, c(18, 20))
+  expect_equal(two$p, c(0.5, 0.5))                           # p defaults to one half
+})
+
+
+test_that("derive_dctmax says when the ramp ends first or leaves the fitted temperatures", {
+  nd <- data.frame(mass = 10)
+  expect_message(short <- derive_dctmax(fit_exp, 0.25, 20, newdata = nd, p = 0.9, T_max = 24,
+                                        n_draws = 100),
+                 "do not reach", class = "rTFT_dctmax_notes")
+  expect_true(all(short$n_unreached > 0))
+  # a fast ramp takes dCTmax above the warmest temperature the model was fitted to
+  top <- fit_exp$rtft$Ta_range[2]
+  expect_message(fast <- derive_dctmax(fit_exp, 5, 20, newdata = nd, p = 0.9, n_draws = 100),
+                 "above the temperatures", class = "rTFT_dctmax_notes")
+  expect_gt(fast$median, top)
+  expect_no_message(derive_dctmax(fit_exp, 0.25, 20, newdata = nd, p = 0.1, n_draws = 100))
+})
+
+
+test_that("derive_dctmax refuses bad arguments", {
+  nd <- data.frame(mass = 10)
+  expect_error(derive_dctmax(fit_exp, T_start = 20, newdata = nd), class = "rTFT_bad_rate")
+  expect_error(derive_dctmax(fit_exp, rate = 0, T_start = 20, newdata = nd), class = "rTFT_bad_rate")
+  expect_error(derive_dctmax(fit_exp, rate = -0.3, T_start = 20, newdata = nd), class = "rTFT_bad_rate")
+  expect_error(derive_dctmax(fit_exp, rate = 0.3, newdata = nd), class = "rTFT_bad_T_start")
+  expect_error(derive_dctmax(fit_exp, rate = c(0.1, 0.2, 0.3), T_start = c(18, 20), newdata = nd),
+               class = "rTFT_bad_T_start")
+  expect_error(derive_dctmax(fit_exp, 0.3, 20, newdata = nd, p = 1), class = "rTFT_bad_p")
+  expect_error(derive_dctmax(fit_exp, 0.3, 20, newdata = nd, T_max = 19), class = "rTFT_bad_T_max")
+  expect_error(derive_dctmax(fit_exp, 0.3, 20, newdata = nd, prob = 2), class = "rTFT_bad_prob")
+  expect_error(derive_dctmax(fit_exp, 0.3, 20), class = "rTFT_missing_covariates")
+  expect_error(derive_dctmax(list(), 0.3, 20), class = "rTFT_not_brmsfit")
+})
+

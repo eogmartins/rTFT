@@ -966,3 +966,175 @@ derive_tdt_ttl <- function(fit, newdata = NULL, p = c(0.1, 0.5, 0.9), t_ref,
   .report_unreached(out)
   out
 }
+
+
+# ===========================================================================
+# 8. The dynamic critical thermal maximum, under a linear ramp
+# ===========================================================================
+
+# .dctmax_draws() --------------------------------------------------------------
+
+# Find, for each posterior draw, the dynamic critical thermal maximum dCTmax: the
+# temperature at which a fraction p of individuals has failed while warmed from
+# `T_start` at a constant `rate` (degrees per unit time). Under the ramp
+# T(t) = T_start + rate t the cumulative hazard is the integral of M(T(t)) h0(t)
+# from the start, and dCTmax is the temperature at which it reaches -log(1 - p).
+#
+# The ramp is cut into steps of `step` degrees up to `T_max`, and the hazard accrued
+# in each step is M at its midpoint times the growth of the cumulative baseline
+# hazard over it, as when predicting along a record. The temperature at which the
+# running total reaches the target is interpolated within the step it falls in. A
+# draw whose hazard has not reached the target by `T_max` gets Inf.
+#
+# `st` holds the settings of the fit and `d` one vector of draws per parameter.
+# Returns a matrix with a row per draw and a column per value of p.
+.dctmax_draws <- function(st, d, rate, T_start, p, levels, T_max, step = 0.01) {
+  edges <- seq(T_start, T_max, by = step)
+  if (edges[length(edges)] < T_max) edges <- c(edges, T_max)
+  n <- length(edges)
+  intervals <- list(tau_start = (edges[-n] - T_start) / rate,
+                    tau_end   = (edges[-1] - T_start) / rate,
+                    Ta        = (edges[-n] + edges[-1]) / 2)
+  accrued <- .record_hazard(st, d, intervals, levels)
+  running <- t(apply(accrued, 1, cumsum))
+  nd      <- nrow(running)
+  out <- vapply(-log1p(-p), \(target) {
+    # the step in which the running total first reaches the target
+    j <- rowSums(running < target) + 1L
+    reached <- j <= ncol(running)
+    j[!reached] <- ncol(running)
+    before <- ifelse(j > 1L, running[cbind(seq_len(nd), pmax(j - 1L, 1L))], 0)
+    within <- (target - before) / accrued[cbind(seq_len(nd), j)]
+    ifelse(reached, edges[j] + within * (edges[j + 1L] - edges[j]), Inf)
+  }, numeric(nd))
+  matrix(out, nrow = nd)
+}
+
+# derive_dctmax() --------------------------------------------------------------
+
+#' Dynamic critical thermal maximum under a ramp, from a fitted model
+#'
+#' Derives, from a model fitted with [fit_hazard()], the dynamic critical thermal
+#' maximum dCTmax of Jorgensen et al. (2021): the temperature at which a fraction
+#' `p` of individuals has failed while warmed from `T_start` at a constant `rate`.
+#' It is the critical thermal maximum a ramping trial would record under that ramp,
+#' with its posterior median and credible interval, at the covariate values in each
+#' row of `newdata`. Random effects are set to zero, so the results are those of a
+#' typical group.
+#'
+#' Unlike the static critical thermal maximum from [derive_tdt_ttl()], dCTmax
+#' depends on the ramp. Individuals accrue hazard throughout the ramp, so a slower
+#' one gives them more time to fail before a given temperature is reached, and its
+#' dCTmax is lower. Giving several rates shows how much. The ramp need not be one
+#' that was run: the model was fitted to failure times, from a static or a ramping
+#' assay, and is applied here to any ramp.
+#'
+#' Under the ramp T(t) = T_start + rate t, the cumulative hazard is the integral of
+#' M(T(t)) h0(t) from the start of the ramp, and dCTmax solves, for each posterior
+#' draw, cumulative hazard = -log(1 - p). With a baseline other than the memoryless
+#' one, the hazard also depends on the time elapsed since the ramp began.
+#'
+#' The ramp is followed up to `T_max`. A posterior draw whose fraction failed has
+#' not reached `p` by then counts as infinite, as in [derive_tdt_ttl()], and is
+#' counted in `n_unreached`. A message is given when a dCTmax lies above the
+#' temperatures the model was fitted to, where the data do not constrain the
+#' failure-rate function.
+#'
+#' @param fit A `brmsfit`, a model fitted with [fit_hazard()].
+#' @param rate A numeric vector of ramp rates, in degrees per unit of time of the
+#'   data the model was fitted to (e.g. degrees C per minute), all positive.
+#' @param T_start A numeric vector of starting temperatures, one per rate or a
+#'   single one for all.
+#' @param newdata A data frame with one row per set of covariate values to report
+#'   at, holding every covariate in the parameters' formulas. `NULL` (the default)
+#'   suits a model with no covariates.
+#' @param p A numeric vector of fractions of individuals failing, each strictly
+#'   between 0 and 1. Defaults to 0.5.
+#' @param levels A named numeric vector giving the level of each co-stressor, on
+#'   its measurement scale, e.g. `c(DO = 6)`. Required when the model has
+#'   co-stressors.
+#' @param prob A single number between 0 and 1, the coverage of the credible
+#'   intervals. Defaults to 0.95.
+#' @param n_draws A single number, the number of posterior draws to use, evenly
+#'   spaced through the posterior. Defaults to 1000.
+#' @param T_max A single number, the temperature up to which the ramp is followed.
+#'   `NULL` (the default) takes 15 degrees above the warmest temperature the model
+#'   was fitted to.
+#' @return A tibble with a row for each row of `newdata`, ramp and `p`: the columns
+#'   of `newdata`, `rate`, `T_start`, `p`, and the posterior `median`, `lower` and
+#'   `upper` of dCTmax, with `prob`, `n_draws` and `n_unreached`.
+#' @references
+#' Jorgensen, L. B., Malte, H., Orsted, M., Klahn, N. A. and Overgaard, J. (2021).
+#' A unifying model to estimate thermal tolerance limits in ectotherms across
+#' static, dynamic and fluctuating exposures to thermal stress. *Scientific
+#' Reports* 11, 12840.
+#' @seealso [derive_tdt_ttl()] for the static critical thermal maximum.
+#' @examples
+#' \dontrun{
+#' # the CTmax expected under three ramps from 14 degrees
+#' derive_dctmax(fit, rate = c(0.1, 0.2, 0.3), T_start = 14,
+#'               newdata = data.frame(mass = 15))
+#' }
+#' @export
+derive_dctmax <- function(fit, rate, T_start, newdata = NULL, p = 0.5, levels = NULL,
+                          prob = 0.95, n_draws = 1000, T_max = NULL) {
+  .check_prob(prob)
+  st <- .fit_settings(fit)
+  if (missing(rate) || !is.numeric(rate) || !length(rate) || !all(is.finite(rate)) ||
+      any(rate <= 0))
+    cli::cli_abort(c(
+      "{.arg rate} must hold positive ramp rates, in degrees per unit of time of the data.",
+      "i" = "For example {.code rate = 0.3} for 0.3 degrees per minute when times are in minutes."
+    ), class = "rTFT_bad_rate")
+  if (missing(T_start) || !is.numeric(T_start) || !all(is.finite(T_start)) ||
+      !length(T_start) %in% c(1L, length(rate)))
+    cli::cli_abort("{.arg T_start} must hold the starting temperature of each ramp, or one for all.",
+                   class = "rTFT_bad_T_start")
+  if (!is.numeric(p) || !length(p) || anyNA(p) || any(p <= 0 | p >= 1))
+    cli::cli_abort(c(
+      "{.arg p} must hold fractions of individuals failing, each strictly between 0 and 1.",
+      "x" = "You supplied {.val {p}}."
+    ), class = "rTFT_bad_p")
+  if (is.null(T_max)) T_max <- st$Ta_range[2] + 15
+  T_start <- rep_len(T_start, length(rate))
+  if (!is.numeric(T_max) || length(T_max) != 1L || !is.finite(T_max) || T_max <= max(T_start))
+    cli::cli_abort(c(
+      "{.arg T_max} must be a single temperature above every {.arg T_start}.",
+      "x" = "{.arg T_max} is {.val {T_max}}; the ramps start at {.val {unique(T_start)}}."
+    ), class = "rTFT_bad_T_max")
+  if (is.null(newdata)) newdata <- data.frame(row.names = 1L)
+
+  cs   <- st$costressors
+  pars <- c(M_catalogue[[st$m_form]]$dpars, h0_catalogue[[st$baseline]]$dpars,
+            .costressor_dpars(cs))
+  dr   <- .fit_draws(fit, pars, newdata, draw_ids = .thin_ids(brms::ndraws(fit), n_draws))
+  # Check the co-stressor levels once, warning once about any the model does not
+  # have; after that only the levels in use are passed on.
+  k <- if (M_catalogue[[st$m_form]]$k_sw != 0) st$k_sw
+  .rate_setup(st$m_form, purrr::map(dr, \(m) m[, 1]), st$Tr, k, cs, levels)
+  levels <- if (length(cs)) levels[vapply(cs, `[[`, character(1), "name")]
+
+  out <- purrr::map(seq_len(nrow(newdata)), \(r) {
+    d <- purrr::map(dr, \(m) m[, r])
+    purrr::map(seq_along(rate), \(i) {
+      draws <- .dctmax_draws(st, d, rate[i], T_start[i], p, levels, T_max)
+      .with_newdata(newdata[r, , drop = FALSE],
+                    tibble::tibble(rate = rate[i], T_start = T_start[i], p = p,
+                                   .summarise_columns(draws, prob)))
+    })
+  })
+  out <- dplyr::bind_rows(purrr::list_flatten(out))
+
+  above <- is.finite(out$median) & out$median > st$Ta_range[2]
+  lines <- c(
+    if (any(out$n_unreached > 0))
+      c("i" = sprintf("Up to %.1f%% of posterior draws do not reach the fraction failed by %g degrees, and count as infinite.",
+                      100 * max(out$n_unreached / out$n_draws), T_max)),
+    if (any(above))
+      c("!" = sprintf("%d of %d dCTmax lie above the temperatures the model was fitted to (up to %g).",
+                      sum(above), nrow(out), st$Ta_range[2]),
+        "i" = "There the data do not constrain the failure-rate function, so the value depends on which function was chosen."))
+  if (length(lines)) cli::cli_inform(lines, class = "rTFT_dctmax_notes")
+  out
+}
+
