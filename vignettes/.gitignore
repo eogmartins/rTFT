@@ -1,0 +1,4 @@
+/.quarto/
+# Rendered copies left by previewing a vignette; the built package makes its own.
+*.html
+*_files/
