@@ -830,6 +830,35 @@ costressor <- function(name, column, ref, scale, direction,
   stats::median(if (length(at_failure)) at_failure else long$Ta)
 }
 
+# The temperature spanned within each interval from `ts` to `te`: the range of the
+# trajectory `f` over the interval's two ends and any of the trajectory's own
+# readings (`knots`) that fall inside it, between which it is linear.
+.temp_span <- function(f, knots, ts, te) {
+  vapply(seq_along(ts), \(i) {
+    inside <- knots[knots > ts[i] & knots < te[i]]
+    diff(range(f(c(ts[i], inside, te[i]))))
+  }, numeric(1))
+}
+
+# Cut each interval from `ts` to `te` into `parts` equal parts, returning the starts
+# and ends of all the parts in order.
+.subdivide <- function(ts, te, parts) {
+  step <- (te - ts) / parts
+  k    <- sequence(parts) - 1
+  ts_r <- rep(ts, parts)
+  step_r <- rep(step, parts)
+  list(ts = ts_r + k * step_r, te = ts_r + (k + 1) * step_r)
+}
+
+# The least number of intervals a known-time individual is followed over when
+# neither checks nor a grid is given; the length of the interval that closes a
+# known-time failure, as a fraction of its time of failure; and the temperature
+# change within the interval of an interval-censored failure above which a warning
+# is given.
+.min_intervals     <- 20L
+.closing_fraction  <- 1e-4
+.wide_failure_span <- 0.5
+
 # The median time at which failures were observed in a row-per-interval table, the
 # time of each failure being the end of the interval it fell in: the check at which
 # it was found, or the time itself when that is known. A table with no failures has
@@ -852,6 +881,32 @@ costressor <- function(name, column, ref, scale, direction,
 #' serving as the integration nodes. For a known-time failure, the fit integrates
 #' on the checks (its final interval ending exactly at the failure time) and no
 #' finer sub-grid is required but can be provided.
+#'
+#' @section The time grid:
+#' Within each interval at risk the hazard is taken as constant, at its value at the
+#' midpoint of the interval. That is accurate while temperature changes little
+#' within the interval, and biases the fit when it changes much, as in a ramp with
+#' widely spaced checks, because the failure rate rises steeply with temperature.
+#' With a thermal sensitivity of b = 1.7 per degree, for example, the rate is
+#' exp(1.7 x 0.1) = 1.19 times higher at the end of an interval that spans 0.1
+#' degrees than at its start, and exp(1.7 x 0.5) = 2.3 times higher across one that
+#' spans half a degree. So any interval over which temperature changes by more than
+#' `grid_dT` is divided into equal parts, each with its own row, and a message says
+#' how many rows resulted.
+#'
+#' Two cases are treated apart. A failure at a known time needs the hazard at the
+#' moment it happened, and the midpoint of the interval it fell in is earlier and,
+#' in a ramp, cooler; so that interval is closed with a very short one ending at the
+#' failure. A failure known only to the interval between two checks keeps that
+#' interval whole, since where in it the individual failed is not known, and its
+#' contribution is the probability of failing anywhere in it. A warning is given
+#' when temperature changes by more than half a degree within such an interval, so
+#' that the estimates can be interpreted with that in mind.
+#'
+#' When neither `checks` nor `grid_dt` is given for failures at known times, the
+#' intervals are those between the readings of `path`, divided as above, and into
+#' at least 20 per individual, so that a trajectory given by its two ends is still
+#' followed closely.
 #'
 #' @param ind A data frame with one row per individual. Required: `id`, `path_id` (key
 #'   into `path`), `event` (1 = failed, 0 = right-censored), plus the covariate
@@ -917,10 +972,14 @@ costressor <- function(name, column, ref, scale, direction,
 #'   cumulative hazard, so their spacing sets the midpoint-rule resolution. For a
 #'   known-time failure, a regular grid can be used instead (see `grid_dt`).
 #' @param grid_dt An optional numeric giving a fixed time step (in the units of
-#'   `path$time`). If set, a known-time failure is integrated on a regular grid of
-#'   this step, from `t = 0` to the failure time, instead of on `checks`, providing 
-#'   a finer cumulative hazard at the cost of more rows. Defaults to `NULL` (integrate
-#'   on the checks).
+#'   `path$time`). If set, a known-time failure is followed on a regular grid of
+#'   this step, from `t = 0` to the failure time, instead of on `checks`. Defaults to
+#'   `NULL` (the checks, or the readings of `path`). Either way the intervals are
+#'   divided further where `grid_dT` requires it.
+#' @param grid_dT A single positive number, the largest change in temperature
+#'   allowed within an interval at risk, in degrees. An interval over which
+#'   temperature changes by more is divided into equal parts (see *The time grid*).
+#'   Defaults to 0.1; `Inf` keeps the intervals as given.
 #' @param costressors An optional list of [costressor] objects declaring
 #'   non-temperature stressors (dissolved oxygen and the like). Each adds a
 #'   standardised column `z_<name>`, read from its own trajectory (interpolated to
@@ -962,7 +1021,13 @@ costressor <- function(name, column, ref, scale, direction,
 #' @export
 build_hazard_data <- function(ind, path, observation = c("interval", "continuous", "mixed"),
                               covariates = character(0), Tr = NULL, tau_ref = NULL,
-                              checks = NULL, grid_dt = NULL, costressors = list()) {
+                              checks = NULL, grid_dt = NULL, grid_dT = 0.1,
+                              costressors = list()) {
+  if (!is.numeric(grid_dT) || length(grid_dT) != 1L || is.na(grid_dT) || grid_dT <= 0)
+    cli::cli_abort(c(
+      "{.arg grid_dT} must be a single positive number, the largest change in temperature within an interval at risk.",
+      "i" = "Use {.code Inf} to keep the intervals as given."
+    ), class = "rTFT_bad_grid_dT")
   observation <- .match_observation(observation)
   .check_costressors(costressors)
   if (!is.null(tau_ref) && (!is.numeric(tau_ref) || length(tau_ref) != 1L ||
@@ -1043,8 +1108,13 @@ build_hazard_data <- function(ind, path, observation = c("interval", "continuous
   checks_of <- split(chk_src, chk_src$path_id) |>
     purrr::map(\(d) sort(unique(d$time)))
 
+  knots_of  <- split(path, path$path_id) |>
+    purrr::map(\(d) sort(unique(d$time)))
+
   # One individual's rows. `type` is "interval" or "continuous" (per individual in
-  # mixed mode via obs_type; otherwise the global observation mode).
+  # mixed mode via obs_type; otherwise the global observation mode). The rows carry,
+  # as attributes, the number of intervals as given and the temperature spanned by
+  # the interval in which a failure was found, for the messages below.
   build_one <- function(r, type) {
     pid <- as.character(r$path_id)
     f   <- interp_of[[pid]]
@@ -1058,22 +1128,67 @@ build_hazard_data <- function(ind, path, observation = c("interval", "continuous
                else { g <- seq(0, td, by = grid_dt); sort(unique(c(g, td))) }
       ts <- nodes[-length(nodes)]; te <- nodes[-1]       # failure row ends exactly at td
     }
+    n_given <- length(ts)
+    failed  <- r$event == 1
+
+    # The hazard is taken as constant within an interval, at its midpoint, which is
+    # accurate only while temperature changes little within it. Each interval is cut
+    # into as many equal parts as keep the change within `grid_dT`. The interval in
+    # which a failure was found between two checks stays whole: where in it the
+    # individual failed is not known, so it cannot be cut into parts.
+    span  <- .temp_span(f, knots_of[[pid]], ts, te)
+    parts <- pmax(1L, ceiling(span / grid_dT - 1e-9))
+    whole <- type == "interval" && failed
+    if (whole) parts[n_given] <- 1L
+    # With no checks and no grid given, a constant temperature would leave a single
+    # interval from the start to the failure, so the baseline hazard is followed over
+    # at least `.min_intervals` of them.
+    if (type == "continuous" && is.null(grid_dt) && is.null(checks) && is.finite(grid_dT))
+      parts <- pmax(parts, ceiling(.min_intervals / n_given))
+    cut <- .subdivide(ts, te, parts)
+    ts  <- cut$ts; te <- cut$te
+
+    # A failure at a known time: the hazard at the failure is that of the moment it
+    # happened, so the last interval is closed with a very short one ending there.
+    if (type == "continuous" && failed && is.finite(grid_dT)) {
+      n   <- length(ts)
+      end <- te[n]
+      at  <- end - min(.closing_fraction * end, (end - ts[n]) / 2)
+      ts  <- c(ts, at); te <- c(te[-n], at, end)
+    }
+
     n   <- length(ts)
-    # `tau` and `Ta` are taken at the midpoint of every at-risk interval, the
-    # failure interval included: they are the node of the midpoint rule that
-    # integrates the cumulative hazard over the interval, not the event time. A
-    # known-time failure is exact in the interval boundary (te = t_event, hence
-    # `exposure`), not in where the hazard is sampled.
+    # `tau` and `Ta` are taken at the midpoint of every at-risk interval: they are the
+    # node of the midpoint rule that integrates the cumulative hazard over it.
     mid <- (ts + te) / 2
-    tibble::tibble(id = r$id, path_id = r$path_id, tau = mid, exposure = te - ts,
-                   Ta = f(mid), failed = as.integer(seq_len(n) == n & r$event == 1),
-                   exact = as.integer(type == "continuous"))
+    out <- tibble::tibble(id = r$id, path_id = r$path_id, tau = mid, exposure = te - ts,
+                          Ta = f(mid), failed = as.integer(seq_len(n) == n & failed),
+                          exact = as.integer(type == "continuous"))
+    attr(out, "n_given") <- n_given
+    attr(out, "failure_span") <- if (whole) span[n_given] else 0
+    out
   }
 
   type_of <- function(r) if (observation == "mixed") as.character(r$obs_type) else observation
-  long <- purrr::map(seq_len(nrow(ind)),
-                     \(i) { r <- ind[i, , drop = FALSE]; build_one(r, type_of(r)) }) |>
-    purrr::list_rbind()
+  per_individual <- purrr::map(seq_len(nrow(ind)),
+                               \(i) { r <- ind[i, , drop = FALSE]; build_one(r, type_of(r)) })
+  long <- purrr::list_rbind(per_individual)
+
+  # Say when the intervals were cut finer than given, and warn when the interval in
+  # which failures were found is too wide in temperature to trust.
+  n_given <- sum(vapply(per_individual, \(x) attr(x, "n_given"), numeric(1)))
+  if (is.finite(grid_dT) && nrow(long) > n_given)
+    cli::cli_inform(c(
+      "i" = "The intervals at risk were divided further, into {nrow(long)} rows from {n_given}, so that temperature changes by at most {grid_dT} degree{?s} within each.",
+      "i" = "The hazard is taken as constant within an interval, which biases the fit when temperature changes much within it. Failures at a known time are also given a short closing interval, so their hazard is that of the moment of failure.",
+      "i" = "Set {.arg grid_dT} to change the step, or to {.code Inf} to keep the intervals as given."
+    ), class = "rTFT_grid_refined")
+  failure_span <- vapply(per_individual, \(x) attr(x, "failure_span"), numeric(1))
+  if (is.finite(grid_dT) && any(failure_span > .wide_failure_span))
+    cli::cli_warn(c(
+      "!" = "For {sum(failure_span > .wide_failure_span)} individual{?s}, temperature changes by up to {round(max(failure_span), 2)} degrees within the interval in which failure was found.",
+      "i" = "That interval cannot be divided, since where in it the individual failed is not known, and the hazard is taken at its midpoint, so the estimates may be somewhat biased."
+    ), class = "rTFT_wide_failure_interval")
 
   # The reference temperature defaults to the median temperature at which failures
   # were observed (of all at-risk intervals, in a table with no failures). Whether a

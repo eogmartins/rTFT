@@ -14,6 +14,10 @@
 # of 0.6. The fit is short (two chains of 300 draws after warm-up): the tests check
 # how the cross-validation is set up and summed, not what it estimates.
 #
+# The table keeps one row per check (grid_dT = Inf): the intervals are not divided by
+# temperature, which keeps the fit small. That is too coarse to estimate from, and
+# enough for tests of how the functions handle a fit.
+#
 # Rerun this script when a brms update changes what a saved brmsfit holds, then
 # rerun the tests. It is run from the package root.
 #
@@ -61,7 +65,7 @@ path   <- ramp_path("ramp", T_start = T_start, rate = rate, t_max = t_max)
 checks <- data.frame(path_id = "ramp", time = seq(0, t_max, by = check))
 
 long <- build_hazard_data(ind, path, "interval", covariates = "trial",
-                          Tr = T_start, checks = checks)
+                          Tr = T_start, checks = checks, grid_dT = Inf)
 
 # Fit and save -----------------------------------------------------------------
 

@@ -13,6 +13,7 @@ build_hazard_data(
   tau_ref = NULL,
   checks = NULL,
   grid_dt = NULL,
+  grid_dT = 0.1,
   costressors = list()
 )
 }
@@ -88,10 +89,15 @@ cumulative hazard, so their spacing sets the midpoint-rule resolution. For a
 known-time failure, a regular grid can be used instead (see \code{grid_dt}).}
 
 \item{grid_dt}{An optional numeric giving a fixed time step (in the units of
-\code{path$time}). If set, a known-time failure is integrated on a regular grid of
-this step, from \code{t = 0} to the failure time, instead of on \code{checks}, providing
-a finer cumulative hazard at the cost of more rows. Defaults to \code{NULL} (integrate
-on the checks).}
+\code{path$time}). If set, a known-time failure is followed on a regular grid of
+this step, from \code{t = 0} to the failure time, instead of on \code{checks}. Defaults to
+\code{NULL} (the checks, or the readings of \code{path}). Either way the intervals are
+divided further where \code{grid_dT} requires it.}
+
+\item{grid_dT}{A single positive number, the largest change in temperature
+allowed within an interval at risk, in degrees. An interval over which
+temperature changes by more is divided into equal parts (see \emph{The time grid}).
+Defaults to 0.1; \code{Inf} keeps the intervals as given.}
 
 \item{costressors}{An optional list of \link{costressor} objects declaring
 non-temperature stressors (dissolved oxygen and the like). Each adds a
@@ -116,6 +122,34 @@ serving as the integration nodes. For a known-time failure, the fit integrates
 on the checks (its final interval ending exactly at the failure time) and no
 finer sub-grid is required but can be provided.
 }
+\section{The time grid}{
+
+Within each interval at risk the hazard is taken as constant, at its value at the
+midpoint of the interval. That is accurate while temperature changes little
+within the interval, and biases the fit when it changes much, as in a ramp with
+widely spaced checks, because the failure rate rises steeply with temperature.
+With a thermal sensitivity of b = 1.7 per degree, for example, the rate is
+exp(1.7 x 0.1) = 1.19 times higher at the end of an interval that spans 0.1
+degrees than at its start, and exp(1.7 x 0.5) = 2.3 times higher across one that
+spans half a degree. So any interval over which temperature changes by more than
+\code{grid_dT} is divided into equal parts, each with its own row, and a message says
+how many rows resulted.
+
+Two cases are treated apart. A failure at a known time needs the hazard at the
+moment it happened, and the midpoint of the interval it fell in is earlier and,
+in a ramp, cooler; so that interval is closed with a very short one ending at the
+failure. A failure known only to the interval between two checks keeps that
+interval whole, since where in it the individual failed is not known, and its
+contribution is the probability of failing anywhere in it. A warning is given
+when temperature changes by more than half a degree within such an interval, so
+that the estimates can be interpreted with that in mind.
+
+When neither \code{checks} nor \code{grid_dt} is given for failures at known times, the
+intervals are those between the readings of \code{path}, divided as above, and into
+at least 20 per individual, so that a trajectory given by its two ends is still
+followed closely.
+}
+
 \examples{
 # A single linear ramp encoded as two points: 20 -> 35 degrees over 60 minutes,
 # with failure checked for every 10 minutes.

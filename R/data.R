@@ -90,8 +90,9 @@
 #' rates <- c(0.1, 0.2, 0.3)
 #' path  <- ramp_path(c("r0.1", "r0.2", "r0.3"), T_start = 14, rate = rates,
 #'                    t_max = 15.5 / rates)
+#' # No grid is given: the intervals follow the ramp in steps of 0.1 degrees C.
 #' long  <- build_hazard_data(ramp_assay, path, "continuous",
-#'                            covariates = c("mass", "do", "trial"), grid_dt = 1)
+#'                            covariates = c("mass", "do", "trial"))
 #' head(long)
 "ramp_assay"
 
