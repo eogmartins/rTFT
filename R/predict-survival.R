@@ -127,26 +127,43 @@
   M * growth
 }
 
-# .record_zone() / .record_coverage() ------------------------------------------
+# .failure_temperatures() / .record_zone() / .record_coverage() ----------------
 
-# Whether each interval of a record is below, within or above the temperatures the
-# model was fitted to. Within them the data hold the failure-rate function in
-# place, so functions that fit equally well predict alike. Outside them nothing
+# The temperatures at which failures were observed in the data a model was fitted
+# to: the lowest and the highest temperature of an interval in which an individual
+# failed. These, and not all the temperatures the individuals were exposed to, are
+# the temperatures at which the data inform the failure rate. In a ramp every
+# individual starts at a temperature at which none fails, and the time spent there
+# shows only that failures were rare over that time.
+.failure_temperatures <- function(fit, st) {
+  failed <- fit$data$failed == 1
+  if (!any(failed)) return(st$Ta_range)
+  range(fit$data$Ta[failed])
+}
+
+# Whether each interval of a record is below, within or above the temperatures at
+# which failures were observed. Within them the data hold the failure-rate function
+# in place, so functions that fit equally well predict alike. Outside them nothing
 # does, and the prediction depends on which function was chosen.
-.record_zone <- function(intervals, Ta_range) {
-  zone <- ifelse(intervals$Ta < Ta_range[1], "below",
-          ifelse(intervals$Ta > Ta_range[2], "above", "within"))
+.record_zone <- function(intervals, Ta_failed) {
+  zone <- ifelse(intervals$Ta < Ta_failed[1], "below",
+          ifelse(intervals$Ta > Ta_failed[2], "above", "within"))
   factor(zone, levels = c("below", "within", "above"))
 }
 
-# How much of a record lies below, within and above the temperatures the model was
-# fitted to, in two senses: the share of its duration (`below`, `within`, `above`),
-# and the share of the hazard accrued along it (`risk_below`, `risk_within`,
-# `risk_above`, each the median over the posterior draws with any hazard, and
-# missing when none has any). The two can differ greatly: a record that spends most
-# of its time at cool temperatures, where little hazard accrues, may take nearly all
-# of its risk from a few warm hours.
-.record_coverage <- function(accrued, zone, duration, Ta_range) {
+# How much of a record lies outside what the data inform, in temperature and in
+# time. In temperature: the share below, within and above the temperatures at which
+# failures were observed, in two senses, the share of the record's duration
+# (`below`, `within`, `above`) and the share of the hazard accrued along it
+# (`risk_below`, `risk_within`, `risk_above`). The two can differ greatly: a record
+# that spends most of its time at cool temperatures, where little hazard accrues,
+# may take nearly all of its risk from a few warm hours. In time: the share of the
+# record's duration that comes after the longest exposure in the data (`beyond`,
+# with `beyond_tau` saying which intervals those are and `tau_max` that exposure),
+# and the share of the hazard accrued there (`risk_beyond`). Each share of the
+# hazard is the median over the posterior draws with any hazard, and missing when
+# none has any.
+.record_coverage <- function(accrued, zone, duration, Ta_failed, beyond_tau, tau_max) {
   zones <- levels(zone)
   time_share <- vapply(zones, \(z) sum(duration[zone == z]) / sum(duration), numeric(1))
   by_zone <- vapply(zones, \(z) rowSums(accrued[, zone == z, drop = FALSE]),
@@ -157,11 +174,17 @@
   risk_share <- if (any(at_risk))
     apply(by_zone[at_risk, , drop = FALSE] / total[at_risk], 2, stats::median)
   else rep(NA_real_, length(zones))
-  tibble::tibble(Ta_fitted_min = Ta_range[1], Ta_fitted_max = Ta_range[2],
+  risk_beyond <- if (any(at_risk))
+    stats::median(rowSums(accrued[at_risk, beyond_tau, drop = FALSE]) / total[at_risk])
+  else NA_real_
+  tibble::tibble(Ta_failed_min = Ta_failed[1], Ta_failed_max = Ta_failed[2],
                  below = time_share[["below"]], within = time_share[["within"]],
                  above = time_share[["above"]],
                  risk_below = risk_share[1], risk_within = risk_share[2],
-                 risk_above = risk_share[3])
+                 risk_above = risk_share[3],
+                 tau_max = tau_max,
+                 beyond = sum(duration[beyond_tau]) / sum(duration),
+                 risk_beyond = risk_beyond)
 }
 
 
@@ -173,8 +196,9 @@
 
 # Compute, for a fitted model, the posterior draws of the hazard accrued in each
 # interval of a record, at the covariate values in each row of `newdata`. It checks
-# its arguments, and says once when exposure has to be counted from the start of
-# the record and when the record leaves the temperatures the model was fitted to.
+# its arguments, and works out which intervals of the record lie outside the
+# temperatures at which failures were observed and beyond the longest exposure in
+# the data.
 # predict_survival() summarises these draws, and average_survival() pools them
 # across models first.
 .record_draws <- function(fit, record, newdata, levels, by, n_draws, grid_dT = 0.1) {
@@ -195,6 +219,8 @@
     ), class = "rTFT_bad_grid_dT")
   intervals <- .record_intervals(record, cs_columns[in_record])
   fine      <- .refine_intervals(record, cs_columns[in_record], grid_dT)
+  Ta_failed <- .failure_temperatures(fit, st)
+  tau_max   <- max(st$tau_end)
 
   # A co-stressor the record follows needs no level; it is given a placeholder so
   # the levels can be checked as a whole, and its value in each interval is used.
@@ -221,8 +247,10 @@
   list(newdata = newdata, time = record$time,
        record = tibble::as_tibble(record[c("time", "temp", cs_columns[in_record])]),
        period = if (!is.null(by)) record[[by]][-nrow(record)], by = by,
-       zone = .record_zone(intervals, st$Ta_range),
-       duration = intervals$tau_end - intervals$tau_start, Ta_range = st$Ta_range,
+       zone = .record_zone(intervals, Ta_failed),
+       duration = intervals$tau_end - intervals$tau_start, Ta_failed = Ta_failed,
+       # an interval is beyond the data when it starts after the longest exposure
+       beyond_tau = intervals$tau_start >= tau_max, tau_max = tau_max,
        baseline = st$baseline, rows = rows)
 }
 
@@ -253,7 +281,8 @@
       mortality = tibble::tibble(time = draws$time[length(draws$time)],
                                  .draw_summary(1 - survival[, ncol(survival)], prob)))
     if (!is.null(draws$by)) out$risk <- .risk_by_period(accrued, draws$period, draws$by, prob)
-    out$coverage <- .record_coverage(accrued, draws$zone, draws$duration, draws$Ta_range)
+    out$coverage <- .record_coverage(accrued, draws$zone, draws$duration, draws$Ta_failed,
+                                     draws$beyond_tau, draws$tau_max)
     purrr::map(out, \(tbl) .with_newdata(row, tbl))
   })
   tables <- names(per_row[[1]])
@@ -283,11 +312,11 @@
 # .report_record() -------------------------------------------------------------
 
 # Say, once, what a prediction along a record rests on beyond the fitted model:
-# where exposure is counted from, when the baseline depends on elapsed exposure, and
-# how much of the record, and of the risk predicted along it, lies outside the
-# temperatures the model was fitted to. `cover` is the coverage table, a row per row
-# of newdata; where the share of the risk differs among its rows, the largest is
-# given.
+# where exposure is counted from, when the baseline depends on elapsed exposure; how
+# much of the record, and of the risk predicted along it, lies outside the
+# temperatures at which failures were observed; and how much of both comes after the
+# longest exposure in the data. `cover` is the coverage table, a row per row of
+# newdata; where a share of the risk differs among its rows, the largest is given.
 .report_record <- function(cover, baseline) {
   first   <- cover[1, ]
   outside <- 1 - cover$risk_within
@@ -295,13 +324,20 @@
     if (any(baseline != "mem"))
       c("i" = "Elapsed exposure is counted from the first time in {.arg record}, since the baseline hazard depends on it."),
     if (first$within < 1)
-      c("!" = sprintf("%.0f%% of the record, by duration, lies outside the temperatures the model was fitted to (%.4g to %.4g): %.0f%% below, %.0f%% above.",
-                      100 * (1 - first$within), first$Ta_fitted_min, first$Ta_fitted_max,
+      c("!" = sprintf("%.0f%% of the record, by duration, lies outside the temperatures at which failures were observed in the data (%.4g to %.4g): %.0f%% below, %.0f%% above.",
+                      100 * (1 - first$within), first$Ta_failed_min, first$Ta_failed_max,
                       100 * first$below, 100 * first$above),
         if (!all(is.na(outside)))
           c("!" = sprintf("About %.0f%% of the predicted risk is accrued at those temperatures.",
                           100 * max(outside, na.rm = TRUE))),
-        "i" = "There the data do not constrain the failure-rate function, so the prediction depends on which function was chosen."))
+        "i" = "There the data do not constrain the failure-rate function, so the prediction depends on which function was chosen."),
+    if (first$beyond > 0)
+      c("!" = sprintf("%.0f%% of the record, by duration, comes after the longest exposure in the data (%.4g).",
+                      100 * first$beyond, first$tau_max),
+        if (!all(is.na(cover$risk_beyond)))
+          c("!" = sprintf("About %.0f%% of the predicted risk is accrued after it.",
+                          100 * max(cover$risk_beyond, na.rm = TRUE))),
+        "i" = "After it the data do not show how the hazard changes with the time under exposure, so the prediction depends on which baseline was chosen."))
   if (length(lines)) cli::cli_inform(lines, class = "rTFT_record_notes")
   invisible(NULL)
 }
@@ -326,20 +362,35 @@
 #' matter where the record begins. With the other baselines the hazard depends on
 #' elapsed exposure, which is counted from the first time in the record.
 #'
-#' @section Outside the temperatures of the assay:
+#' @section Outside the temperatures and exposures of the assay:
 #' An assay is run at temperatures that cause failure within its duration, and a
-#' field record may lie below them. Within the temperatures of the assay the data
-#' hold the failure-rate function in place, so functions that fit equally well
-#' predict alike. Below them nothing does, and the prediction depends on which
-#' function was chosen: functions that fit the assay equally well can differ by
-#' orders of magnitude there. The `coverage` table gives the share of the record
-#' below, within and above the temperatures the model was fitted to, by duration
-#' and by the risk accrued. The second is the one to read: a record may spend most
-#' of its time at cool temperatures where little hazard accrues, and take nearly
-#' all of its risk from a few warm hours that the assay did cover. A message is
-#' given when any of the record lies outside. Comparing the predictions
-#' of several failure-rate functions, or averaging them with [average_survival()],
-#' shows how much the prediction depends on that choice.
+#' field record may lie below them. At the temperatures at which failures were
+#' observed the data hold the failure-rate function in place, so functions that fit
+#' equally well predict alike. Below them nothing does, and the prediction depends
+#' on which function was chosen: functions that fit the assay equally well can
+#' differ by orders of magnitude there. The temperatures that count are those at
+#' which individuals failed, and not all those they were exposed to. In a ramping
+#' assay every individual starts at a temperature at which none fails, and the time
+#' spent there shows only that failures were rare over that time.
+#'
+#' The `coverage` table gives the share of the record below, within and above the
+#' temperatures at which failures were observed, by duration and by the risk
+#' accrued. The second is the one to read: a record may spend most of its time at
+#' cool temperatures where little hazard accrues, and take nearly all of its risk
+#' from a few warm hours that the assay did cover.
+#'
+#' A record may also last longer than any exposure in the assay. With a baseline
+#' other than the memoryless one, the prediction then rests on how the baseline
+#' extends beyond the exposures the data hold, and with the memoryless one on the
+#' assumption that the hazard does not change with the time under exposure, which
+#' the data support only over those exposures. The `coverage` table also gives the
+#' longest exposure in the data and the share of the record, by duration and by the
+#' risk accrued, that comes after it.
+#'
+#' A message is given when any of the record lies outside the temperatures or
+#' after the longest exposure. Comparing the predictions of several failure-rate
+#' functions and baselines, or averaging them with [average_survival()], shows how
+#' much the prediction depends on those choices.
 #'
 #' The zero-type failure rates (`zeroexp`, `zeropower`) are zero at the reference
 #' temperature `Tr` and are taken as zero below it. The `power` function is not
@@ -391,11 +442,14 @@
 #'   * `risk` (when `by` is given): each period's share of the hazard accrued over
 #'     the record. The shares of a posterior draw add to one; `n_draws` is the
 #'     number of draws with any hazard, which the summary rests on.
-#'   * `coverage`: the temperatures the model was fitted to; the share of the
-#'     record's duration `below`, `within` and `above` them; and the share of the
-#'     hazard accrued along the record at those temperatures, `risk_below`,
-#'     `risk_within` and `risk_above` (the median over the posterior draws with any
-#'     hazard).
+#'   * `coverage`: the lowest and highest temperatures at which failures were
+#'     observed in the data (`Ta_failed_min`, `Ta_failed_max`); the share of the
+#'     record's duration `below`, `within` and `above` them; the share of the hazard
+#'     accrued along the record at those temperatures (`risk_below`, `risk_within`,
+#'     `risk_above`); the longest exposure in the data (`tau_max`); and the share
+#'     of the record's duration that comes after it (`beyond`) with the share of the
+#'     hazard accrued there (`risk_beyond`). Each share of the hazard is the median
+#'     over the posterior draws with any hazard.
 #'   * `record`: the times and temperatures of the record, with any co-stressor it
 #'     follows, kept so that [plot_survival()] can draw them above the survival
 #'     they led to.

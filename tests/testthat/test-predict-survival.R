@@ -120,7 +120,22 @@ test_that("a co-stressor in the record is followed through time", {
 })
 
 
-test_that(".record_zone and .record_coverage say how much of a record, and of its risk, is outside the fitted range", {
+test_that(".failure_temperatures takes the temperatures at which individuals failed", {
+  # a ramp from 14 degrees in which the two failures came at 27.5 and 28.5: the
+  # temperatures the individuals were exposed to start at 14, those at which the
+  # data inform the failure rate at 27.5
+  ramp <- list(data = data.frame(Ta = c(14.5, 20, 27.5, 14.5, 20, 28.5),
+                                 failed = c(0, 0, 1, 0, 0, 1)))
+  expect_equal(.failure_temperatures(ramp, list(Ta_range = c(14.5, 28.5))), c(27.5, 28.5))
+  # with no failure at all there is nothing to take, and the whole range stands in
+  none <- list(data = data.frame(Ta = c(14.5, 20), failed = c(0, 0)))
+  expect_equal(.failure_temperatures(none, list(Ta_range = c(14.5, 20))), c(14.5, 20))
+  # in the fixture individuals failed at both ends of the range
+  expect_equal(.failure_temperatures(fits$exp, fits$exp$rtft), fits$exp$rtft$Ta_range)
+})
+
+
+test_that(".record_zone and .record_coverage say how much of a record, and of its risk, is outside what the data inform", {
   spans <- data.frame(time = c(0, 10, 30, 60, 100), temp = c(18, 20, 26, 32, 36))
   iv <- .record_intervals(spans)                         # midpoints 19, 23, 29, 34
   zone <- .record_zone(iv, c(22, 30))
@@ -129,24 +144,34 @@ test_that(".record_zone and .record_coverage say how much of a record, and of it
   duration <- iv$tau_end - iv$tau_start                  # 10, 20, 30, 40
   # two draws: the hazard accrued in each interval
   accrued <- rbind(c(1, 1, 2, 4), c(0, 3, 3, 2))
-  cover <- .record_coverage(accrued, zone, duration, c(22, 30))
+  after <- c(FALSE, FALSE, TRUE, TRUE)                   # the last two come after tau 30
+  cover <- .record_coverage(accrued, zone, duration, c(22, 30), after, 30)
   expect_equal(c(cover$below, cover$within, cover$above), c(0.1, 0.5, 0.4))
-  expect_equal(c(cover$Ta_fitted_min, cover$Ta_fitted_max), c(22, 30))
+  expect_equal(c(cover$Ta_failed_min, cover$Ta_failed_max), c(22, 30))
   # shares of the risk: draw 1 gives 1/8, 3/8, 4/8; draw 2 gives 0, 6/8, 2/8
   expect_equal(cover$risk_below,  stats::median(c(1 / 8, 0)))
   expect_equal(cover$risk_within, stats::median(c(3 / 8, 6 / 8)))
   expect_equal(cover$risk_above,  stats::median(c(4 / 8, 2 / 8)))
+  # in time: 70 of 100 by duration; of the risk, draw 1 gives 6/8 and draw 2 gives 5/8
+  expect_equal(cover$tau_max, 30)
+  expect_equal(cover$beyond, 0.7)
+  expect_equal(cover$risk_beyond, stats::median(c(6 / 8, 5 / 8)))
+  # a record no longer than the data has nothing beyond them
+  short <- .record_coverage(accrued, zone, duration, c(22, 30), rep(FALSE, 4), 200)
+  expect_equal(c(short$beyond, short$risk_beyond), c(0, 0))
   # most of the time below, most of the risk within
   warm_hours <- rbind(c(0.01, 5, 0, 0))
   spent <- .record_coverage(warm_hours, factor(c("below", "within", "above", "above"),
-                                               levels = levels(zone)), c(90, 10, 0, 0), c(22, 30))
+                                               levels = levels(zone)), c(90, 10, 0, 0), c(22, 30),
+                            rep(FALSE, 4), 200)
   expect_equal(spent$below, 0.9)
   expect_gt(spent$risk_within, 0.99)
   # a draw with no hazard has no shares; with none at all, they are missing
-  none <- .record_coverage(matrix(0, 2, 4), zone, duration, c(22, 30))
-  expect_true(all(is.na(c(none$risk_below, none$risk_within, none$risk_above))))
+  none <- .record_coverage(matrix(0, 2, 4), zone, duration, c(22, 30), after, 30)
+  expect_true(all(is.na(c(none$risk_below, none$risk_within, none$risk_above,
+                          none$risk_beyond))))
   expect_equal(none$within, 0.5)
-  one <- .record_coverage(rbind(accrued[1, ], 0), zone, duration, c(22, 30))
+  one <- .record_coverage(rbind(accrued[1, ], 0), zone, duration, c(22, 30), after, 30)
   expect_equal(one$risk_above, 0.5)
 })
 
@@ -174,8 +199,9 @@ nd <- data.frame(mass = c(8, 12))
 test_that("predict_survival returns survival through time and mortality at the end", {
   pred <- quietly(predict_survival(fits$exp, rec, newdata = nd, n_draws = 300))
   expect_named(pred, c("survival", "mortality", "coverage", "record"))
-  expect_named(pred$coverage, c("mass", "Ta_fitted_min", "Ta_fitted_max", "below", "within",
-                                "above", "risk_below", "risk_within", "risk_above"))
+  expect_named(pred$coverage, c("mass", "Ta_failed_min", "Ta_failed_max", "below", "within",
+                                "above", "risk_below", "risk_within", "risk_above",
+                                "tau_max", "beyond", "risk_beyond"))
   expect_equal(pred$record, tibble::tibble(time = rec$time, temp = rec$temp))   # not `day`
   expect_named(pred$survival, c("mass", "time", "median", "lower", "upper", "prob",
                                 "n_draws", "n_unreached"))
@@ -262,6 +288,22 @@ test_that("by gives each period's share of the risk", {
                class = "rTFT_bad_by")
   expect_error(predict_survival(fits$exp, rec, newdata = nd, by = c("day", "time")),
                class = "rTFT_bad_by")
+})
+
+
+test_that("a record longer than the exposures in the data is said to be", {
+  # the longest exposure in the fixture is 45; `rec` spans 30, a record of 180 does not
+  expect_equal(quietly(predict_survival(fits$exp, rec, newdata = nd, n_draws = 100))$
+                 coverage$beyond, c(0, 0))
+  long_rec <- data.frame(time = seq(0, 180, by = 15), temp = 25)
+  expect_message(pred <- predict_survival(fits$exp, long_rec, newdata = nd, n_draws = 100),
+                 "after the longest exposure in the data \\(45\\)", class = "rTFT_record_notes")
+  expect_equal(pred$coverage$tau_max, c(45, 45))
+  expect_equal(pred$coverage$beyond, c(0.75, 0.75))        # from 45 to 180, of 180
+  # at a constant temperature and with a memoryless baseline the risk accrues evenly
+  expect_equal(pred$coverage$risk_beyond, c(0.75, 0.75))
+  expect_message(predict_survival(fits$exp, long_rec, newdata = nd, n_draws = 100),
+                 "75% of the predicted risk is accrued after it", class = "rTFT_record_notes")
 })
 
 

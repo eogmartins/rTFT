@@ -59,11 +59,14 @@ A list of tibbles, each with the columns of \code{newdata}:
 \item \code{risk} (when \code{by} is given): each period's share of the hazard accrued over
 the record. The shares of a posterior draw add to one; \code{n_draws} is the
 number of draws with any hazard, which the summary rests on.
-\item \code{coverage}: the temperatures the model was fitted to; the share of the
-record's duration \code{below}, \code{within} and \code{above} them; and the share of the
-hazard accrued along the record at those temperatures, \code{risk_below},
-\code{risk_within} and \code{risk_above} (the median over the posterior draws with any
-hazard).
+\item \code{coverage}: the lowest and highest temperatures at which failures were
+observed in the data (\code{Ta_failed_min}, \code{Ta_failed_max}); the share of the
+record's duration \code{below}, \code{within} and \code{above} them; the share of the hazard
+accrued along the record at those temperatures (\code{risk_below}, \code{risk_within},
+\code{risk_above}); the longest exposure in the data (\code{tau_max}); and the share
+of the record's duration that comes after it (\code{beyond}) with the share of the
+hazard accrued there (\code{risk_beyond}). Each share of the hazard is the median
+over the posterior draws with any hazard.
 \item \code{record}: the times and temperatures of the record, with any co-stressor it
 follows, kept so that \code{\link[=plot_survival]{plot_survival()}} can draw them above the survival
 they led to.
@@ -87,21 +90,36 @@ cumulative hazard is the failure rate summed over the record, and it does not
 matter where the record begins. With the other baselines the hazard depends on
 elapsed exposure, which is counted from the first time in the record.
 }
-\section{Outside the temperatures of the assay}{
+\section{Outside the temperatures and exposures of the assay}{
 
 An assay is run at temperatures that cause failure within its duration, and a
-field record may lie below them. Within the temperatures of the assay the data
-hold the failure-rate function in place, so functions that fit equally well
-predict alike. Below them nothing does, and the prediction depends on which
-function was chosen: functions that fit the assay equally well can differ by
-orders of magnitude there. The \code{coverage} table gives the share of the record
-below, within and above the temperatures the model was fitted to, by duration
-and by the risk accrued. The second is the one to read: a record may spend most
-of its time at cool temperatures where little hazard accrues, and take nearly
-all of its risk from a few warm hours that the assay did cover. A message is
-given when any of the record lies outside. Comparing the predictions
-of several failure-rate functions, or averaging them with \code{\link[=average_survival]{average_survival()}},
-shows how much the prediction depends on that choice.
+field record may lie below them. At the temperatures at which failures were
+observed the data hold the failure-rate function in place, so functions that fit
+equally well predict alike. Below them nothing does, and the prediction depends
+on which function was chosen: functions that fit the assay equally well can
+differ by orders of magnitude there. The temperatures that count are those at
+which individuals failed, and not all those they were exposed to. In a ramping
+assay every individual starts at a temperature at which none fails, and the time
+spent there shows only that failures were rare over that time.
+
+The \code{coverage} table gives the share of the record below, within and above the
+temperatures at which failures were observed, by duration and by the risk
+accrued. The second is the one to read: a record may spend most of its time at
+cool temperatures where little hazard accrues, and take nearly all of its risk
+from a few warm hours that the assay did cover.
+
+A record may also last longer than any exposure in the assay. With a baseline
+other than the memoryless one, the prediction then rests on how the baseline
+extends beyond the exposures the data hold, and with the memoryless one on the
+assumption that the hazard does not change with the time under exposure, which
+the data support only over those exposures. The \code{coverage} table also gives the
+longest exposure in the data and the share of the record, by duration and by the
+risk accrued, that comes after it.
+
+A message is given when any of the record lies outside the temperatures or
+after the longest exposure. Comparing the predictions of several failure-rate
+functions and baselines, or averaging them with \code{\link[=average_survival]{average_survival()}}, shows how
+much the prediction depends on those choices.
 
 The zero-type failure rates (\code{zeroexp}, \code{zeropower}) are zero at the reference
 temperature \code{Tr} and are taken as zero below it. The \code{power} function is not
