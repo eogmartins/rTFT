@@ -1010,6 +1010,86 @@ derive_tdt_ttl <- function(fit, newdata = NULL, p = c(0.1, 0.5, 0.9), t_ref,
   matrix(out, nrow = nd)
 }
 
+# .dctmax_fit_draws() / .summarise_dctmax() ------------------------------------
+
+# The posterior draws of dCTmax from a fitted model, for each row of newdata and
+# each ramp: a list holding, per row of newdata, one matrix per ramp with a row per
+# draw and a column per fraction failed, together with the ramps, the fractions and
+# the warmest temperature the model was fitted to. It checks its arguments, so
+# derive_dctmax() summarises what it returns, and average_dctmax() pools it across
+# models first.
+.dctmax_fit_draws <- function(fit, rate, T_start, newdata, p, levels, n_draws, T_max) {
+  st <- .fit_settings(fit)
+  if (missing(rate) || !is.numeric(rate) || !length(rate) || !all(is.finite(rate)) ||
+      any(rate <= 0))
+    cli::cli_abort(c(
+      "{.arg rate} must hold positive ramp rates, in degrees per unit of time of the data.",
+      "i" = "For example {.code rate = 0.3} for 0.3 degrees per minute when times are in minutes."
+    ), class = "rTFT_bad_rate")
+  if (missing(T_start) || !is.numeric(T_start) || !all(is.finite(T_start)) ||
+      !length(T_start) %in% c(1L, length(rate)))
+    cli::cli_abort("{.arg T_start} must hold the starting temperature of each ramp, or one for all.",
+                   class = "rTFT_bad_T_start")
+  if (!is.numeric(p) || !length(p) || anyNA(p) || any(p <= 0 | p >= 1))
+    cli::cli_abort(c(
+      "{.arg p} must hold fractions of individuals failing, each strictly between 0 and 1.",
+      "x" = "You supplied {.val {p}}."
+    ), class = "rTFT_bad_p")
+  if (is.null(T_max)) T_max <- st$Ta_range[2] + 15
+  T_start <- rep_len(T_start, length(rate))
+  if (!is.numeric(T_max) || length(T_max) != 1L || !is.finite(T_max) || T_max <= max(T_start))
+    cli::cli_abort(c(
+      "{.arg T_max} must be a single temperature above every {.arg T_start}.",
+      "x" = "{.arg T_max} is {.val {T_max}}; the ramps start at {.val {unique(T_start)}}."
+    ), class = "rTFT_bad_T_max")
+  if (is.null(newdata)) newdata <- data.frame(row.names = 1L)
+
+  cs   <- st$costressors
+  pars <- c(M_catalogue[[st$m_form]]$dpars, h0_catalogue[[st$baseline]]$dpars,
+            .costressor_dpars(cs))
+  dr   <- .fit_draws(fit, pars, newdata, draw_ids = .thin_ids(brms::ndraws(fit), n_draws))
+  # Check the co-stressor levels once, warning once about any the model does not
+  # have; after that only the levels in use are passed on.
+  k <- if (M_catalogue[[st$m_form]]$k_sw != 0) st$k_sw
+  .rate_setup(st$m_form, purrr::map(dr, \(m) m[, 1]), st$Tr, k, cs, levels)
+  levels <- if (length(cs)) levels[vapply(cs, `[[`, character(1), "name")]
+
+  rows <- purrr::map(seq_len(nrow(newdata)), \(r) {
+    d <- purrr::map(dr, \(m) m[, r])
+    purrr::map(seq_along(rate), \(i) .dctmax_draws(st, d, rate[i], T_start[i], p, levels, T_max))
+  })
+  list(newdata = newdata, rate = rate, T_start = T_start, p = p, T_max = T_max,
+       Ta_max = st$Ta_range[2], rows = rows)
+}
+
+# Summarise the draws of dCTmax, as .dctmax_fit_draws() returns them, into a table
+# with a row for each row of newdata, ramp and fraction failed, and say, once, when
+# draws do not reach a fraction failed or a dCTmax lies above the temperatures the
+# model was fitted to.
+.summarise_dctmax <- function(draws, prob) {
+  out <- purrr::map(seq_along(draws$rows), \(r) {
+    purrr::map(seq_along(draws$rate), \(i) {
+      .with_newdata(draws$newdata[r, , drop = FALSE],
+                    tibble::tibble(rate = draws$rate[i], T_start = draws$T_start[i],
+                                   p = draws$p,
+                                   .summarise_columns(draws$rows[[r]][[i]], prob)))
+    })
+  })
+  out <- dplyr::bind_rows(purrr::list_flatten(out))
+
+  above <- is.finite(out$median) & out$median > draws$Ta_max
+  lines <- c(
+    if (any(out$n_unreached > 0))
+      c("i" = sprintf("Up to %.1f%% of posterior draws do not reach the fraction failed by %g degrees, and count as infinite.",
+                      100 * max(out$n_unreached / out$n_draws), draws$T_max)),
+    if (any(above))
+      c("!" = sprintf("%d of %d dCTmax lie above the temperatures the model was fitted to (up to %g).",
+                      sum(above), nrow(out), draws$Ta_max),
+        "i" = "There the data do not constrain the failure-rate function, so the value depends on which function was chosen."))
+  if (length(lines)) cli::cli_inform(lines, class = "rTFT_dctmax_notes")
+  out
+}
+
 # derive_dctmax() --------------------------------------------------------------
 
 #' Dynamic critical thermal maximum under a ramp, from a fitted model
@@ -1068,7 +1148,8 @@ derive_tdt_ttl <- function(fit, newdata = NULL, p = c(0.1, 0.5, 0.9), t_ref,
 #' A unifying model to estimate thermal tolerance limits in ectotherms across
 #' static, dynamic and fluctuating exposures to thermal stress. *Scientific
 #' Reports* 11, 12840.
-#' @seealso [derive_tdt_ttl()] for the static critical thermal maximum.
+#' @seealso [derive_tdt_ttl()] for the static critical thermal maximum, and
+#'   [average_dctmax()] to average dCTmax over several models.
 #' @examples
 #' \dontrun{
 #' # the CTmax expected under three ramps from 14 degrees
@@ -1079,62 +1160,7 @@ derive_tdt_ttl <- function(fit, newdata = NULL, p = c(0.1, 0.5, 0.9), t_ref,
 derive_dctmax <- function(fit, rate, T_start, newdata = NULL, p = 0.5, levels = NULL,
                           prob = 0.95, n_draws = 1000, T_max = NULL) {
   .check_prob(prob)
-  st <- .fit_settings(fit)
-  if (missing(rate) || !is.numeric(rate) || !length(rate) || !all(is.finite(rate)) ||
-      any(rate <= 0))
-    cli::cli_abort(c(
-      "{.arg rate} must hold positive ramp rates, in degrees per unit of time of the data.",
-      "i" = "For example {.code rate = 0.3} for 0.3 degrees per minute when times are in minutes."
-    ), class = "rTFT_bad_rate")
-  if (missing(T_start) || !is.numeric(T_start) || !all(is.finite(T_start)) ||
-      !length(T_start) %in% c(1L, length(rate)))
-    cli::cli_abort("{.arg T_start} must hold the starting temperature of each ramp, or one for all.",
-                   class = "rTFT_bad_T_start")
-  if (!is.numeric(p) || !length(p) || anyNA(p) || any(p <= 0 | p >= 1))
-    cli::cli_abort(c(
-      "{.arg p} must hold fractions of individuals failing, each strictly between 0 and 1.",
-      "x" = "You supplied {.val {p}}."
-    ), class = "rTFT_bad_p")
-  if (is.null(T_max)) T_max <- st$Ta_range[2] + 15
-  T_start <- rep_len(T_start, length(rate))
-  if (!is.numeric(T_max) || length(T_max) != 1L || !is.finite(T_max) || T_max <= max(T_start))
-    cli::cli_abort(c(
-      "{.arg T_max} must be a single temperature above every {.arg T_start}.",
-      "x" = "{.arg T_max} is {.val {T_max}}; the ramps start at {.val {unique(T_start)}}."
-    ), class = "rTFT_bad_T_max")
-  if (is.null(newdata)) newdata <- data.frame(row.names = 1L)
-
-  cs   <- st$costressors
-  pars <- c(M_catalogue[[st$m_form]]$dpars, h0_catalogue[[st$baseline]]$dpars,
-            .costressor_dpars(cs))
-  dr   <- .fit_draws(fit, pars, newdata, draw_ids = .thin_ids(brms::ndraws(fit), n_draws))
-  # Check the co-stressor levels once, warning once about any the model does not
-  # have; after that only the levels in use are passed on.
-  k <- if (M_catalogue[[st$m_form]]$k_sw != 0) st$k_sw
-  .rate_setup(st$m_form, purrr::map(dr, \(m) m[, 1]), st$Tr, k, cs, levels)
-  levels <- if (length(cs)) levels[vapply(cs, `[[`, character(1), "name")]
-
-  out <- purrr::map(seq_len(nrow(newdata)), \(r) {
-    d <- purrr::map(dr, \(m) m[, r])
-    purrr::map(seq_along(rate), \(i) {
-      draws <- .dctmax_draws(st, d, rate[i], T_start[i], p, levels, T_max)
-      .with_newdata(newdata[r, , drop = FALSE],
-                    tibble::tibble(rate = rate[i], T_start = T_start[i], p = p,
-                                   .summarise_columns(draws, prob)))
-    })
-  })
-  out <- dplyr::bind_rows(purrr::list_flatten(out))
-
-  above <- is.finite(out$median) & out$median > st$Ta_range[2]
-  lines <- c(
-    if (any(out$n_unreached > 0))
-      c("i" = sprintf("Up to %.1f%% of posterior draws do not reach the fraction failed by %g degrees, and count as infinite.",
-                      100 * max(out$n_unreached / out$n_draws), T_max)),
-    if (any(above))
-      c("!" = sprintf("%d of %d dCTmax lie above the temperatures the model was fitted to (up to %g).",
-                      sum(above), nrow(out), st$Ta_range[2]),
-        "i" = "There the data do not constrain the failure-rate function, so the value depends on which function was chosen."))
-  if (length(lines)) cli::cli_inform(lines, class = "rTFT_dctmax_notes")
-  out
+  .summarise_dctmax(.dctmax_fit_draws(fit, rate, T_start, newdata, p, levels, n_draws, T_max),
+                    prob)
 }
 

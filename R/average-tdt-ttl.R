@@ -328,3 +328,48 @@ average_tdt_ttl <- function(fits, weights, newdata = NULL, p = c(0.1, 0.5, 0.9),
   .report_unreached(out)
   c(out, list(weights = setup$weights))
 }
+
+# average_dctmax() -------------------------------------------------------------
+
+#' Dynamic critical thermal maximum averaged over several fitted models
+#'
+#' Derives the dynamic critical thermal maximum dCTmax under a ramp as
+#' [derive_dctmax()] does, averaged over several models fitted to the same data.
+#' Each model's posterior draws of dCTmax are pooled in proportion to its weight,
+#' and the pooled draws are summarised, so the median and credible interval reflect
+#' both the uncertainty within each model and the uncertainty about which model
+#' predicts best.
+#'
+#' The models usually agree closely on dCTmax under a ramp like those they were
+#' fitted to, and less under ramps much slower or faster, where the failure-rate
+#' and baseline functions are extrapolated.
+#'
+#' @inheritParams average_tdt_ttl
+#' @inheritParams derive_dctmax
+#' @param T_max A single number, the temperature up to which the ramp is followed.
+#'   `NULL` (the default) takes 15 degrees above the warmest temperature the models
+#'   were fitted to.
+#' @return A list of two tibbles: `dctmax`, in the layout of [derive_dctmax()]'s
+#'   result, and `weights`, the table of weights with the number of draws each
+#'   model contributed.
+#' @examples
+#' \dontrun{
+#' fits <- list("exp" = fit_exp, "zeroexp" = fit_zeroexp)
+#' w    <- hazard_weights(lapply(fits, loo_hazard))
+#' average_dctmax(fits, w, rate = c(0.1, 0.3), T_start = 14,
+#'                newdata = data.frame(mass = 10))$dctmax
+#' }
+#' @export
+average_dctmax <- function(fits, weights, rate, T_start, newdata = NULL, p = 0.5,
+                           levels = NULL, prob = 0.95, n_draws = 1000, T_max = NULL) {
+  .check_prob(prob)
+  setup <- .average_setup(fits, weights, n_draws)
+  per_model <- .each_model(setup, \(fit, n)
+    .dctmax_fit_draws(fit, rate, T_start, newdata, p, levels, n, T_max))
+  # For each row of newdata and each ramp, the models' draws one after another.
+  pooled <- per_model[[1]]
+  pooled$rows <- purrr::map(seq_along(pooled$rows), \(r)
+    purrr::map(seq_along(pooled$rate), \(i)
+      do.call(rbind, purrr::map(per_model, \(m) m$rows[[r]][[i]]))))
+  list(dctmax = .summarise_dctmax(pooled, prob), weights = setup$weights)
+}

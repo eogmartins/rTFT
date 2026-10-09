@@ -279,3 +279,57 @@ test_that("a warning every model would give is given once", {
   expect_equal(given, 1)
   expect_named(avg, c("sctmax", "tdt_curves", "ttl_surface", "weights"))
 })
+
+
+# ===========================================================================
+# 4. dCTmax averaged over models
+# ===========================================================================
+
+test_that("average_dctmax returns the table of derive_dctmax, with the weights", {
+  avg <- suppressMessages(average_dctmax(fits, w_fits, rate = c(0.1, 0.25), T_start = 20,
+                                         newdata = nd, p = c(0.5, 0.9), n_draws = 400))
+  expect_named(avg, c("dctmax", "weights"))
+  one <- suppressMessages(derive_dctmax(fits$exp, rate = c(0.1, 0.25), T_start = 20,
+                                        newdata = nd, p = c(0.5, 0.9), n_draws = 400))
+  expect_named(avg$dctmax, names(one))
+  expect_equal(avg$dctmax[c("mass", "rate", "T_start", "p")], one[c("mass", "rate", "T_start", "p")])
+  expect_true(all(avg$dctmax$n_draws == 400))
+  expect_equal(avg$weights$n_draws, c(300L, 100L))
+  expect_true(all(avg$dctmax$lower <= avg$dctmax$median & avg$dctmax$median <= avg$dctmax$upper))
+})
+
+
+test_that("a model with all the weight gives back its own dCTmax", {
+  alone <- tibble::tibble(model = c("exp", "zeroexp"), weight = c(0, 1))
+  avg <- suppressMessages(average_dctmax(fits, alone, rate = c(0.1, 0.25), T_start = 20,
+                                         newdata = nd, n_draws = 300))
+  one <- suppressMessages(derive_dctmax(fits$zeroexp, rate = c(0.1, 0.25), T_start = 20,
+                                        newdata = nd, n_draws = 300))
+  expect_equal(avg$dctmax, one)
+})
+
+
+test_that("the averaged dCTmax is the summary of the models' draws pooled by weight", {
+  one_row <- nd[1, , drop = FALSE]
+  avg <- suppressMessages(average_dctmax(fits, w_fits, rate = 0.25, T_start = 20,
+                                         newdata = one_row, n_draws = 400))
+  d_exp  <- .dctmax_fit_draws(fits$exp,     0.25, 20, one_row, 0.5, NULL, 300, NULL)
+  d_zero <- .dctmax_fit_draws(fits$zeroexp, 0.25, 20, one_row, 0.5, NULL, 100, NULL)
+  pooled <- c(d_exp$rows[[1]][[1]][, 1], d_zero$rows[[1]][[1]][, 1])
+  expect_length(pooled, 400)
+  expect_equal(avg$dctmax$median, stats::median(pooled))
+  expect_equal(avg$dctmax$lower, unname(stats::quantile(pooled, 0.025)))
+  expect_equal(avg$dctmax$upper, unname(stats::quantile(pooled, 0.975)))
+})
+
+
+test_that("average_dctmax refuses what derive_dctmax and the averaging refuse", {
+  expect_error(average_dctmax(fits, w_fits, rate = -0.1, T_start = 20, newdata = nd),
+               class = "rTFT_bad_rate")
+  expect_error(average_dctmax(fits, w_fits, rate = 0.1, T_start = c(18, 20, 22), newdata = nd),
+               class = "rTFT_bad_T_start")
+  expect_error(average_dctmax(unname(fits), w_fits, rate = 0.1, T_start = 20, newdata = nd),
+               class = "rTFT_bad_fits")
+  expect_error(average_dctmax(fits, w_fits, rate = 0.1, T_start = 20, newdata = nd, n_draws = 0),
+               class = "rTFT_bad_n_draws")
+})

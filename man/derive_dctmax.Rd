@@ -93,5 +93,6 @@ static, dynamic and fluctuating exposures to thermal stress. \emph{Scientific
 Reports} 11, 12840.
 }
 \seealso{
-\code{\link[=derive_tdt_ttl]{derive_tdt_ttl()}} for the static critical thermal maximum.
+\code{\link[=derive_tdt_ttl]{derive_tdt_ttl()}} for the static critical thermal maximum, and
+\code{\link[=average_dctmax]{average_dctmax()}} to average dCTmax over several models.
 }
