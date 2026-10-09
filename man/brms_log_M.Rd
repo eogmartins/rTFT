@@ -16,7 +16,10 @@ which brms uses to build the model formula. The strings are written in terms
 of the parameter names and the data columns \code{Ta} (the row's temperature: the
 interval midpoint, or the exact temperature for a known-time failure) and \code{Tr}
 (the starting temperature). The threshold functions add a small constant
-(\code{1e-12}) inside a logarithm so it stays finite at the critical temperature.
+inside a logarithm so it stays finite at the critical temperature. The constant
+is written \code{10^-12} and not \code{1e-12}, because brms spaces out the minus sign of a
+number in scientific notation when it writes the Stan program (\verb{1e - 12}), which
+Stan does not accept.
 The temperature column is named \code{Ta} rather than
 Kingsolver and Umbanhowar's \code{T}, because \code{T} is an alias for \code{TRUE} in R and a
 column of that name would silently shadow it in the data-handling code. The

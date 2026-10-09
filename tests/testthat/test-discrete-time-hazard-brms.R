@@ -317,6 +317,28 @@ test_that("brms_log_M reproduces the Kingsolver-Umbanhowar Table 1 forms above T
 })
 
 
+test_that("no failure-rate or baseline function puts a number in scientific notation into the Stan program", {
+  # brms spaces out the sign of an exponent when it writes the Stan program, so
+  # `1e-12` reaches Stan as `1e - 12`, which does not compile. The expression
+  # strings must therefore hold no such number,
+  strings <- c(unlist(brms_log_M), unlist(brms_log_h0))
+  expect_identical(names(strings)[grepl("[0-9][eE][-+]?[0-9]", strings)], character(0))
+  # and none may appear, broken, in the program of any function with any baseline.
+  ramp <- data.frame(path_id = "A", time = c(0, 60), temp = c(20, 35))
+  ind  <- data.frame(id = 1:6, path_id = "A", event = 1, t_event = c(30, 35, 40, 42, 45, 50))
+  programs <- purrr::map(names(M_catalogue), \(m) purrr::map_chr(names(h0_catalogue), \(b) {
+    Tr   <- if (m %in% c("zeroexp", "power", "zeropower")) 19
+    long <- suppressMessages(build_hazard_data(ind, ramp, "continuous", Tr = Tr))
+    a    <- .hazard_brm_args(long, m, b, observation = "continuous")
+    brms::make_stancode(a$formula, data = a$data, family = a$family, prior = a$prior,
+                        stanvars = a$stanvars)
+  }))
+  programs <- unlist(programs)
+  expect_length(programs, length(M_catalogue) * length(h0_catalogue))   # all 36 written
+  expect_false(any(grepl("[0-9][eE] [-+] [0-9]", programs)))
+})
+
+
 test_that("brms_log_M threshold guards stay finite below and at Tc; zero forms vanish at Tr", {
   a <- 2.82e-7; b <- 6.13; cc <- 1e-4; Tc <- 36; Tr <- 30; k_sw <- 50
   ev <- function(s, Ta) {
@@ -324,7 +346,7 @@ test_that("brms_log_M threshold guards stay finite below and at Tc; zero forms v
                 Tc = Tc, Tr = Tr, k_sw = k_sw, Ta = Ta)
     exp(eval(parse(text = s), env))
   }
-  # abs(...) + the 1e-12 literal keep the below-Tc and at-Tc logarithms finite
+  # abs(...) + the small constant keep the below-Tc and at-Tc logarithms finite
   # (no NaN, no -Inf), so the gate can suppress that region cleanly.
   for (k in c("const_threshold", "exp_threshold", "zeroexp_threshold", "zeropower_threshold")) {
     expect_true(is.finite(ev(brms_log_M[[k]], Tc - 2)), info = paste(k, "below Tc"))

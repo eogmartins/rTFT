@@ -404,7 +404,10 @@ h0_catalogue <- list(
 #' of the parameter names and the data columns `Ta` (the row's temperature: the
 #' interval midpoint, or the exact temperature for a known-time failure) and `Tr`
 #' (the starting temperature). The threshold functions add a small constant
-#' (`1e-12`) inside a logarithm so it stays finite at the critical temperature.
+#' inside a logarithm so it stays finite at the critical temperature. The constant
+#' is written `10^-12` and not `1e-12`, because brms spaces out the minus sign of a
+#' number in scientific notation when it writes the Stan program (`1e - 12`), which
+#' Stan does not accept.
 #' The temperature column is named `Ta` rather than
 #' Kingsolver and Umbanhowar's `T`, because `T` is an alias for `TRUE` in R and a
 #' column of that name would silently shadow it in the data-handling code. The
@@ -422,10 +425,10 @@ brms_log_M <- list(
   exp                 = "loga + exp(logb) * (Ta - Tr)",
   exp_threshold       = "loga + exp(logb) * (Ta - Tc) - log1p(exp(-k_sw * (Ta - Tc)))",
   zeroexp             = "loga + log(exp(exp(logb) * (Ta - Tr)) - 1)",
-  zeroexp_threshold   = "loga + log(abs(exp(exp(logb) * (Ta - Tc)) - 1) + 1e-12) - log1p(exp(-k_sw * (Ta - Tc)))",
+  zeroexp_threshold   = "loga + log(abs(exp(exp(logb) * (Ta - Tc)) - 1) + 10^-12) - log1p(exp(-k_sw * (Ta - Tc)))",
   power               = "log(exp(logc) + exp(loga) * (Ta - Tr)^exp(logb))",
   zeropower           = "loga + exp(logb) * log(Ta - Tr)",
-  zeropower_threshold = "loga + exp(logb) * log(abs(Ta - Tc) + 1e-12) - log1p(exp(-k_sw * (Ta - Tc)))"
+  zeropower_threshold = "loga + exp(logb) * log(abs(Ta - Tc) + 10^-12) - log1p(exp(-k_sw * (Ta - Tc)))"
 )
 
 
