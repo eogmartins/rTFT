@@ -1,6 +1,7 @@
 #!/bin/sh
-# pre-commit - gate the three things that can drift without a failure showing: the
-# test count, the help pages, and non-ASCII characters in the R code.
+# pre-commit - gate the things that can drift without a failure showing: the test
+# count, the help pages, non-ASCII characters in the R code, and, for the
+# vignettes, the links from one to another and whether an editor can open them.
 #
 # Each gate fires only when a commit touches what it is about. The 
 # expectation-count gate covers R/, tests/ and tools/ -- tools/ included so 
@@ -9,7 +10,13 @@
 # The non-ASCII gate covers the R files of R/ and tests/ in the commit: R CMD
 # check warns about a character outside ASCII in R code (a degree sign typed
 # directly rather than as \u00b0), but takes minutes to say so, and the tests
-# pass either way.
+# pass either way. The link gate covers vignettes/: a vignette links to another by
+# the name of its built page, nothing in R CMD check follows such a link, and a
+# renamed or missing vignette would leave it dead. The same gate has Quarto inspect
+# each vignette, which is the step an editor runs before rendering one: a chunk
+# option that `quarto render` accepts can still fail there (`#| eval: !expr` did),
+# so the package builds and checks while the vignette cannot be rendered from the
+# editor.
 #
 # .git/hooks is not version-controlled, so a fresh clone has no hook until
 # `tools/hooks/install` is run. Nothing does that automatically or announces
@@ -80,5 +87,54 @@ if [ -n "$r_files" ]; then
     echo "  \\u00b0); in a comment, spell it in ASCII."
     exit 1
   fi
+fi
+
+if printf '%s\n' "$staged" | grep -qE '^vignettes/'; then
+  echo "pre-commit: checking the links from one vignette to another..."
+  if ! Rscript -e '
+    files <- list.files("vignettes", pattern = "[.]qmd$", full.names = TRUE)
+    found <- FALSE
+    n     <- 0L
+    for (f in files) {
+      text  <- paste(readLines(f, warn = FALSE), collapse = "\n")
+      links <- regmatches(text, gregexpr("[]][(][A-Za-z0-9_-]+[.]html[)#]", text))[[1]]
+      pages <- unique(gsub("^[]][(]|[.]html[)#]$", "", links))
+      n     <- n + length(links)
+      dead  <- pages[!file.exists(file.path("vignettes", paste0(pages, ".qmd")))]
+      if (length(dead)) {
+        cat(f, sprintf("    links to %s.html, and there is no vignettes/%s.qmd", dead, dead),
+            sep = "\n")
+        found <- TRUE
+      }
+    }
+    cat("  ", n, "links among", length(files), "vignettes checked.\n")
+    if (found) quit(status = 1)'; then
+    echo ""
+    echo "pre-commit: a vignette links to one that does not exist. Commit aborted."
+    echo "  Correct the file name in the link, or leave the title as plain text"
+    echo "  until that vignette is written."
+    exit 1
+  fi
+fi
+
+if printf '%s\n' "$staged" | grep -qE '^vignettes/'; then
+  echo "pre-commit: checking that Quarto can inspect each vignette..."
+  if ! command -v quarto >/dev/null 2>&1; then
+    echo "pre-commit: quarto is not installed, so the vignettes cannot be"
+    echo "  inspected. Install it rather than committing past this."
+    exit 1
+  fi
+  inspected=0
+  for f in vignettes/*.qmd; do
+    if ! quarto inspect "$f" >/dev/null 2>/tmp/rtft-inspect.err; then
+      echo ""
+      echo "pre-commit: Quarto cannot inspect $f. Commit aborted."
+      echo "  An editor would fail to render it. Quarto said:"
+      head -4 /tmp/rtft-inspect.err | sed 's/^/    /'
+      exit 1
+    fi
+    inspected=$((inspected + 1))
+  done
+  echo "   $inspected vignettes inspected."
 fi
 exit 0
