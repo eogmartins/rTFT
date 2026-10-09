@@ -196,6 +196,22 @@ test_that(".risk_by_period gives each period's share, leaving out draws with no 
 
 nd <- data.frame(mass = c(8, 12))
 
+test_that("the mean of survival is the mean over the draws, and can differ from the median", {
+  # three draws over two intervals, two of which keep nearly everyone alive and one
+  # of which does not: survival at the end is 0.98, 0.97 and 0.2
+  accrued <- -log(rbind(c(0.99, 0.98 / 0.99), c(0.98, 0.97 / 0.98), c(0.5, 0.2 / 0.5)))
+  draws <- list(newdata = data.frame(row.names = 1L), time = c(0, 10, 20), rows = list(accrued),
+                by = NULL, zone = factor(c("within", "within"), levels = c("below", "within", "above")),
+                duration = c(10, 10), Ta_failed = c(22, 30), beyond_tau = c(FALSE, FALSE),
+                tau_max = 60)
+  out <- .summarise_record(draws, 0.95)
+  expect_equal(out$survival$mean, c(1, mean(c(0.99, 0.98, 0.5)), mean(c(0.98, 0.97, 0.2))))
+  expect_equal(out$survival$median, c(1, 0.98, 0.97))
+  expect_equal(out$mortality$mean, 1 - mean(c(0.98, 0.97, 0.2)))
+  expect_equal(out$mortality$median, 0.03)
+})
+
+
 test_that("predict_survival returns survival through time and mortality at the end", {
   pred <- quietly(predict_survival(fits$exp, rec, newdata = nd, n_draws = 300))
   expect_named(pred, c("survival", "mortality", "coverage", "record"))
@@ -203,8 +219,9 @@ test_that("predict_survival returns survival through time and mortality at the e
                                 "above", "risk_below", "risk_within", "risk_above",
                                 "tau_max", "beyond", "risk_beyond"))
   expect_equal(pred$record, tibble::tibble(time = rec$time, temp = rec$temp))   # not `day`
-  expect_named(pred$survival, c("mass", "time", "median", "lower", "upper", "prob",
+  expect_named(pred$survival, c("mass", "time", "mean", "median", "lower", "upper", "prob",
                                 "n_draws", "n_unreached"))
+  expect_named(pred$mortality, names(pred$survival))
   expect_equal(nrow(pred$survival), 2L * nrow(rec))
   expect_equal(pred$survival$time, rep(rec$time, 2))
   first <- pred$survival[pred$survival$time == 100, ]
@@ -216,6 +233,11 @@ test_that("predict_survival returns survival through time and mortality at the e
   expect_equal(pred$mortality$time, c(130, 130))
   expect_equal(pred$mortality$median,
                1 - pred$survival$median[pred$survival$time == 130])
+  # the mean of mortality is one minus the mean of survival at the last time
+  expect_equal(pred$mortality$mean, 1 - pred$survival$mean[pred$survival$time == 130])
+  expect_equal(pred$survival$mean[pred$survival$time == 100], c(1, 1))
+  expect_true(all(pred$survival$mean >= pred$survival$lower &
+                    pred$survival$mean <= pred$survival$upper))
   # heavier individuals have the higher rate in these data
   expect_gt(pred$mortality$median[2], pred$mortality$median[1])
 })

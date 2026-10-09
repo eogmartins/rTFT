@@ -276,10 +276,18 @@
     cumulative <- t(apply(accrued, 1, cumsum))
     if (ncol(accrued) == 1L) cumulative <- matrix(cumulative, ncol = 1L)
     survival   <- cbind(1, exp(-cumulative))
+    # Survival and mortality are probabilities of an event, so their mean over the
+    # draws is reported beside the median: it is the probability of the event with
+    # the uncertainty in the parameters, and in the model when models are averaged,
+    # taken into account.
     out <- list(
-      survival  = tibble::tibble(time = draws$time, .summarise_columns(survival, prob)),
-      mortality = tibble::tibble(time = draws$time[length(draws$time)],
-                                 .draw_summary(1 - survival[, ncol(survival)], prob)))
+      survival  = tibble::add_column(
+        tibble::tibble(time = draws$time, .summarise_columns(survival, prob)),
+        mean = colMeans(survival), .after = "time"),
+      mortality = tibble::add_column(
+        tibble::tibble(time = draws$time[length(draws$time)],
+                       .draw_summary(1 - survival[, ncol(survival)], prob)),
+        mean = mean(1 - survival[, ncol(survival)]), .after = "time"))
     if (!is.null(draws$by)) out$risk <- .risk_by_period(accrued, draws$period, draws$by, prob)
     out$coverage <- .record_coverage(accrued, draws$zone, draws$duration, draws$Ta_failed,
                                      draws$beyond_tau, draws$tau_max)
@@ -396,6 +404,17 @@
 #' temperature `Tr` and are taken as zero below it. The `power` function is not
 #' defined below `Tr`, and a record that goes below it is refused.
 #'
+#' @section The mean and the median:
+#' Each posterior draw gives a probability of surviving, and the tables summarise
+#' those probabilities by their mean and by their median. The mean is the
+#' probability of surviving with the uncertainty in the parameters taken into
+#' account (and, from [average_survival()], the uncertainty about the model, as
+#' far as the weights measure it): it is the fraction of individuals expected to
+#' survive. The median is the value that half of the posterior lies below. The two
+#' are close when the posterior is concentrated, and differ when it is skewed or
+#' has two separate groups of values, as it can when models that disagree are
+#' averaged; the credible interval should then be reported with either.
+#'
 #' @section No recovery:
 #' The hazard accrued along the record is only ever added to, so the prediction
 #' assumes that an individual does not recover when the temperature returns to a
@@ -436,9 +455,11 @@
 #'   stands for the whole of it (see *The time grid* in [build_hazard_data]).
 #'   Defaults to 0.1; `Inf` takes one step between consecutive readings.
 #' @return A list of tibbles, each with the columns of `newdata`:
-#'   * `survival`: for each time of the record, the posterior `median`, `lower` and
-#'     `upper` of the probability of surviving to it (1 at the first time).
-#'   * `mortality`: the probability of failing by the end of the record.
+#'   * `survival`: for each time of the record, the posterior `mean`, `median`,
+#'     `lower` and `upper` of the probability of surviving to it (1 at the first
+#'     time).
+#'   * `mortality`: the same for the probability of failing by the end of the
+#'     record.
 #'   * `risk` (when `by` is given): each period's share of the hazard accrued over
 #'     the record. The shares of a posterior draw add to one; `n_draws` is the
 #'     number of draws with any hazard, which the summary rests on.

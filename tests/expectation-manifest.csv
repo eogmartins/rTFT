@@ -4,7 +4,7 @@ test-derive-tdt-ttl.R,236
 test-plot-tdt-ttl.R,154
 test-loo-hazard.R,99
 test-average-tdt-ttl.R,105
-test-predict-survival.R,133
+test-predict-survival.R,141
 test-plot-survival.R,84
 test-check-hazard.R,66
 test-plot-check.R,29

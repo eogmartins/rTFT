@@ -11,10 +11,10 @@
 
 # .plot_table() / .newdata_cols() / .time_label() ------------------------------
 
-# The columns derive_tdt_ttl() writes itself. Any other column of one of its tables
-# is a covariate carried over from `newdata`.
-.derive_cols <- c("quantity", "p", "t_ref", "Ta", "tau", "median", "lower", "upper",
-                  "prob", "n_draws", "n_unreached")
+# The columns derive_tdt_ttl() and predict_survival() write themselves. Any other
+# column of one of their tables is a covariate carried over from `newdata`.
+.derive_cols <- c("quantity", "p", "t_ref", "Ta", "tau", "mean", "median", "lower",
+                  "upper", "prob", "n_draws", "n_unreached")
 
 # Take one table out of the output of derive_tdt_ttl() (or of the function named in
 # `from`), or stop when `x` is not such an output.

@@ -53,9 +53,11 @@ Defaults to 0.1; \code{Inf} takes one step between consecutive readings.}
 \value{
 A list of tibbles, each with the columns of \code{newdata}:
 \itemize{
-\item \code{survival}: for each time of the record, the posterior \code{median}, \code{lower} and
-\code{upper} of the probability of surviving to it (1 at the first time).
-\item \code{mortality}: the probability of failing by the end of the record.
+\item \code{survival}: for each time of the record, the posterior \code{mean}, \code{median},
+\code{lower} and \code{upper} of the probability of surviving to it (1 at the first
+time).
+\item \code{mortality}: the same for the probability of failing by the end of the
+record.
 \item \code{risk} (when \code{by} is given): each period's share of the hazard accrued over
 the record. The shares of a posterior draw add to one; \code{n_draws} is the
 number of draws with any hazard, which the summary rests on.
@@ -124,6 +126,19 @@ much the prediction depends on those choices.
 The zero-type failure rates (\code{zeroexp}, \code{zeropower}) are zero at the reference
 temperature \code{Tr} and are taken as zero below it. The \code{power} function is not
 defined below \code{Tr}, and a record that goes below it is refused.
+}
+
+\section{The mean and the median}{
+
+Each posterior draw gives a probability of surviving, and the tables summarise
+those probabilities by their mean and by their median. The mean is the
+probability of surviving with the uncertainty in the parameters taken into
+account (and, from \code{\link[=average_survival]{average_survival()}}, the uncertainty about the model, as
+far as the weights measure it): it is the fraction of individuals expected to
+survive. The median is the value that half of the posterior lies below. The two
+are close when the posterior is concentrated, and differ when it is skewed or
+has two separate groups of values, as it can when models that disagree are
+averaged; the credible interval should then be reported with either.
 }
 
 \section{No recovery}{
