@@ -28,6 +28,9 @@ format:
           }
           body:not(:has(#quarto-content)) nav#TOC ul { padding-left: 1.1em; }
         }
+        /* An estimate and its interval stay on one line of a table; only the first
+           column, which holds names, may wrap. */
+        table td:not(:first-child), table th:not(:first-child) { white-space: nowrap; }
         </style>
 knitr:
   opts_chunk:
@@ -44,11 +47,13 @@ results <- readRDS("results-01.rds")
 # The interactive figure embeds the plotly library in the page (about 3.5 MB). Set
 # this to FALSE to leave it out, e.g. to keep the built vignette small.
 interactive_figure <- requireNamespace("plotly", quietly = TRUE)
+# The chunk that draws it takes this value in its header (`eval = `), and not as
+# `#| eval: !expr`, which the editor's preview cannot read.
 ```
 
 Thermal tolerance is usually reported as a summary of an assay, such as the critical thermal maximum (CTmax) of a ramping trial or the time to failure at a constant temperature. These summaries depend on how the assay was run (e.g., the ramp rate or the temperatures chosen), which makes them difficult to compare among studies and to extrapolate to conditions outside the assay. `rTFT` takes a different route, following the failure-rate framework of [Kingsolver and Umbanhowar (2018)](https://doi.org/10.1242/jeb.167858){target="_blank"}. It fits a model of the failure rate (i.e., how quickly individuals fail at each temperature) to the times of failure recorded in an assay, using Bayesian inference, and derives the usual summaries from the fitted model, each with its posterior uncertainty.
 
-In this vignette, we fit a model to a static assay and derive from it: (i) the static critical thermal maximum (i.e., the constant temperature at which a given fraction of individuals fail within a reference time, such as 1 h), (ii) the thermal death time curves and (iii) the thermal tolerance landscape. We then use the fitted model to predict survival along a record of stream temperature. The same steps apply to a ramping assay, which is the subject of the vignette *Ramping assays*.
+In this vignette, we fit a model to a static assay and derive from it: (i) the static critical thermal maximum (i.e., the constant temperature at which a given fraction of individuals fail within a reference time, such as 1 h), (ii) the thermal death time curves and (iii) the thermal tolerance landscape. We then use the fitted model to predict survival along a record of stream temperature. The same steps apply to a ramping assay, which is the subject of the vignette [*Ramping assays*](ramping-assays.html).
 
 ```{r}
 #| label: libraries
@@ -131,7 +136,7 @@ $$
 S(\tau, T) = \exp\{-M(T) \, H_0(\tau)\},
 $$
 
-where $H_0(\tau)$ is the cumulative baseline hazard. `rTFT` offers several functions for each term (see `?M_catalogue` and `?h0_catalogue`). Here we use an exponential failure rate, $M(T) = a \exp\{b (T - T_r)\}$, in which $b$ is the thermal sensitivity (i.e., the proportional increase in the failure rate per degree), and a Weibull baseline, in which a shape parameter $k$ allows the hazard to rise ($k > 1$) or fall ($k < 1$) with exposure time. With $k = 1$ the baseline is constant and the hazard depends on temperature alone, which is the memoryless case of [Kingsolver and Umbanhowar (2018)](https://doi.org/10.1242/jeb.167858){target="_blank"} and the baseline called `"mem"` in the package. The vignette *Comparing and averaging models* shows how to compare alternative functions.
+where $H_0(\tau)$ is the cumulative baseline hazard. `rTFT` offers several functions for each term (see `?M_catalogue` and `?h0_catalogue`). Here we use an exponential failure rate, $M(T) = a \exp\{b (T - T_r)\}$, in which $b$ is the thermal sensitivity (i.e., the proportional increase in the failure rate per degree), and a Weibull baseline, in which a shape parameter $k$ allows the hazard to rise ($k > 1$) or fall ($k < 1$) with exposure time. With $k = 1$ the baseline is constant and the hazard depends on temperature alone, which is the memoryless case of [Kingsolver and Umbanhowar (2018)](https://doi.org/10.1242/jeb.167858){target="_blank"} and the baseline called `"mem"` in the package. The vignette [*Comparing and averaging models*](comparing-and-averaging-models.html) shows how to compare alternative functions.
 
 Each parameter of the model may depend on covariates and may vary among groups. Here, we allow $\log a$ to change with body mass, which we centre at 15 g so that $a$ refers to a fish of that mass, and to vary among trials, because fish in the same trial share a tank and a day and their failure times are unlikely to be independent.
 
@@ -316,7 +321,7 @@ dct <- results$dctmax
 knitr::kable(dct[c("rate", "T_start", "p", "median", "lower", "upper")], digits = 2)
 ```
 
-The expected CTmax increased with the ramp rate, from `r sprintf("%.1f", dct$median[1])`°C at `r dct$rate[1]`°C per min to `r sprintf("%.1f", dct$median[3])`°C at `r dct$rate[3]`°C per min (@tbl-dctmax). All three values are higher than the sCTmax for 60 min reported above (`r sprintf("%.1f", min(tol$sctmax$median[tol$sctmax$p == 0.5]))`–`r sprintf("%.1f", max(tol$sctmax$median[tol$sctmax$p == 0.5]))`°C for fish of 10–20 g). The two quantities differ in how long the fish are exposed to the temperature they refer to. sCTmax for 60 min is the temperature at which half of the fish fail when held at it for a full hour. A fish in a ramp passes through each temperature quickly (e.g., at 0.3°C per min, the water takes only 3.3 min to warm from 26 to 27°C), so by the time the ramp reaches the sCTmax the fish have spent only a few minutes near that temperature and far fewer than half of them have failed. The water must therefore warm further before half of them have. The difference depends on the ramp rate: the slower the ramp, the lower the dCTmax, and a sufficiently slow ramp would give a dCTmax below the sCTmax for 60 min. These values lie above the warmest temperature of the assay (27°C), so they extrapolate the failure rate function beyond the temperatures at which failures were observed, and `derive_dctmax()` prints a message when that is the case. The vignette *Ramping assays* compares values derived in this way with the CTmax observed in ramping trials.
+The expected CTmax increased with the ramp rate, from `r sprintf("%.1f", dct$median[1])`°C at `r dct$rate[1]`°C per min to `r sprintf("%.1f", dct$median[3])`°C at `r dct$rate[3]`°C per min (@tbl-dctmax). All three values are higher than the sCTmax for 60 min reported above (`r sprintf("%.1f", min(tol$sctmax$median[tol$sctmax$p == 0.5]))`–`r sprintf("%.1f", max(tol$sctmax$median[tol$sctmax$p == 0.5]))`°C for fish of 10–20 g). The two quantities differ in how long the fish are exposed to the temperature they refer to. sCTmax for 60 min is the temperature at which half of the fish fail when held at it for a full hour. A fish in a ramp passes through each temperature quickly (e.g., at 0.3°C per min, the water takes only 3.3 min to warm from 26 to 27°C), so by the time the ramp reaches the sCTmax the fish have spent only a few minutes near that temperature and far fewer than half of them have failed. The water must therefore warm further before half of them have. The difference depends on the ramp rate: the slower the ramp, the lower the dCTmax, and a sufficiently slow ramp would give a dCTmax below the sCTmax for 60 min. These values lie above the warmest temperature of the assay (27°C), so they extrapolate the failure rate function beyond the temperatures at which failures were observed, and `derive_dctmax()` prints a message when that is the case. The vignette [*Ramping assays*](ramping-assays.html) compares values derived in this way with the CTmax observed in ramping trials.
 
 ### Thermal death time curves
 
@@ -342,10 +347,9 @@ plot_ttl(tol, time_unit = "min")
 
 The same landscape can be drawn as a surface that can be rotated and zoomed with the mouse, using `plot_ttl_3d()` (@fig-ttl-3d). It requires the `plotly` package ([Sievert 2020](https://doi.org/10.1201/9780429447273){target="_blank"}) and draws one row of `newdata` at a time. This figure is intended for exploring the shape of the landscape, and not for publication, where the map above conveys the same information without depending on the viewing angle.
 
-```{r}
+```{r, eval = interactive_figure}
 #| label: fig-ttl-3d
 #| fig-cap: "Thermal tolerance landscape for a fish of 10 g, as an interactive surface. Drag to rotate and scroll to zoom."
-#| eval: !expr interactive_figure
 #| out-width: "100%"
 #| out-height: "650px"
 plot_ttl_3d(tol, row = 1, time_unit = "min")
@@ -388,10 +392,10 @@ plot_survival(pred, temperature = TRUE) +
 
 ```{r}
 #| label: mortality
-knitr::kable(pred$mortality[c("mass", "median", "lower", "upper")], digits = 2)
+knitr::kable(pred$mortality[c("mass", "mean", "median", "lower", "upper")], digits = 2)
 ```
 
-The model predicts that `r sprintf("%.0f", 100 * pred$mortality$median)`% of fish of 15 g would fail by the end of the 30 days (95% credible interval: `r sprintf("%.0f", 100 * pred$mortality$lower)`–`r sprintf("%.0f", 100 * pred$mortality$upper)`%), with nearly all of the decrease in survival occurring during the heat wave (@fig-survival). The table `risk` shows where along the record the risk was concentrated (@fig-risk).
+The model predicts that `r sprintf("%.0f", 100 * pred$mortality$median)`% of fish of 15 g would fail by the end of the 30 days (95% credible interval: `r sprintf("%.0f", 100 * pred$mortality$lower)`–`r sprintf("%.0f", 100 * pred$mortality$upper)`%), with nearly all of the decrease in survival occurring during the heat wave (@fig-survival). The table gives both the median and the mean of the posterior draws of that probability. The mean (`r sprintf("%.0f", 100 * pred$mortality$mean)`% here) is the probability that a fish fails with the uncertainty in the parameters taken into account, and therefore the fraction of fish expected to fail, whereas the median is the value below which half of the posterior lies. The two are close when the posterior is concentrated around one value, as it is here, and may differ greatly when several models that disagree are averaged (see the vignette [*Comparing and averaging models*](comparing-and-averaging-models.html)). The table `risk` shows where along the record the risk was concentrated (@fig-risk).
 
 ```{r}
 #| label: fig-risk
@@ -421,7 +425,7 @@ temperature_columns <- c("mass", "Ta_failed_min", "Ta_failed_max", "below", "wit
 knitr::kable(pred$coverage[temperature_columns], digits = 2)
 ```
 
-Here the record was below the temperatures of the assay (`r pred$coverage$Ta_failed_min`–`r pred$coverage$Ta_failed_max`°C) for `r sprintf("%.0f", 100 * pred$coverage$below)`% of its duration, but only `r sprintf("%.0f", 100 * pred$coverage$risk_below)`% of the predicted risk was accrued at those temperatures. The remaining `r sprintf("%.0f", 100 * pred$coverage$risk_within)`% was accrued during the hours above 23°C, which the assay did cover. The share of the risk is the more informative of the two. At temperatures outside those of the assay the data do not constrain the failure rate function, and functions that fit the assay data equally well may give very different predictions there (see the vignette *Comparing and averaging models*). `predict_survival()` prints a message with both shares whenever part of the record lies outside the temperatures at which failures were observed. An assay intended to support predictions for the field should therefore include temperatures as low as those that are expected to cause failures in the field, which is why the coolest temperature of this assay was 23°C.
+Here the record was below the temperatures of the assay (`r pred$coverage$Ta_failed_min`–`r pred$coverage$Ta_failed_max`°C) for `r sprintf("%.0f", 100 * pred$coverage$below)`% of its duration, but only `r sprintf("%.0f", 100 * pred$coverage$risk_below)`% of the predicted risk was accrued at those temperatures. The remaining `r sprintf("%.0f", 100 * pred$coverage$risk_within)`% was accrued during the hours above 23°C, which the assay did cover. The share of the risk is the more informative of the two. At temperatures outside those of the assay the data do not constrain the failure rate function, and functions that fit the assay data equally well may give very different predictions there (see the vignette [*Comparing and averaging models*](comparing-and-averaging-models.html)). `predict_survival()` prints a message with both shares whenever part of the record lies outside the temperatures at which failures were observed. An assay intended to support predictions for the field should therefore include temperatures as low as those that are expected to cause failures in the field, which is why the coolest temperature of this assay was 23°C.
 
 Second, a baseline other than the memoryless one makes the hazard depend on how long an individual has been exposed, and in a field record there is no obvious moment at which exposure begins. `predict_survival()` counts exposure from the first reading of the record. In the assay, the model estimated that the hazard at a given temperature increased the longer the fish had been held at it ($k$ > 1). Applied to the record, this means that a fish reaching 24°C on day 18 is assigned a higher hazard than it would have had at 24°C on day 1, because it is treated as having been exposed for 17 days already. However, it spent the first two weeks of the record at 15–21°C, which is below the coolest temperature of the assay (23°C), so the assay provides no information on whether time spent at those temperatures counts as exposure. Whether the increase in hazard observed over five days at 23–27°C also applies to weeks spent at cooler temperatures cannot be assessed with the data of the assay.
 
@@ -434,11 +438,65 @@ knitr::kable(pred$coverage[c("mass", "tau_max", "beyond", "risk_beyond")], digit
 
 The trials of the assay lasted `r pred$coverage$tau_max / 1440` days, so `r sprintf("%.0f", 100 * pred$coverage$beyond)`% of the record and `r sprintf("%.0f", 100 * pred$coverage$risk_beyond)`% of the predicted risk came after the longest exposure in the data, where the assay does not show how the hazard changes with the time under exposure.
 
-The consequence of this assumption can be seen by fitting the same model with the memoryless baseline, under which the hazard depends on the current temperature alone and the starting point of the record is irrelevant. That model predicts that `r sprintf("%.0f", 100 * results$mortality_mem$median)`% of the fish would fail by the end of the record (95% credible interval: `r sprintf("%.0f", 100 * results$mortality_mem$lower)`–`r sprintf("%.0f", 100 * results$mortality_mem$upper)`%), against `r sprintf("%.0f", 100 * pred$mortality$median)`% under the Weibull baseline. The data of the assay support a hazard that increased with exposure time (the posterior probability that $k$ is greater than 1 was `r sprintf("%.3f", results$p_shape_above_1)`), but that does not make the Weibull baseline the better choice for a record that is six times longer than the trials of the assay. When the two predictions differ this much, both should be reported, and the vignette *Comparing and averaging models* shows how to compare the models and average their predictions with `average_survival()`.
+The consequence of this assumption can be seen by fitting the same model with the memoryless baseline, under which the hazard depends on the current temperature alone and the starting point of the record is irrelevant. That model predicts that `r sprintf("%.0f", 100 * results$mortality_mem$median)`% of the fish would fail by the end of the record (95% credible interval: `r sprintf("%.0f", 100 * results$mortality_mem$lower)`–`r sprintf("%.0f", 100 * results$mortality_mem$upper)`%), against `r sprintf("%.0f", 100 * pred$mortality$median)`% under the Weibull baseline. The data of the assay support a hazard that increased with exposure time (the posterior probability that $k$ is greater than 1 was `r sprintf("%.3f", results$p_shape_above_1)`), but that does not make the Weibull baseline the better choice for a record that is six times longer than the trials of the assay. When the two predictions differ this much, both should be reported, and the vignette [*Comparing and averaging models*](comparing-and-averaging-models.html) shows how to compare the models and average their predictions with `average_survival()`.
 
 Third, the prediction assumes that there is no recovery. The hazard accrued during a warm afternoon is carried forward unchanged through the following night, and survival can only decrease along the record. In reality, organisms are expected to repair thermal damage when the temperature returns to the permissive range (i.e., the temperatures at which thermal damage does not accumulate; [Ørsted et al. 2022](https://doi.org/10.1242/jeb.244514){target="_blank"}), as it did every night of this record, including those of the heat wave (when it dropped to 18–20°C). If the fish recover during those periods, the model overestimates the mortality caused by a sequence of warm afternoons, and the error grows with the number of cycles.
 
 For these reasons, a prediction of survival in the field should be treated as a hypothesis derived from the assay. Where feasible, it should be tested against survival observed in the field (e.g., from mark-recapture or telemetry studies conducted during periods of high temperature).
+
+### Predictions for warm periods
+
+Predictions are more often needed for a warm period (e.g., a heat wave) than for a whole record that includes weeks at temperatures that cause no failures. A part of the record is given to `predict_survival()` in the same way, with its times counted from its first reading so that the exposure starts with the period.
+
+```{r}
+#| label: warm-code
+#| eval: false
+heat_wave      <- subset(stream_record, day %in% 16:20)
+heat_wave$time <- heat_wave$time - heat_wave$time[1]
+predict_survival(fit, heat_wave, newdata = data.frame(mass = 15))$mortality
+```
+
+```{r}
+#| label: warm-truth
+#| include: false
+# Mortality under the model used to simulate the data, for a fish of 15 g in a
+# typical trial, over the days given: the hazard accrued between consecutive
+# readings, at the temperature midway between them, with the exposure counted from
+# the first reading.
+truth_model <- attr(static_assay, "truth")
+simulated_mortality <- function(days) {
+  part     <- stream_record[stream_record$day %in% days, ]
+  n        <- nrow(part)
+  midpoint <- (part$temp[-1] + part$temp[-n]) / 2
+  elapsed  <- part$time - part$time[1]
+  accrued  <- exp(truth_model$log_a + truth_model$b * (midpoint - truth_model$T_ref)) *
+    diff((elapsed / truth_model$scale)^truth_model$shape)
+  1 - exp(-sum(accrued))
+}
+warm <- results$warm_periods
+cell <- function(x) {
+  sprintf("%.0f\u00a0(%.0f–%.0f)\u00a0[%.0f]", 100 * x$median, 100 * x$lower, 100 * x$upper,
+          100 * x$mean)
+}
+```
+
+```{r}
+#| label: tbl-warm
+#| echo: false
+#| tbl-cap: "Probability (%) that a 15 g fish fails by the end of the whole stream record, of the five days of its heat wave (days 16 to 20) and of its warmest day (day 18), predicted by the model with the Weibull baseline and by the same model with the memoryless baseline (posterior medians and 95% credible intervals, with posterior means in brackets), with the value given by the model used to simulate the data. For the two shorter periods, the exposure is counted from their first reading."
+knitr::kable(data.frame(
+  Model = c("Weibull baseline", "Memoryless baseline", "Model used to simulate the data"),
+  `30 days` = c(cell(pred$mortality), cell(results$mortality_mem),
+                sprintf("%.0f", 100 * simulated_mortality(1:30))),
+  `Heat wave, 5 days` = c(cell(warm$weibull$heat_wave), cell(warm$memoryless$heat_wave),
+                          sprintf("%.0f", 100 * simulated_mortality(16:20))),
+  `Warmest day, 24 h` = c(cell(warm$weibull$warmest_day), cell(warm$memoryless$warmest_day),
+                          sprintf("%.0f", 100 * simulated_mortality(18))),
+  check.names = FALSE
+), align = "lrrr")
+```
+
+The model predicted that `r sprintf("%.0f", 100 * warm$weibull$heat_wave$median)`% of fish of 15 g would fail over the five days of the heat wave and `r sprintf("%.0f", 100 * warm$weibull$warmest_day$median)`% over its warmest day (@tbl-warm). The two baselines, which differed by `r sprintf("%.0f", 100 * abs(pred$mortality$median - results$mortality_mem$median))` percentage points over the 30 days, differed by `r sprintf("%.0f", 100 * abs(warm$weibull$heat_wave$median - warm$memoryless$heat_wave$median))` over the heat wave and by `r sprintf("%.0f", 100 * abs(warm$weibull$warmest_day$median - warm$memoryless$warmest_day$median))` over the warmest day. The shorter the period, the less the prediction depends on how the hazard changes with the time under exposure, and both of these periods are no longer than the five days of the trials. A prediction for a part of the record counts the exposure from the start of that part, and so assumes that the days before it left no effect on the fish. It also assumes no recovery during the period, as above. The model used to simulate the data makes the same assumption, so the agreement of a prediction with the simulated value says nothing about whether the assumption holds.
 
 ## Comparison with the values used in the simulation
 
@@ -486,7 +544,7 @@ The 95% credible intervals include the data generating values of `r sum(covered)
 
 ## Further vignettes
 
-The remaining vignettes cover ramping assays (*Ramping assays*), the comparison and averaging of models with different failure rate and baseline functions, including their predictions along a record of temperature (*Comparing and averaging models*), and a second stressor such as dissolved oxygen (*Temperature and a co-stressor*).
+The remaining vignettes cover ramping assays ([*Ramping assays*](ramping-assays.html)), the comparison and averaging of models with different failure rate and baseline functions, including their predictions along a record of temperature ([*Comparing and averaging models*](comparing-and-averaging-models.html)), and a second stressor such as dissolved oxygen (*Temperature and a co-stressor*).
 
 ::: {.callout-note}
 ## Precomputed results

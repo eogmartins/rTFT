@@ -1,0 +1,571 @@
+---
+title: "Comparing and averaging models"
+vignette: >
+  %\VignetteIndexEntry{Comparing and averaging models}
+  %\VignetteEngine{quarto::html}
+  %\VignetteEncoding{UTF-8}
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    toc-title: "Contents"
+    html-math-method: mathml
+    include-in-header:
+      text: |
+        <style>
+        /* The contents list beside the text, in view while scrolling. It applies
+           only to the plain page the package build makes, on a window wide enough
+           to hold it; a themed Quarto page places its own contents list. */
+        @media (min-width: 1380px) {
+          body:not(:has(#quarto-content)) nav#TOC {
+            position: fixed;
+            top: 2em;
+            left: calc(50% - 670px);
+            width: 250px;
+            max-height: 90vh;
+            overflow-y: auto;
+            font-size: 0.9em;
+          }
+          body:not(:has(#quarto-content)) nav#TOC ul { padding-left: 1.1em; }
+        }
+        /* An estimate and its interval stay on one line of a table; only the first
+           column, which holds names, may wrap. */
+        table td:not(:first-child), table th:not(:first-child) { white-space: nowrap; }
+        </style>
+knitr:
+  opts_chunk:
+    collapse: true
+    comment: "#>"
+    fig.width: 7
+    fig.height: 4
+---
+
+```{r}
+#| label: setup
+#| include: false
+results <- readRDS("results-03.rds")
+models  <- names(results$convergence)
+
+# A value as a percentage, and an interval as "lower–upper", for the text.
+percent  <- function(x) sprintf("%.0f", 100 * x)
+interval <- function(x, digits = 1, scale = 1) {
+  sprintf(paste0("%.", digits, "f–%.", digits, "f"), scale * x$lower, scale * x$upper)
+}
+```
+
+A model of thermal failure requires two choices: the function that describes how the failure rate changes with temperature and the baseline that describes how the hazard changes with the time under exposure. `rTFT` offers several functions for each (see `?M_catalogue` and `?h0_catalogue`), and the data of an assay often do not single one out. This would be of little consequence if the candidate models gave similar answers. However, models that describe the failures observed in an assay equally well may give very different predictions for conditions outside it, such as a record of stream temperature that lasts longer than the assay.
+
+In this vignette, we fit four models that differ in their failure rate function or in their baseline to the ramping assay of the vignette [*Ramping assays*](ramping-assays.html). We then: (i) compare the models by cross-validation that leaves out whole trials, (ii) weight them by how well each predicts the trials it was not fitted to, and (iii) average what is derived from them (i.e., the static critical thermal maximum, the thermal death time curves, the thermal tolerance landscape and the survival predicted along a record of stream temperature).
+
+```{r}
+#| label: libraries
+#| message: false
+library(rTFT)
+library(ggplot2)
+```
+
+## The candidate models
+
+We use the 120 fish of `ramp_assay` that were warmed from 14°C at 0.025, 0.1 or 0.3°C per min in normoxia, in four trials of 10 fish at each rate. These are the rates with the wider span in the vignette [*Ramping assays*](ramping-assays.html), where the table of intervals at risk is described.
+
+```{r}
+#| label: long
+#| message: false
+rates <- c(0.025, 0.1, 0.3)
+ramp  <- subset(ramp_assay, do == 10 & rate %in% rates)
+path  <- ramp_path(c("r0.025", "r0.1", "r0.3"), T_start = 14, rate = rates,
+                   t_max = 15.5 / rates)
+long  <- build_hazard_data(ramp, path, observation = "continuous",
+                           covariates = c("mass", "trial"))
+```
+
+Three of the four models share the exponential failure rate, $M(T) = a \exp\{b (T - T_r)\}$, and differ in the baseline $h_0(\tau)$:
+
+- the memoryless baseline (`"mem"`), under which the hazard at a given temperature does not depend on the time under exposure. With the exponential failure rate, this is the exponential model of [Kingsolver and Umbanhowar (2018)](https://doi.org/10.1242/jeb.167858){target="_blank"}. Under this model, the warmer the temperature at which individuals are held in a static trial, the sooner they fail, with the logarithm of the time to failure decreasing linearly with the temperature of the trial. This is the relationship of the thermal death time model, which is the model most often used in the literature ([Rezende et al. 2014](https://doi.org/10.1111/1365-2435.12268){target="_blank"});
+- the Weibull baseline (`"weibull"`), under which the hazard rises or falls throughout the exposure, as a power of the time under exposure;
+- the log-logistic baseline (`"llogis"`), under which the hazard may rise at the start of the exposure and fall later.
+
+The fourth model has a different failure rate function, the zero-power threshold of [Kingsolver and Umbanhowar (2018)](https://doi.org/10.1242/jeb.167858){target="_blank"} (`"zeropower_threshold"`), with the memoryless baseline. Under this function the failure rate is zero below a critical temperature $T_c$, which is estimated, and increases above it as a power of the temperature in excess of $T_c$, $M(T) = a (T - T_c)^b$.
+
+In each model, $\log a$ depends on body mass and varies among trials, as in the previous vignettes. The models are fitted in turn and kept in a named list, which the functions used below take as their input.
+
+```{r}
+#| label: fit
+#| eval: false
+candidates <- list(
+  "Exponential, memoryless"          = c("exp", "mem"),
+  "Exponential, Weibull"             = c("exp", "weibull"),
+  "Exponential, log-logistic"        = c("exp", "llogis"),
+  "Zero-power threshold, memoryless" = c("zeropower_threshold", "mem")
+)
+fits <- lapply(candidates, \(model) fit_hazard(
+  long,
+  m_form        = model[1],
+  baseline      = model[2],
+  dpar_formulas = list(loga = ~ 1 + I(mass - 15) + (1 | trial)),
+  chains = 4, iter = 2000, warmup = 1000, cores = 4, seed = 20261006,
+  control = list(adapt_delta = 0.95)
+))
+```
+
+Fitting and cross-validating the models takes about six hours, so the code of this vignette that uses the fitted models was run once and its results were saved with the package (see the note at the end of this vignette).
+
+```{r}
+#| label: tbl-convergence
+#| echo: false
+#| tbl-cap: "Convergence of the four models: the largest $\\hat{R}$ and the smallest bulk and tail effective sample sizes among the parameters, and the number of divergent transitions."
+knitr::kable(data.frame(
+  Model = models,
+  `Largest R-hat` = vapply(results$convergence, \(x) max(x$table$rhat), numeric(1)),
+  `Smallest bulk ESS` = vapply(results$convergence, \(x) min(x$table$ess_bulk), numeric(1)),
+  `Smallest tail ESS` = vapply(results$convergence, \(x) min(x$table$ess_tail), numeric(1)),
+  `Divergent transitions` = vapply(results$convergence, \(x) x$n_divergent, numeric(1)),
+  check.names = FALSE, row.names = NULL
+), digits = c(0, 3, 0, 0, 0))
+```
+
+```{r}
+#| label: convergence-text
+#| include: false
+n_divergent <- vapply(results$convergence, \(x) x$n_divergent, numeric(1))
+n_draws     <- results$convergence[[1]]$n_draws
+```
+
+The four models converged (@tbl-convergence)`r if (any(n_divergent > 0)) sprintf(", with %d divergent transition%s among the %s draws of %s", sum(n_divergent), if (sum(n_divergent) == 1) "" else "s", format(n_draws, big.mark = ","), if (sum(n_divergent > 0) == 1) "one of them" else "each of them at most") else ""`. A few divergent transitions among thousands of draws are not a concern in themselves when $\hat{R}$ and the effective sample sizes are satisfactory (see the vignette [*Getting started with rTFT*](getting-started.html)). Each model was also checked against the data with `check_survival()` and `hazard_residuals()`, as described in the vignette [*Getting started with rTFT*](getting-started.html).
+
+```{r}
+#| label: tbl-checks
+#| echo: false
+#| tbl-cap: "Fit of each model to the data: the number of observation times, among all those of the three ramps, at which the proportion of fish observed to survive was outside the 95% band of the proportions simulated from the model, and the P-value of a Kolmogorov–Smirnov test of the residuals against the uniform distribution."
+checks <- results$fit_checks
+knitr::kable(data.frame(
+  Model = checks$model,
+  `Times outside the band` = sprintf("%d of %d", checks$n_outside, checks$n_times),
+  `P (residuals)` = sprintf("%.2f", checks$ks_p),
+  check.names = FALSE
+), align = "lrr")
+```
+
+```{r}
+#| label: checks-text
+#| include: false
+exponential_checks <- checks[grepl("^Exponential", checks$model), ]
+threshold_checks   <- checks[!grepl("^Exponential", checks$model), ]
+```
+
+The three models with the exponential failure rate described the data well: the observed survival was within the simulated band at `r if (all(exponential_checks$n_outside == 0)) "all times" else "nearly all times"` and the residuals did not depart from the uniform distribution (@tbl-checks). Under the zero-power threshold model, the observed survival was outside the band at `r threshold_checks$n_outside` of the `r threshold_checks$n_times` times (`r threshold_checks[["r0.025"]]` in the slowest ramp and `r threshold_checks[["r0.3"]]` in the fastest), and the residuals followed the uniform distribution less closely. A model that describes the data poorly would normally be revised or set aside at this point. We keep it here to show how the cross-validation treats it.
+
+The parameters of each model are obtained with `derive_tdt_ttl()`, as for a single model.
+
+```{r}
+#| label: params-code
+#| eval: false
+params <- lapply(fits, \(fit) {
+  derive_tdt_ttl(fit, newdata = data.frame(mass = 15), t_ref = 60)$params
+})
+```
+
+```{r}
+#| label: tbl-params
+#| echo: false
+#| tbl-cap: "Parameters of the four models for a fish of 15 g (posterior medians and 95% credible intervals). The amplitude $a$ and the exponent $b$ are different quantities in models with different functions and are not comparable among them. The shape and the scale are those of the baseline, and the critical temperature $T_c$ belongs to the zero-power threshold model only."
+params <- results$each_params
+value  <- function(model, quantity) {
+  x <- params[[model]][params[[model]]$quantity == quantity, ]
+  if (!nrow(x)) return("")
+  # three significant digits, keeping a final zero (22.0, and not 22) but not a
+  # final point (257, and not 257.)
+  digits <- function(v) sub("\\.$", "", formatC(v, digits = 3, format = "g", flag = "#"))
+  sprintf("%s\u00a0(%s–%s)", digits(x$median), digits(x$lower), digits(x$upper))
+}
+Tc <- params[["Zero-power threshold, memoryless"]]
+Tc <- Tc[Tc$quantity == "Tc", ]
+shown <- c(a = "a", b = "b", shape = "Shape (k)", scale = "Scale (min)", Tc = "Tc (°C)")
+cells <- lapply(names(shown), \(q) vapply(models, value, character(1), quantity = q))
+knitr::kable(
+  stats::setNames(data.frame(models, cells, row.names = NULL), c("Model", shown)),
+  align = "lrrrrr"
+)
+```
+
+## Cross-validation that leaves out whole trials
+
+The models are compared by how well each predicts data that it was not fitted to. What is left out in the cross-validation determines the question that it answers. The table of intervals at risk has one row for each fish and interval, so the usual leave-one-out cross-validation would leave out a single interval of a fish and predict it from the other intervals of the same fish, which is nearly always easy. Leaving out one fish at a time is still optimistic in these models, because the effect of its trial remains in the fit, estimated from the other fish of the trial. The function `loo_hazard()` therefore leaves out whole trials by default when the model has a trial effect, and so assesses how well the model predicts a new trial.
+
+```{r}
+#| label: psis-code
+#| eval: false
+cv_psis <- lapply(fits, loo_hazard)
+```
+
+`loo_hazard()` does not refit the model. It approximates the fit without each trial from the fit to all trials, using Pareto-smoothed importance sampling ([Vehtari et al. 2017](https://doi.org/10.1007/s11222-016-9696-4){target="_blank"}). The approximation is poor when leaving out a trial changes the posterior distribution markedly, and the function gives a warning when that is the case for any trial (i.e., when its Pareto $k$ diagnostic is above a threshold of about 0.7).
+
+```{r}
+#| label: tbl-psis
+#| echo: false
+#| tbl-cap: "Leave-one-trial-out cross-validation by importance sampling: the expected log predictive density (elpd) of each model with its standard error, the largest Pareto $k$ among the 12 trials and the number of trials with $k$ above 0.7."
+psis <- results$psis
+knitr::kable(data.frame(
+  Model = psis$model, elpd = psis$elpd, SE = psis$se,
+  `Largest k` = psis$max_k, `Trials with k > 0.7` = psis$n_high_k,
+  check.names = FALSE
+), digits = c(0, 1, 1, 2, 0))
+```
+
+The approximation could not be trusted for `r min(psis$n_high_k)`–`r max(psis$n_high_k)` of the 12 trials in each model (@tbl-psis), which is common when a whole trial is left out: a trial holds a twelfth of the fish and has its own effect in the model, so the fit changes when it is removed. In this case, the function `kfold_hazard()` gives the exact answer by refitting the model without each trial in turn and predicting the trial from the refit.
+
+```{r}
+#| label: kfold-code
+#| eval: false
+cv <- lapply(fits, kfold_hazard, cores = 4)
+```
+
+Each model is refitted 12 times, once without each trial, which is what takes most of the time needed to run the code of this vignette. With many trials, the argument `K` of `kfold_hazard()` sets a smaller number of refits, each leaving out several trials (see `?kfold_hazard`).
+
+```{r}
+#| label: compare-code
+#| eval: false
+loo::loo_compare(cv)
+```
+
+```{r}
+#| label: tbl-compare
+#| echo: false
+#| tbl-cap: "Comparison of the four models by cross-validation that leaves out one trial at a time, by refitting. The difference in elpd and its standard error are relative to the model with the highest elpd."
+compare <- results$compare
+kfold   <- results$kfold
+knitr::kable(data.frame(
+  Model = rownames(compare),
+  elpd  = kfold$elpd[match(rownames(compare), kfold$model)],
+  SE    = kfold$se[match(rownames(compare), kfold$model)],
+  `Difference in elpd` = compare$elpd_diff,
+  `SE of the difference` = compare$se_diff,
+  check.names = FALSE
+), digits = 1)
+```
+
+```{r}
+#| label: compare-text
+#| include: false
+exponential <- grepl("^Exponential", rownames(compare))
+threshold   <- compare[!exponential, ]
+# The elpd of the threshold model by importance sampling and by refitting.
+threshold_psis  <- psis$elpd[!grepl("^Exponential", psis$model)]
+threshold_kfold <- kfold$elpd[!grepl("^Exponential", kfold$model)]
+```
+
+The three models with the exponential failure rate could not be told apart. Their elpd differed by at most `r sprintf("%.1f", max(abs(compare$elpd_diff[exponential])))`, which is less than the standard errors of the differences (@tbl-compare). The zero-power threshold model predicted the trials left out worse than the others (a difference of `r sprintf("%.1f", threshold$elpd_diff)`), although its difference from the best model was only `r sprintf("%.1f", abs(threshold$elpd_diff) / threshold$se_diff)` times its standard error. These standard errors are computed among 12 trials and are themselves uncertain, so differences of this size should not be read as evidence that one model is better than another.
+
+For the three exponential models, the elpd obtained by refitting was within `r sprintf("%.1f", max(abs(kfold$elpd - psis$elpd)[grepl("^Exponential", kfold$model)]))` of that obtained by importance sampling (@tbl-psis). For the zero-power threshold model it was `r sprintf("%.0f", threshold_psis - threshold_kfold)` lower (`r sprintf("%.1f", threshold_kfold)` against `r sprintf("%.1f", threshold_psis)`). The warning of `loo_hazard()` indicates only that the approximation cannot be relied on for the trials concerned, and not in which direction it errs. The comparison with the refits shows that, for this model, importance sampling gave an elpd that was too high.
+
+## Model weights
+
+The function `hazard_weights()` turns the results of the cross-validation into weights for averaging the models. By default it uses stacking ([Yao et al. 2018](https://doi.org/10.1214/17-BA1091){target="_blank"}), which finds the combination of models that best predicts the trials left out. Pseudo-BMA weights, which follow the elpd of each model with its uncertainty among the trials, are the alternative. Their uncertainty is assessed by the Bayesian bootstrap, which draws random numbers, so we set a seed before computing them.
+
+```{r}
+#| label: weights-code
+#| eval: false
+w <- hazard_weights(cv)
+set.seed(20261006)
+w_pseudobma <- hazard_weights(cv, method = "pseudobma")
+```
+
+```{r}
+#| label: tbl-weights
+#| echo: false
+#| tbl-cap: "Weights of the four models by stacking and as pseudo-BMA weights."
+w <- results$weights
+w_pseudobma <- results$weights_pseudobma
+knitr::kable(data.frame(
+  Model = w$model, Stacking = sprintf("%.2f", w$weight),
+  `Pseudo-BMA` = sprintf("%.2f", w_pseudobma$weight[match(w$model, w_pseudobma$model)]),
+  check.names = FALSE
+), align = "lrr")
+```
+
+```{r}
+#| label: weights-text
+#| include: false
+weight_of <- function(model, table = w) sprintf("%.2f", table$weight[table$model == model])
+```
+
+Stacking gave nearly all of the weight to two models, the exponential failure rate with the log-logistic baseline (`r weight_of("Exponential, log-logistic")`) and with the Weibull baseline (`r weight_of("Exponential, Weibull")`) (@tbl-weights). The memoryless model received a weight of `r weight_of("Exponential, memoryless")` although its elpd was within `r sprintf("%.1f", abs(compare["Exponential, memoryless", "elpd_diff"]))` of the best. This is how stacking treats a model whose predictions for the trials left out are close to those of models already in the combination: it adds nothing to the combination and receives no weight, even though it would predict almost as well on its own. Which of several similar models receives the weight depends on small differences in how each of them combines with the others to predict the trials left out, so a weight of zero should not be read as evidence against a model. The pseudo-BMA weights follow the elpd of each model instead, and gave the memoryless model a weight of `r weight_of("Exponential, memoryless", w_pseudobma)`. Under both methods the zero-power threshold model received almost no weight.
+
+We use the stacking weights below, and the pseudo-BMA weights where the two are compared. With the argument `min_weight`, `hazard_weights()` keeps only the models with the highest weights, as many as needed for their weights to reach the given total (e.g., `min_weight = 0.95`), and computes the weights again among them.
+
+## Thermal tolerance averaged over the models
+
+The function `average_tdt_ttl()` derives the static critical thermal maximum (sCTmax), the thermal death time curves and the thermal tolerance landscape from the models and averages them, and `average_dctmax()` does the same for the dynamic critical thermal maximum (dCTmax). For each quantity, the posterior draws of the models are pooled in proportion to their weights and the pool is summarised, so the credible interval reflects both the uncertainty within each model and the uncertainty about which model predicts best. The parameters are not averaged, because the parameters of models with different functions are different quantities under the same names (e.g., with the exponential failure rate, $a$ is the failure rate per minute at the reference temperature under the memoryless baseline, and the cumulative hazard reached over the reference time at that temperature under the Weibull baseline; see `?M_catalogue`).
+
+```{r}
+#| label: average-code
+#| eval: false
+avg <- average_tdt_ttl(fits, w, newdata = data.frame(mass = 15), t_ref = 60,
+                       Ta = seq(25.5, 29.5, by = 0.1))
+avg_dct <- average_dctmax(fits, w, rate = c(0.01, 0.3, 1), T_start = 14,
+                          newdata = data.frame(mass = 15))
+```
+
+The argument `Ta` restricts the thermal death time curves to the temperatures at which most fish failed in the ramps (see the vignette [*Ramping assays*](ramping-assays.html)). At lower temperatures the data do not constrain the form of the models, and the times to failure derived from the four models differ by many orders of magnitude. The average can be computed for those temperatures, but it is very uncertain there, and its credible interval should be read in preference to its median.
+
+```{r}
+#| label: average-load
+#| include: false
+avg     <- results$average_tolerance
+avg_dct <- list(dctmax = results$average_dctmax)
+```
+
+```{r}
+#| label: tbl-sctmax
+#| echo: false
+#| tbl-cap: "Static critical thermal maximum (sCTmax, °C) of a 15 g fish for an exposure of 60 min, from each model and averaged over the models, and its dynamic critical thermal maximum (dCTmax, °C) under ramps from 14°C at three rates, from each model and averaged over the models with the stacking weights. Values are posterior medians and 95% credible intervals."
+half <- function(x) x$sctmax[x$sctmax$p == 0.5, ]
+sct  <- rbind(do.call(rbind, lapply(results$each_tolerance, half))[c("median", "lower", "upper")],
+              half(avg)[c("median", "lower", "upper")])
+# a non-breaking space keeps each estimate and its interval on one line
+estimate <- function(x) sprintf("%.1f\u00a0(%.1f–%.1f)", x$median, x$lower, x$upper)
+dct <- rbind(do.call(rbind, lapply(results$each_dctmax, \(x) estimate(x))),
+             estimate(avg_dct$dctmax))
+knitr::kable(data.frame(
+  Model = c(models, "Average"),
+  `sCTmax, 60 min` = estimate(sct),
+  `dCTmax, 0.01°C per min` = dct[, 1],
+  `dCTmax, 0.3°C per min`  = dct[, 2],
+  `dCTmax, 1°C per min`    = dct[, 3],
+  check.names = FALSE, row.names = NULL
+), align = "lrrrr")
+```
+
+```{r}
+#| label: sctmax-text
+#| include: false
+each_sct <- do.call(rbind, lapply(results$each_tolerance, half))
+each_dct <- do.call(rbind, lapply(results$each_dctmax, \(x) x$median))
+spread   <- function(x) sprintf("%.1f–%.1f", min(x), max(x))
+```
+
+The models agreed closely on the quantity that the assay measured directly. The dCTmax at 0.3°C per min, one of the rates of the assay, was `r spread(each_dct[, 2])`°C among the four models (@tbl-sctmax). They agreed less on quantities further from the conditions of the assay: the dCTmax was `r spread(each_dct[, 1])`°C at 0.01°C per min and `r spread(each_dct[, 3])`°C at 1°C per min, and the sCTmax for 60 min was `r spread(each_sct$median)`°C. Averaged over the models, the sCTmax was `r sprintf("%.1f", half(avg)$median)`°C (95% credible interval: `r interval(half(avg))`°C), an interval wider than that of any of the models because it also includes the uncertainty among models. The average changed little with the weights used: with the pseudo-BMA weights the sCTmax was `r sprintf("%.1f", half(list(sctmax = results$average_sctmax_pseudobma))$median)`°C (`r interval(half(list(sctmax = results$average_sctmax_pseudobma)))`°C).
+
+The thermal death time curves and the thermal tolerance landscape averaged over the models are drawn with `plot_tdt()` and `plot_ttl()`, as for a single model (@fig-tdt; @fig-ttl).
+
+```{r}
+#| label: fig-tdt
+#| fig-cap: "Thermal death time curves for a fish of 15 g, averaged over the four models. Lines are medians and bands are 95% credible intervals of the pooled posterior draws."
+plot_tdt(avg, time_unit = "min")
+```
+
+```{r}
+#| label: fig-ttl
+#| fig-cap: "Thermal tolerance landscape for a fish of 15 g, averaged over the four models. Colours show the median of the pooled posterior draws of the probability of survival and lines are contours at the labelled probabilities."
+plot_ttl(avg, time_unit = "min")
+```
+
+## Survival along a record of stream temperature
+
+The function `average_survival()` does the same for the survival predicted along a record of temperature. We use the 30 days of `stream_record`, as in the previous vignettes, and also predict from each model on its own to see what the average is made of.
+
+```{r}
+#| label: survival-code
+#| eval: false
+fish     <- data.frame(mass = 15)
+each     <- lapply(fits, predict_survival, record = stream_record, newdata = fish)
+averaged <- average_survival(fits, w, stream_record, newdata = fish)
+# the same with the pseudo-BMA weights
+averaged_pseudobma <- average_survival(fits, w_pseudobma, stream_record, newdata = fish)
+```
+
+```{r}
+#| label: survival-load
+#| include: false
+each     <- results$each_prediction
+averaged <- results$average_prediction
+averaged_pseudobma <- results$average_prediction_pseudobma
+```
+
+```{r}
+#| label: truth
+#| include: false
+# Mortality along the record under the model used to simulate the data, for a fish
+# of 15 g in a typical trial: the hazard accrued between consecutive readings, at
+# the temperature midway between them.
+truth    <- attr(ramp_assay, "truth")
+n        <- nrow(stream_record)
+midpoint <- (stream_record$temp[-1] + stream_record$temp[-n]) / 2
+accrued  <- exp(truth$log_a + truth$b * (midpoint - truth$T_ref)) *
+  diff((stream_record$time / truth$scale)^truth$shape)
+simulated_survival <- data.frame(panel = "Survival", time = stream_record$time,
+                                 survival = c(1, exp(-cumsum(accrued))))
+truth_mortality <- 1 - exp(-sum(accrued))
+truth_sctmax    <- truth$T_ref + (log(log(2)) - truth$log_a) / truth$b
+
+# The same for a part of the record, with the exposure counted from its start.
+simulated_mortality <- function(days) {
+  part     <- stream_record[stream_record$day %in% days, ]
+  n        <- nrow(part)
+  midpoint <- (part$temp[-1] + part$temp[-n]) / 2
+  elapsed  <- part$time - part$time[1]
+  accrued  <- exp(truth$log_a + truth$b * (midpoint - truth$T_ref)) *
+    diff((elapsed / truth$scale)^truth$shape)
+  1 - exp(-sum(accrued))
+}
+```
+
+```{r}
+#| label: fig-survival
+#| fig-cap: "Stream temperature (top) and the probability of survival of a 15 g fish along it (bottom), predicted by each of the four models (coloured lines are posterior medians) and averaged over them (the black line is the median and the band is the 95% credible interval of the pooled posterior draws). The dashed line is the survival under the model used to simulate the data."
+#| fig-height: 5.5
+panels <- c("Stream temperature (°C)", "Survival")
+temperature <- data.frame(panel = panels[1], time = stream_record$time,
+                          temp = stream_record$temp)
+by_model <- do.call(rbind, lapply(names(each), \(m) {
+  data.frame(panel = panels[2], model = m, each[[m]]$survival)
+}))
+pooled <- data.frame(panel = panels[2], averaged$survival)
+# simulated_survival holds the survival under the model used to simulate the data,
+# computed as in the vignette Ramping assays
+
+# The panels and the models share one order in the four tables.
+temperature$panel        <- factor(temperature$panel, levels = panels)
+by_model$panel           <- factor(by_model$panel, levels = panels)
+pooled$panel             <- factor(pooled$panel, levels = panels)
+simulated_survival$panel <- factor(simulated_survival$panel, levels = panels)
+by_model$model    <- factor(by_model$model, levels = names(each))
+
+ggplot(mapping = aes(x = time / 1440)) +
+  geom_line(data = temperature, aes(y = temp), colour = "grey20") +
+  geom_ribbon(data = pooled, aes(ymin = lower, ymax = upper), fill = "grey50", alpha = 0.25) +
+  geom_line(data = by_model, aes(y = median, colour = model)) +
+  geom_line(data = pooled, aes(y = median), colour = "black", linewidth = 0.9) +
+  geom_line(data = simulated_survival, aes(y = survival), colour = "black",
+            linetype = "dashed") +
+  scale_colour_manual(values = c("#E69F00", "#56B4E9", "#009E73", "#CC79A7"), name = NULL) +
+  facet_wrap(vars(panel), ncol = 1, scales = "free_y") +
+  labs(x = "Time (days)", y = NULL) +
+  theme_light() +
+  theme(legend.position = "top") +
+  guides(colour = guide_legend(nrow = 2))
+```
+
+```{r}
+#| label: tbl-mortality
+#| echo: false
+#| tbl-cap: "Probability (%) that a 15 g fish fails by the end of the 30 days of the stream record, predicted by each model and averaged over the models with the stacking weights and with the pseudo-BMA weights with the weights of each model. The mean and the median are two summaries of the same posterior distribution, whose 95% credible interval (CrI) is given once."
+shown     <- c("mean", "median", "lower", "upper")
+mortality <- rbind(do.call(rbind, lapply(each, \(x) x$mortality))[shown],
+                   averaged$mortality[shown], averaged_pseudobma$mortality[shown])
+knitr::kable(data.frame(
+  Model  = c(models, "Average, stacking weights", "Average, pseudo-BMA weights"),
+  `Stacking weight` = c(sprintf("%.2f", w$weight[match(models, w$model)]), "", ""),
+  `Pseudo-BMA weight` = c(sprintf("%.2f", w_pseudobma$weight[match(models, w_pseudobma$model)]), "", ""),
+  Mean     = sprintf("%.0f", 100 * mortality$mean),
+  Median   = sprintf("%.0f", 100 * mortality$median),
+  `95% CrI` = sprintf("%.0f–%.0f", 100 * mortality$lower, 100 * mortality$upper),
+  check.names = FALSE, row.names = NULL
+), align = "lrrrrr")
+```
+
+```{r}
+#| label: survival-text
+#| include: false
+mortality_of <- function(model) each[[model]]$mortality
+describe     <- function(x) sprintf("%s%% (%s%%)", percent(x$median), interval(x, 0, 100))
+pooled_share <- averaged$weights
+coverage     <- each[["Exponential, Weibull"]]$coverage
+```
+
+The four models gave very different predictions for the same record (@fig-survival; @tbl-mortality). The probability of failing by the end of the 30 days was `r describe(mortality_of("Exponential, log-logistic"))` under the log-logistic baseline, `r describe(mortality_of("Zero-power threshold, memoryless"))` under the zero-power threshold model, `r describe(mortality_of("Exponential, memoryless"))` under the exponential model with the memoryless baseline and `r describe(mortality_of("Exponential, Weibull"))` under the Weibull baseline. The two models that cross-validation weighted the most, and could not tell apart, gave the two most distant predictions.
+
+The models differ because the record lasts much longer than the assay. The longest exposure in the assay was `r sprintf("%.1f", coverage$tau_max / 60)` h, and `r percent(coverage$risk_beyond)`% of the risk predicted along the record was accrued after that time, as the message of `predict_survival()` and its table `coverage` report (see the vignette [*Ramping assays*](ramping-assays.html)). Over the exposures of the assay the three baselines describe the failures equally well. Beyond them they diverge. Under the Weibull baseline, the hazard at a given temperature keeps rising with the time under exposure. Under the memoryless baseline, it stays the same. Under the log-logistic baseline, it falls after an initial rise, and it is under this baseline alone that the heat wave carries almost no risk, because it comes after two weeks of exposure. The zero-power threshold model predicts few failures for another reason, which is that its failure rate is zero below the critical temperature $T_c$, estimated at `r sprintf("%.1f", Tc$median)`°C (95% credible interval: `r interval(Tc)`°C; @tbl-params), and the stream exceeded that temperature only during the afternoons of the heat wave.
+
+The average reflects this disagreement. With the stacking weights, its 95% credible interval was `r interval(averaged$mortality, 0, 100)`%, which includes nearly every possible outcome, and its median was `r percent(averaged$mortality$median)`%.
+
+The median is not a value between the predictions of the two models with the highest weights, as might be expected of an average. A model average is a mixture of the posterior distributions of the models, in which each model contributes posterior draws in proportion to its weight, and what is reported is the median and the interval of that mixture. Here, about half of the draws came from the log-logistic model (`r pooled_share$n_draws[pooled_share$model == "Exponential, log-logistic"]` of `r sum(pooled_share$n_draws)`), all of which predict a mortality of a few percent, and about half from the Weibull model (`r pooled_share$n_draws[pooled_share$model == "Exponential, Weibull"]`), nearly all of which predict a mortality above 30%, with almost no draws in between. The median of a mixture with two separate groups of values lies at the edge of whichever group holds slightly more than half of the draws, and a small change in the weights moves it from one group to the other. With the pseudo-BMA weights, the interval was nearly the same (`r interval(averaged_pseudobma$mortality, 0, 100)`%) but the median was `r percent(averaged_pseudobma$mortality$median)`%.
+
+This is a consequence of the disagreement among the models, and not of model averaging. Where the models agree, as for the sCTmax above, the average is nearly the same under either set of weights and its median summarises it well. Where they disagree as much as they do for this record, no single value summarises the average, and the interval and the predictions of each model should be reported with whichever value is given.
+
+```{r}
+#| label: mean-text
+#| include: false
+gap <- function(x) abs(x$mean - x$median)
+```
+
+`predict_survival()` and `average_survival()` report the mean of the posterior draws beside their median (@tbl-mortality), and the two mean different things. For a probability such as mortality, the mean is the probability that a fish fails once the uncertainty in the parameters, and in the model as far as the weights measure it, is taken into account. It is therefore the fraction of fish expected to fail. The median is the value below which half of the posterior lies, and it describes the posterior well when its values form a single group. The credible interval belongs to the posterior distribution and not to either of its summaries, so it is the same whichever of the two is reported. For each model on its own, the two differed by at most `r sprintf("%.0f", 100 * max(vapply(each, \(x) gap(x$mortality), numeric(1))))` percentage points.
+
+For the average they differed greatly. The mean was `r percent(averaged$mortality$mean)`% with the stacking weights and `r percent(averaged_pseudobma$mortality$mean)`% with the pseudo-BMA weights, against medians of `r percent(averaged$mortality$median)`% and `r percent(averaged_pseudobma$mortality$median)`%, so the mean changed little with the weights. Relying on the mean amounts to treating the weights as the degree to which each model should be believed for this record. The weights measure how well each model predicts within the conditions of the assay, which is not the same, and the mean of `r percent(averaged$mortality$mean)`% is a value that neither of the two models with the highest weights predicts: it is what is expected on average when the mortality is either about `r percent(mortality_of("Exponential, log-logistic")$median)`% or about `r percent(mortality_of("Exponential, Weibull")$median)`%. Relying on the median amounts to reporting the centre of a posterior that has no centre here. Where the models agree, the choice is of no consequence: for the warmest day of the record (see below), the mean and the median of the average were `r percent(results$shorter_records$warmest_day$average$mean)`% and `r percent(results$shorter_records$warmest_day$average$median)`%.
+
+The weights indicate how well each model predicts failures under the conditions of the assay. They do not indicate which model extrapolates better beyond those conditions, which the data of the assay cannot show.
+
+All of these predictions also assume that there is no recovery: the hazard accrued during a warm afternoon is carried through the following night, although the stream cooled to 18–20°C every night of the heat wave. The model used to simulate the data makes the same assumption, so the agreement of a prediction with the simulated value says nothing about whether the assumption holds. In a real stream, fish are expected to recover at least in part during the cooler hours ([Ørsted et al. 2022](https://doi.org/10.1242/jeb.244514){target="_blank"}), in which case every model would overestimate the mortality over a sequence of warm days, by an amount that an assay such as this one, with a single ramp for each fish, was not designed to estimate (see the vignette [*Getting started with rTFT*](getting-started.html)).
+
+## Comparison with the model used to simulate the data
+
+The data were simulated from an exponential failure rate with a Weibull baseline (see `?ramp_assay`), so one of the four candidates has the form of the model that generated them. The model used to simulate the data gives an sCTmax for 60 min of `r sprintf("%.1f", truth_sctmax)`°C and a mortality of `r percent(truth_mortality)`% along the stream record, which are close to the estimates of the candidate fitted with the Weibull baseline (`r sprintf("%.1f", each_sct["Exponential, Weibull", "median"])`°C and `r percent(mortality_of("Exponential, Weibull")$median)`%).
+
+Cross-validation did not identify that candidate. The Weibull and the log-logistic baselines predicted the trials left out equally well, and stacking gave them weights of `r weight_of("Exponential, Weibull")` and `r weight_of("Exponential, log-logistic")`. An assay with exposures of at most `r sprintf("%.1f", coverage$tau_max / 60)` h does not contain the information needed to choose between two baselines that differ in what they imply for exposures of weeks.
+
+This does not mean that a ramping assay cannot support predictions for the field. Predictions are more often needed for a warm period (e.g., a heat wave) than for a whole record that includes weeks at temperatures that cause no failures, and the disagreement among the models depends on how much longer the period is than the exposures of the assay, as predictions for shorter parts of the same record show.
+
+```{r}
+#| label: shorter-code
+#| eval: false
+# the warmest day of the record, with its exposure counted from the start of the day
+warmest_day      <- subset(stream_record, day == 18)
+warmest_day$time <- warmest_day$time - warmest_day$time[1]
+lapply(fits, \(fit) predict_survival(fit, warmest_day, newdata = fish)$mortality)
+average_survival(fits, w, warmest_day, newdata = fish)$mortality
+```
+
+```{r}
+#| label: tbl-shorter
+#| echo: false
+#| tbl-cap: "Probability (%) that a 15 g fish fails by the end of the whole stream record, of the five days of its heat wave (days 16 to 20) and of its warmest day (day 18), predicted by each model and averaged over the models with the stacking weights (posterior medians and 95% credible intervals, with posterior means in brackets), with the value given by the model used to simulate the data. For the two shorter periods, the exposure is counted from their first reading."
+shorter <- results$shorter_records
+cell    <- function(x) {
+  sprintf("%.0f\u00a0(%.0f–%.0f)\u00a0[%.0f]", 100 * x$median, 100 * x$lower, 100 * x$upper,
+          100 * x$mean)
+}
+column  <- function(record) c(vapply(record$each, cell, character(1)), cell(record$average))
+simulated_row <- sprintf("%.0f", 100 * c(truth_mortality, simulated_mortality(16:20),
+                                         simulated_mortality(18)))
+knitr::kable(data.frame(
+  Model = c(models, "Average", "Model used to simulate the data"),
+  `30 days` = c(vapply(each, \(x) cell(x$mortality), character(1)), cell(averaged$mortality),
+                simulated_row[1]),
+  `Heat wave, 5 days` = c(column(shorter$heat_wave), simulated_row[2]),
+  `Warmest day, 24 h` = c(column(shorter$warmest_day), simulated_row[3]),
+  check.names = FALSE, row.names = NULL
+), align = "lrrr")
+```
+
+```{r}
+#| label: shorter-text
+#| include: false
+medians  <- function(record) vapply(record$each, \(x) x$median, numeric(1))
+range_of <- function(x) sprintf("%.0f–%.0f", 100 * min(x), 100 * max(x))
+```
+
+For the warmest day alone, the four models predicted a mortality of `r range_of(medians(shorter$warmest_day))`%, and their average was `r percent(shorter$warmest_day$average$median)`% (95% credible interval: `r interval(shorter$warmest_day$average, 0, 100)`%), against `r simulated_row[3]`% under the model used to simulate the data (@tbl-shorter). For the five days of the heat wave they predicted `r range_of(medians(shorter$heat_wave))`% (`r simulated_row[2]`% under the model used to simulate the data), and for the 30 days `r range_of(vapply(each, \(x) x$mortality$median, numeric(1)))`% (`r simulated_row[1]`%). A ramping assay therefore supports best the predictions for events that last about as long as its trials (e.g., a hot afternoon or a hot day), for which the choice of baseline matters little. These predictions count the exposure from the start of the event, and so assume that the days before it left no effect on the fish. As above, they also assume no recovery during the event, which matters more the more nights it includes.
+
+For longer periods, the predictions of the models with the highest weights can be reported together as the range of outcomes that the assay cannot distinguish. Where predictions over long periods are the aim, the assay should also include the longest trials that are practical (e.g., static trials of several days, as in the vignette [*Getting started with rTFT*](getting-started.html)), which narrow that range although they do not remove it.
+
+## Reporting
+
+When several candidate models are fitted, we recommend reporting: (i) the comparison of the models and their weights, with the unit that was left out and the number of units (here, 12 trials); (ii) for the quantities that refer to the conditions of the assay (e.g., the dCTmax at the rates that were run), the estimates of the models with the highest weights or their average, which differ little; and (iii) for predictions outside the conditions of the assay, the prediction of each model alongside the average, with the interval of the average, its mean and its median where they differ, and the coverage reported by `predict_survival()`.
+
+::: {.callout-note}
+## Precomputed results
+
+The models in this vignette were fitted and cross-validated with `rTFT` `r results$stamp$version` on `r results$stamp$date` by the script `vignettes/_precompute.R` in the package's repository. The vignette displays the saved summaries, and all other code runs when the vignette is built.
+:::
+
+## References
+
+Kingsolver, J. G. and Umbanhowar, J. (2018). The analysis and interpretation of critical temperatures. *Journal of Experimental Biology* 221, jeb167858. [https://doi.org/10.1242/jeb.167858](https://doi.org/10.1242/jeb.167858){target="_blank"}
+
+Ørsted, M., Jørgensen, L. B. and Overgaard, J. (2022). Finding the right thermal limit: a framework to reconcile ecological, physiological and methodological aspects of CTmax in ectotherms. *Journal of Experimental Biology* 225, jeb244514. [https://doi.org/10.1242/jeb.244514](https://doi.org/10.1242/jeb.244514){target="_blank"}
+
+Rezende, E. L., Castañeda, L. E. and Santos, M. (2014). Tolerance landscapes in thermal ecology. *Functional Ecology* 28, 799–809. [https://doi.org/10.1111/1365-2435.12268](https://doi.org/10.1111/1365-2435.12268){target="_blank"}
+
+Vehtari, A., Gelman, A. and Gabry, J. (2017). Practical Bayesian model evaluation using leave-one-out cross-validation and WAIC. *Statistics and Computing* 27, 1413–1432. [https://doi.org/10.1007/s11222-016-9696-4](https://doi.org/10.1007/s11222-016-9696-4){target="_blank"}
+
+Yao, Y., Vehtari, A., Simpson, D. and Gelman, A. (2018). Using stacking to average Bayesian predictive distributions. *Bayesian Analysis* 13, 917–1007. [https://doi.org/10.1214/17-BA1091](https://doi.org/10.1214/17-BA1091){target="_blank"}

@@ -28,6 +28,9 @@ format:
           }
           body:not(:has(#quarto-content)) nav#TOC ul { padding-left: 1.1em; }
         }
+        /* An estimate and its interval stay on one line of a table; only the first
+           column, which holds names, may wrap. */
+        table td:not(:first-child), table th:not(:first-child) { white-space: nowrap; }
         </style>
 knitr:
   opts_chunk:
@@ -45,14 +48,14 @@ results <- readRDS("results-02.rds")
 static  <- readRDS("results-01.rds")
 
 # An interval as "lower–upper", for the text.
-interval <- function(x, digits = 1) {
-  sprintf(paste0("%.", digits, "f–%.", digits, "f"), x$lower, x$upper)
+interval <- function(x, digits = 1, scale = 1) {
+  sprintf(paste0("%.", digits, "f–%.", digits, "f"), scale * x$lower, scale * x$upper)
 }
 ```
 
 In a ramping assay, individuals are warmed at a constant rate until they fail, and the temperature at which each individual fails is recorded as its critical thermal maximum (CTmax, or dCTmax *sensu* Jorgensen et al. 2021). The mean CTmax of a group of individuals is the most widely reported measure of thermal tolerance. However, it depends on the temperature at which the ramp started and on the ramp rate, because individuals accrue hazard throughout the ramp ([Kingsolver and Umbanhowar 2018](https://doi.org/10.1242/jeb.167858){target="_blank"}; [Jørgensen et al. 2021](https://doi.org/10.1038/s41598-021-92004-6){target="_blank"}). `rTFT` therefore treats a ramping assay as it treats a static one: it fits a model of the failure rate to the times of failure, given the temperature each individual was exposed to through time, and derives the CTmax expected under any ramp from the fitted model.
 
-In this vignette, we fit a model to a ramping assay run at three rates (0.1, 0.2 and 0.3°C per min) and derive from it: (i) the dynamic critical thermal maximum (dCTmax; i.e., the CTmax expected of a ramping trial) under the ramps of the assay and under ramps that were not run, (ii) the static critical thermal maximum (sCTmax), (iii) the thermal death time curves and (iv) the thermal tolerance landscape. We then show that what the model can estimate from a ramping assay depends on the ramp rates that were run, and mainly on how much they differ (i.e., on the ratio between the fastest and the slowest rate). For that, we fit the same model to an assay of the same size in which the slowest rate was 0.025°C per min, and compare what the two assays allow the model to estimate and predict. We also describe two steps that are specific to ramping assays, which are how the temperature of each ramp is given to the package and how closely the ramp is followed when the model is fitted. The model and the steps shared with a static assay are described in more detail in the vignette *Getting started with rTFT*.
+In this vignette, we fit a model to a ramping assay run at three rates (0.1, 0.2 and 0.3°C per min) and derive from it: (i) the dynamic critical thermal maximum (dCTmax; i.e., the CTmax expected of a ramping trial) under the ramps of the assay and under ramps that were not run, (ii) the static critical thermal maximum (sCTmax), (iii) the thermal death time curves and (iv) the thermal tolerance landscape. We then show that what the model can estimate from a ramping assay depends on the ramp rates that were run, and mainly on how much they differ (i.e., on the ratio between the fastest and the slowest rate). For that, we fit the same model to an assay of the same size in which the slowest rate was 0.025°C per min, and compare what the two assays allow the model to estimate and predict. We also describe two steps that are specific to ramping assays, which are how the temperature of each ramp is given to the package and how closely the ramp is followed when the model is fitted. The model and the steps shared with a static assay are described in more detail in the vignette [*Getting started with rTFT*](getting-started.html).
 
 ```{r}
 #| label: libraries
@@ -66,7 +69,7 @@ library(ggplot2)
 The mock dataset `ramp_assay` holds the times to loss of equilibrium of 280 juvenile salmonids warmed from 14°C at a constant rate until they failed or the water reached 29.5°C, in trials of ten fish. Three rates (0.1, 0.2 and 0.3°C per min) were each run in four trials in normoxia (10 mg/L of dissolved oxygen) and four in hypoxia (5 mg/L), and a much slower rate (0.025°C per min) was run in four trials in normoxia. The fish were watched throughout the ramp, so the time of each failure is known (to the nearest 0.1 min). We start with the 120 fish warmed at the three faster rates in normoxia, and use the trials at the slow rate in the section [*The choice of ramp rates*](#sec-rates). The effect of dissolved oxygen is the subject of the vignette *Temperature and a co-stressor*.
 
 ::: {.callout-note}
-The data were simulated from the same model as the static assay of the vignette *Getting started with rTFT* (see `?ramp_assay`), so we can compare what we estimate against the values used in the simulation.
+The data were simulated from the same model as the static assay of the vignette [*Getting started with rTFT*](getting-started.html) (see `?ramp_assay`), so we can compare what we estimate against the values used in the simulation.
 :::
 
 ```{r}
@@ -167,7 +170,7 @@ As in a static assay, two columns hold the constants that anchor the model. The 
 
 ## Fitting
 
-We fit the model of the vignette *Getting started with rTFT*: an exponential failure rate, $M(T) = a \exp\{b (T - T_r)\}$, with a Weibull baseline whose shape $k$ allows the hazard to change with the time under exposure, and $\log a$ depending on body mass (centred at 15 g) and varying among trials.
+We fit the model of the vignette [*Getting started with rTFT*](getting-started.html): an exponential failure rate, $M(T) = a \exp\{b (T - T_r)\}$, with a Weibull baseline whose shape $k$ allows the hazard to change with the time under exposure, and $\log a$ depending on body mass (centred at 15 g) and varying among trials.
 
 ```{r}
 #| label: fit
@@ -204,7 +207,7 @@ All values of $\hat{R}$ were below 1.01, all effective sample sizes were above 4
 
 ## Fit of the model to the data
 
-We check the model against the data with the two functions described in the vignette *Getting started with rTFT*. The first compares the proportion of fish observed to survive through time in each ramp with the same proportion in datasets simulated from the fitted model.
+We check the model against the data with the two functions described in the vignette [*Getting started with rTFT*](getting-started.html). The first compares the proportion of fish observed to survive through time in each ramp with the same proportion in datasets simulated from the fitted model.
 
 ```{r}
 #| label: check-code
@@ -291,7 +294,7 @@ knitr::kable(tol$params[c("quantity", "median", "lower", "upper")], digits = 2)
 
 The amplitude $a$ is the cumulative hazard reached over the reference time (`r sprintf("%.1f", unique(long$tau_ref))` min) at the reference temperature (`r sprintf("%.1f", unique(long$Tr))`°C) (@tbl-params). The thermal sensitivity $b$ was `r sprintf("%.2f", param("b")$median)` per °C (95% credible interval: `r interval(param("b"), 2)`), which corresponds to a failure rate that increases `r sprintf("%.1f", exp(param("b")$median))`-fold per degree.
 
-The shape $k$ of the baseline was estimated with less precision than $b$ (95% credible interval: `r interval(param("shape"), 2)`; the posterior probability that it is greater than 1 was `r sprintf("%.2f", results$p_shape_above_1)`). For comparison, the static assay of the vignette *Getting started with rTFT*, which was simulated from the same model, gave a 95% credible interval of `r interval(k_static, 2)` for $k$. The difference follows from how each kind of assay informs the baseline. In a static trial the temperature is constant, so any change in the hazard during the trial can only be due to the time under exposure. Within a ramp, the temperature and the time under exposure increase together, so a single ramp separates their effects on the hazard very poorly (see `?h0_catalogue`). The two effects are separated mostly by the comparison among ramp rates, because the fish in a slower ramp have been exposed for longer when the water reaches a given temperature. The rates of this assay differ only threefold, which limits that comparison (see the section [*The choice of ramp rates*](#sec-rates)). The uncertainty in $k$ carries over to $z$ (i.e., the increase in temperature that shortens the time to failure tenfold, $z = k \ln(10) / b$).
+The shape $k$ of the baseline was estimated with less precision than $b$ (95% credible interval: `r interval(param("shape"), 2)`; the posterior probability that it is greater than 1 was `r sprintf("%.2f", results$p_shape_above_1)`). For comparison, the static assay of the vignette [*Getting started with rTFT*](getting-started.html), which was simulated from the same model, gave a 95% credible interval of `r interval(k_static, 2)` for $k$. The difference follows from how each kind of assay informs the baseline. In a static trial the temperature is constant, so any change in the hazard during the trial can only be due to the time under exposure. Within a ramp, the temperature and the time under exposure increase together, so a single ramp separates their effects on the hazard very poorly (see `?h0_catalogue`). The two effects are separated mostly by the comparison among ramp rates, because the fish in a slower ramp have been exposed for longer when the water reaches a given temperature. The rates of this assay differ only threefold, which limits that comparison (see the section [*The choice of ramp rates*](#sec-rates)). The uncertainty in $k$ carries over to $z$ (i.e., the increase in temperature that shortens the time to failure tenfold, $z = k \ln(10) / b$).
 
 ### Dynamic critical thermal maximum
 
@@ -313,7 +316,7 @@ dct_static <- static$dctmax
 
 ```{r}
 #| label: tbl-dctmax
-#| tbl-cap: "Median CTmax (°C) observed in each ramp of the assay, and the dynamic critical thermal maximum of a 15 g fish derived from the model fitted to the ramping assay and from the model fitted to the static assay of the vignette *Getting started with rTFT* (posterior medians and 95% credible intervals)."
+#| tbl-cap: "Median CTmax (°C) observed in each ramp of the assay, and the dynamic critical thermal maximum of a 15 g fish derived from the model fitted to the ramping assay and from the model fitted to the static assay of the vignette [*Getting started with rTFT*](getting-started.html) (posterior medians and 95% credible intervals)."
 # dct_static holds the same quantity from the model of the vignette
 # Getting started with rTFT (see its section on the dynamic critical thermal maximum)
 estimate   <- function(x) sprintf("%.1f (%.1f–%.1f)", x$median, x$lower, x$upper)
@@ -328,7 +331,7 @@ knitr::kable(data.frame(
 
 The dCTmax derived from the ramping assay was within `r sprintf("%.1f", max(abs(dct$median - observed$median_ctmax)))`°C of the median CTmax observed in each ramp (@tbl-dctmax). The two are not expected to be equal, because the dCTmax refers to a fish of 15 g in a typical trial and the observed median to 40 fish of different masses in four trials.
 
-The last column of the table holds the dCTmax derived in the vignette *Getting started with rTFT* from the model fitted to the static assay, in which no fish was exposed to a ramp or to a temperature above 27°C. Those values were `r sprintf("%.1f", min(dct_static$median - dct$median))`–`r sprintf("%.1f", max(dct_static$median - dct$median))`°C higher than the values derived from the ramping assay, and the credible intervals of the two overlapped at the three rates.
+The last column of the table holds the dCTmax derived in the vignette [*Getting started with rTFT*](getting-started.html) from the model fitted to the static assay, in which no fish was exposed to a ramp or to a temperature above 27°C. Those values were `r sprintf("%.1f", min(dct_static$median - dct$median))`–`r sprintf("%.1f", max(dct_static$median - dct$median))`°C higher than the values derived from the ramping assay, and the credible intervals of the two overlapped at the three rates.
 
 Because the model describes the failure rate at each temperature and not the outcome of a particular ramp, it can also be asked what CTmax a ramp that was not run would give (@fig-dctmax).
 
@@ -387,7 +390,7 @@ knitr::kable(tol$sctmax[c("mass", "p", "t_ref", "median", "lower", "upper")], di
 sct <- tol$sctmax[tol$sctmax$p == 0.5, ]
 ```
 
-Half of the fish of 15 g are expected to fail within 60 min at a constant temperature of `r sprintf("%.1f", sct$median)`°C (95% credible interval: `r interval(sct)`°C). This sCTmax is lower than the dCTmax under the three ramps of the assay (`r sprintf("%.1f", min(dct$median))`–`r sprintf("%.1f", max(dct$median))`°C), in which the fish spend only a few minutes near each temperature (see the vignette *Getting started with rTFT*).
+Half of the fish of 15 g are expected to fail within 60 min at a constant temperature of `r sprintf("%.1f", sct$median)`°C (95% credible interval: `r interval(sct)`°C). This sCTmax is lower than the dCTmax under the three ramps of the assay (`r sprintf("%.1f", min(dct$median))`–`r sprintf("%.1f", max(dct$median))`°C), in which the fish spend only a few minutes near each temperature (see the vignette [*Getting started with rTFT*](getting-started.html)).
 
 ```{r}
 #| label: fig-tdt
@@ -420,7 +423,7 @@ The landscape covers the temperatures at which the fish failed in the ramps and 
 
 ## Comparison with the values used in the simulation
 
-The estimates can be set against the values used in the simulation, which are stored with the dataset. As in the vignette *Getting started with rTFT*, the simulated $a$ (defined at 26°C with a Weibull scale of 60 min) is first converted to the reference temperature and reference time of the fitted model. The simulated dCTmax has no closed form under a Weibull baseline, so it is obtained by finding the time at which the hazard accrued along each ramp reaches $-\ln(1 - p)$, with $p$ = 0.5.
+The estimates can be set against the values used in the simulation, which are stored with the dataset. As in the vignette [*Getting started with rTFT*](getting-started.html), the simulated $a$ (defined at 26°C with a Weibull scale of 60 min) is first converted to the reference temperature and reference time of the fitted model. The simulated dCTmax has no closed form under a Weibull baseline, so it is obtained by finding the time at which the hazard accrued along each ramp reaches $-\ln(1 - p)$, with $p$ = 0.5.
 
 ```{r}
 #| label: tbl-truth
@@ -497,7 +500,7 @@ fit_wide   <- fit_hazard(
 )
 ```
 
-This model also converged (all $\hat{R}$ below 1.01, all effective sample sizes above 400 and `r results$wide$convergence$n_divergent` divergent transitions), and the two checks of fit gave the same result as for the first model: the proportion of fish observed to survive was within the simulated band throughout the three ramps, and the residuals followed the uniform distribution with no trial standing out (not shown). From each of the two models we derive the quantities above and predict the survival of a 15 g fish along the 30 days of `stream_record`, as in the vignette *Getting started with rTFT*.
+This model also converged (all $\hat{R}$ below 1.01, all effective sample sizes above 400 and `r results$wide$convergence$n_divergent` divergent transitions), and the two checks of fit gave the same result as for the first model: the proportion of fish observed to survive was within the simulated band throughout the three ramps, and the residuals followed the uniform distribution with no trial standing out (not shown). From each of the two models we derive the quantities above and predict the survival of a 15 g fish along the 30 days of `stream_record`, as in the vignette [*Getting started with rTFT*](getting-started.html).
 
 ```{r}
 #| label: wide-predict
@@ -549,14 +552,17 @@ span_table <- rbind(
   both(sct, sct_wide),
   both(dct[1, ], wide$dctmax[1, ]),
   both(dct[3, ], wide$dctmax[3, ]),
-  both(pred$mortality, pred_wide$mortality, digits = 0, scale = 100)
+  both(pred$mortality, pred_wide$mortality, digits = 0, scale = 100),
+  sprintf("%.0f", 100 * c(pred$mortality$mean, pred_wide$mortality$mean))
 )
 truth_mortality <- 1 - simulated_survival$survival[nrow(simulated_survival)]
 knitr::kable(data.frame(
   Quantity  = c("b (per °C)", "k", "z (°C)", "sCTmax for 60 min (°C)",
                 "dCTmax at 0.1°C per min (°C)", "dCTmax at 0.3°C per min (°C)",
-                "Mortality along the stream record (%)"),
-  Simulated = c(sprintf("%.2f", simulated[c(2:5, 6, 8)]), sprintf("%.0f", 100 * truth_mortality)),
+                "Mortality along the stream record (%)",
+                "Mortality along the stream record, posterior mean (%)"),
+  Simulated = c(sprintf("%.2f", simulated[c(2:5, 6, 8)]), sprintf("%.0f", 100 * truth_mortality),
+                sprintf("%.0f", 100 * truth_mortality)),
   `0.1, 0.2, 0.3 (3-fold)`   = span_table[, 1],
   `0.025, 0.1, 0.3 (12-fold)` = span_table[, 2],
   check.names = FALSE
@@ -574,11 +580,11 @@ mortality_static <- static$prediction$mortality
 
 The 95% credible interval of $k$ was `r sprintf("%.1f", ci_width(param("shape")) / ci_width(param_wide("shape")))` times narrower with the 12-fold span than with the 3-fold span (@tbl-span), and so was that of $z$, which depends on $k$. The quantities that the ramps inform directly changed little: the intervals of $b$, of the sCTmax for 60 min and of the dCTmax had similar widths in the two assays.
 
-The difference between the assays is largest for the prediction along the stream record, which extrapolates the model to exposures of days and therefore depends strongly on $k$ (@fig-span). The model used to simulate the data gives a mortality of `r percent(truth_mortality)`% along the record for a fish of 15 g in a typical trial. With the 3-fold span, the model predicted `r percent(pred$mortality$median)`% (95% credible interval: `r percent(pred$mortality$lower)`–`r percent(pred$mortality$upper)`%), and its credible band has survival decreasing from the first week of the record, when the stream was below 21°C and almost no fish fail under the model used to simulate the data. With the 12-fold span, it predicted `r percent(pred_wide$mortality$median)`% (`r percent(pred_wide$mortality$lower)`–`r percent(pred_wide$mortality$upper)`%), and survival decreased during the heat wave of the third week, as it does under that model. For comparison, the model fitted to the static assay in the vignette *Getting started with rTFT* predicted `r percent(mortality_static$median)`% (`r percent(mortality_static$lower)`–`r percent(mortality_static$upper)`%).
+The difference between the assays is largest for the prediction along the stream record, which extrapolates the model to exposures of days and therefore depends strongly on $k$ (@fig-span). The model used to simulate the data gives a mortality of `r percent(truth_mortality)`% along the record for a fish of 15 g in a typical trial. With the 3-fold span, the model predicted `r percent(pred$mortality$median)`% (95% credible interval: `r percent(pred$mortality$lower)`–`r percent(pred$mortality$upper)`%), and its credible band has survival decreasing from the first week of the record, when the stream was below 21°C and almost no fish fail under the model used to simulate the data. With the 12-fold span, it predicted `r percent(pred_wide$mortality$median)`% (`r percent(pred_wide$mortality$lower)`–`r percent(pred_wide$mortality$upper)`%), and survival decreased during the heat wave of the third week, as it does under that model. These values are posterior medians. The posterior means, which are the fractions of fish expected to fail with the uncertainty in the parameters taken into account, were `r percent(pred$mortality$mean)`% and `r percent(pred_wide$mortality$mean)`% (@tbl-span). The mean and the median differ most where the posterior is wide and skewed, as with the 3-fold span (see the vignette [*Comparing and averaging models*](comparing-and-averaging-models.html)). For comparison, the model fitted to the static assay in the vignette [*Getting started with rTFT*](getting-started.html) predicted `r percent(mortality_static$median)`% (`r percent(mortality_static$lower)`–`r percent(mortality_static$upper)`%).
 
 ```{r}
 #| label: fig-span
-#| fig-cap: "Stream temperature (top) and the probability of survival of a 15 g fish along it, predicted by the model fitted to the static assay of the vignette *Getting started with rTFT* and by the models fitted to two ramping assays that differ in the span of their rates. Solid lines are posterior medians and bands are 95% credible intervals. Dashed lines show survival under the model used to simulate the data."
+#| fig-cap: "Stream temperature (top) and the probability of survival of a 15 g fish along it, predicted by the model fitted to the static assay of the vignette [*Getting started with rTFT*](getting-started.html) and by the models fitted to two ramping assays that differ in the span of their rates. Solid lines are posterior medians and bands are 95% credible intervals. Dashed lines show survival under the model used to simulate the data."
 #| fig-height: 8
 # pred_static is the prediction of the vignette Getting started with rTFT (there, pred)
 panels <- c("Stream temperature (°C)",
@@ -653,6 +659,68 @@ knitr::kable(data.frame(
 
 The record lay entirely below the temperatures at which fish failed with the 3-fold span, and `r percent(pred_wide$coverage$below)`% of it (with `r percent(pred_wide$coverage$risk_below)`% of the predicted risk) lay below them with the 12-fold span, in which the slowest ramp had fish failing at lower temperatures (@tbl-coverage). In both assays nearly all of the record, and of the risk predicted along it, came after the longest exposure of the assay (`r sprintf("%.0f", pred$coverage$tau_max)` and `r sprintf("%.0f", pred_wide$coverage$tau_max)` min, respectively).
 
+The two kinds of extrapolation are smaller for a warm period than for the whole record. Predictions are more often needed for such a period (e.g., a heat wave), and a part of the record is given to `predict_survival()` in the same way, with its times counted from its first reading so that the exposure starts with the period.
+
+```{r}
+#| label: warm-code
+#| eval: false
+heat_wave      <- subset(stream_record, day %in% 16:20)
+heat_wave$time <- heat_wave$time - heat_wave$time[1]
+predict_survival(fit, heat_wave, newdata = data.frame(mass = 15))$mortality
+```
+
+```{r}
+#| label: tbl-warm
+#| echo: false
+#| tbl-cap: "Probability (%) that a 15 g fish fails by the end of the whole stream record, of the five days of its heat wave (days 16 to 20) and of its warmest day (day 18), predicted by the models fitted to the static assay and to the two ramping assays (posterior medians and 95% credible intervals, with posterior means in brackets), with the value given by the model used to simulate the data. For the two shorter periods, the exposure is counted from their first reading."
+# Mortality under the model used to simulate the data over the days given, with the
+# exposure counted from the first reading.
+simulated_mortality <- function(days) {
+  part     <- stream_record[stream_record$day %in% days, ]
+  n        <- nrow(part)
+  midpoint <- (part$temp[-1] + part$temp[-n]) / 2
+  elapsed  <- part$time - part$time[1]
+  accrued  <- exp(truth$log_a + truth$b * (midpoint - truth$T_ref)) *
+    diff((elapsed / truth$scale)^truth$shape)
+  1 - exp(-sum(accrued))
+}
+warm <- results$warm_periods
+warm_static <- static$warm_periods$weibull
+cell <- function(x) {
+  sprintf("%.0f\u00a0(%.0f–%.0f)\u00a0[%.0f]", 100 * x$median, 100 * x$lower, 100 * x$upper,
+          100 * x$mean)
+}
+knitr::kable(data.frame(
+  Assay = c("Static", "Ramps at 0.1, 0.2, 0.3 (3-fold)", "Ramps at 0.025, 0.1, 0.3 (12-fold)",
+            "Model used to simulate the data"),
+  `30 days` = c(cell(pred_static$mortality), cell(pred$mortality), cell(pred_wide$mortality),
+                sprintf("%.0f", 100 * simulated_mortality(1:30))),
+  `Heat wave, 5 days` = c(cell(warm_static$heat_wave), cell(warm$narrow$heat_wave),
+                          cell(warm$wide$heat_wave),
+                          sprintf("%.0f", 100 * simulated_mortality(16:20))),
+  `Warmest day, 24 h` = c(cell(warm_static$warmest_day), cell(warm$narrow$warmest_day),
+                          cell(warm$wide$warmest_day),
+                          sprintf("%.0f", 100 * simulated_mortality(18))),
+  check.names = FALSE
+), align = "lrrr")
+```
+
+```{r}
+#| label: warm-text
+#| include: false
+day_medians  <- c(warm_static$warmest_day$median, warm$narrow$warmest_day$median,
+                  warm$wide$warmest_day$median)
+wave_medians <- c(warm_static$heat_wave$median, warm$narrow$heat_wave$median,
+                  warm$wide$heat_wave$median)
+all_medians  <- c(pred_static$mortality$median, pred$mortality$median,
+                  pred_wide$mortality$median)
+range_of <- function(x) sprintf("%.0f–%.0f", 100 * min(x), 100 * max(x))
+```
+
+The three assays agreed better, and were closer to the value given by the model used to simulate the data, the shorter the period (@tbl-warm). Their predictions were `r range_of(all_medians)`% for the 30 days (`r percent(simulated_mortality(1:30))`% under the model used to simulate the data), `r range_of(wave_medians)`% for the heat wave (`r percent(simulated_mortality(16:20))`%) and `r range_of(day_medians)`% for the warmest day (`r percent(simulated_mortality(18))`%). The span of the rates mattered for the shorter periods too. For the warmest day, the 95% credible interval was `r interval(warm$wide$warmest_day, 0, 100)`% with the 12-fold span and `r interval(warm$narrow$warmest_day, 0, 100)`% with the 3-fold span, for which even one day is about ten times longer than the longest exposure of the assay.
+
+A prediction for a part of the record counts the exposure from the start of that part, and so assumes that the days before it left no effect on the fish. Like the predictions for the whole record, it also assumes that there is no recovery during the cooler hours of each night. The model used to simulate the data makes the same assumption, so the agreement of a prediction with the simulated value says nothing about whether the assumption holds (see the vignette [*Getting started with rTFT*](getting-started.html)).
+
 ### Recommendations
 
 When a ramping assay is intended to support more than the comparison of CTmax at the rates that were run, we recommend: (i) choosing the slowest and the fastest ramp rates as far apart as is practical, because the span of the rates determines how well the effect of the time under exposure is estimated; and (ii) adding static trials at the temperatures and durations that the intended predictions refer to, because a ramping assay alone leaves predictions for long exposures at lower temperatures imprecise even with a wide span. Static and ramping trials can be analysed in a single model, with the fish of both in one table (see `observation = "mixed"` in `?build_hazard_data`).
@@ -660,7 +728,7 @@ When a ramping assay is intended to support more than the comparison of CTmax at
 ::: {.callout-note}
 ## Precomputed results
 
-The model in this vignette was fitted with `rTFT` `r results$stamp$version` on `r results$stamp$date` by the script `vignettes/_precompute.R` in the package's repository. The vignette displays the saved summaries, and all other code runs when the vignette is built. The values for the static assay are those saved for the vignette *Getting started with rTFT* (fitted with `rTFT` `r static$stamp$version` on `r static$stamp$date`).
+The model in this vignette was fitted with `rTFT` `r results$stamp$version` on `r results$stamp$date` by the script `vignettes/_precompute.R` in the package's repository. The vignette displays the saved summaries, and all other code runs when the vignette is built. The values for the static assay are those saved for the vignette [*Getting started with rTFT*](getting-started.html) (fitted with `rTFT` `r static$stamp$version` on `r static$stamp$date`).
 :::
 
 ## References
