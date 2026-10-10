@@ -170,14 +170,22 @@ test_that("loo_hazard leaves out individuals when they share no group", {
 
 
 test_that("loo_hazard leaves out whole trials when individuals share them", {
-  expect_message(out <- loo_hazard(fit_trials), class = "rTFT_loo_unit")
+  # With eight trials, leaving one out changes the fit too much for PSIS to be
+  # trusted for all of them, and the function says so.
+  expect_warning(
+    expect_message(out <- loo_hazard(fit_trials), class = "rTFT_loo_unit"),
+    class = "rTFT_loo_unreliable"
+  )
   expect_equal(out$unit, "trial")
   expect_equal(nrow(out$pointwise), 8)
-  # the same as PSIS-LOO on the log-likelihood summed by trial by hand
+  # the same as PSIS-LOO on the log-likelihood summed by trial by hand, which gives
+  # the warning of the loo package about the same trial
   ll    <- brms::log_lik(fit_trials)
   trial <- as.character(fit_trials$data$trial)
   by_hand <- sapply(unique(trial), \(t) rowSums(ll[, trial == t, drop = FALSE]))
-  ref <- loo::loo(by_hand, r_eff = loo::relative_eff(exp(by_hand), chain_id = rep(1:2, each = 300)))
+  ref <- suppressWarnings(
+    loo::loo(by_hand, r_eff = loo::relative_eff(exp(by_hand), chain_id = rep(1:2, each = 300)))
+  )
   expect_equal(out$estimates, ref$estimates)
 })
 
