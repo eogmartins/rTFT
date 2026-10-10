@@ -88,7 +88,8 @@ build_hazard_spec("exp", observation = "mixed")
 
 # A crossed temperature-by-oxygen design: dissolved oxygen enters log M as a main
 # effect (cDO) and a temperature interaction (dTDO).
-do <- costressor("DO", column = "do", ref = 8.5, scale = 1, direction = -1)
+do <- costressor("DO", column = "do", ref = 8.5, scale = 1, direction = -1,
+                 interaction = TRUE)
 build_hazard_spec("exp", costressors = list(do))
 
 # Advanced: a gentler threshold switch than the catalogue default.

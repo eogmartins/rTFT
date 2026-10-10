@@ -558,9 +558,9 @@ brms_log_h0 <- list(
 #' and that co-determines the failure rate: dissolved oxygen, salinity, pH, a
 #' toxicant concentration, or, for a terrestrial ectotherm, humidity. The failure
 #' rate then becomes a surface M(T, Z). The co-stressor enters log M(T) as its own
-#' term plus, by default, an interaction with temperature, so a crossed
-#' temperature-by-stressor design (a ramp run at two or more stressor levels) can
-#' estimate how the stressor changes the thermal response. Build one for each
+#' term and, when asked for with `interaction = TRUE`, an interaction with
+#' temperature, so a crossed temperature-by-stressor design (a ramp run at two or
+#' more stressor levels) can estimate how the stressor changes the thermal response. Build one for each
 #' co-stressor and pass them together, as a list, to [build_hazard_data],
 #' [build_hazard_spec], [build_hazard_prior] and [fit_hazard], so all four read the
 #' same declaration.
@@ -592,10 +592,11 @@ brms_log_h0 <- list(
 #' and rising on both sides. The `direction` then no longer applies, since z is
 #' symmetric.
 #'
-#' The co-stressor contributes two parameters, named from `name`. The main effect
-#' `c<name>` is the change in the log failure rate per `scale` of stressor beyond
-#' the reference, and the interaction `dT<name>` (kept unless switched off) is how
-#' that change varies with temperature. These are the names brms estimates and that
+#' The co-stressor contributes one or two parameters, named from `name`. The main
+#' effect `c<name>` is the change in the log failure rate per `scale` of stressor
+#' beyond the reference, and the interaction `dT<name>` (with `interaction = TRUE`)
+#' is how that change varies with temperature. These are the names brms estimates
+#' and that
 #' [build_hazard_prior] sets priors on. `c<name>` is a continuous dose term: with
 #' three or more stressor levels it is a per-`scale` slope through them, but with
 #' only two it cannot be told apart from a per-treatment shift of the amplitude
@@ -633,8 +634,20 @@ brms_log_h0 <- list(
 #' treatment can instead be encoded 0/1 and passed to `costressor()`, which then gives
 #' the co-stressor's own main and interaction terms.
 #'
+#' @section An interaction outside the temperatures of the data:
+#' The interaction is off by default because of how it behaves away from the
+#' temperatures at which individuals failed. It makes the effect of the stressor a
+#' straight line in temperature, c + dT (Ta - Tr), which is informed only over those
+#' temperatures: a few degrees, in a ramping assay. Extended below them the line
+#' reaches zero at Tr - c / dT and changes sign beyond, so a model in which the
+#' stressor is harmful where individuals failed may have it protective at cooler
+#' temperatures, such as those of a field record. Use the interaction to describe
+#' how the stressor's effect changes within the temperatures of the assay, and
+#' compare what the models with and without it imply at the temperatures a
+#' prediction is needed for (see the vignette *Temperature and a co-stressor*).
+#'
 #' @section Two kinds of temperature interaction:
-#' The default `dT<name>` interaction is additive on the temperature slope: it adds
+#' The `dT<name>` interaction is additive on the temperature slope: it adds
 #' `dT<name> * (Ta - Tr) * z` to log M, so the per-degree effect shifts by a constant
 #' amount per unit of stressor. This is the standard temperature-by-stressor
 #' interaction, it works the same on every M(T) function, and it lets the slope
@@ -670,11 +683,14 @@ brms_log_h0 <- list(
 #' @param direction Either `1` or `-1`, set so that a positive `z` always means more
 #'   stress: `-1` for dissolved oxygen (less oxygen is more stress), `1` for a
 #'   toxicant (more is more stress).
-#' @param interaction A single logical value. When `TRUE` (the default) the
-#'   co-stressor also enters through a temperature interaction `dT<name>`, so it can
-#'   change the temperature slope of log M; when `FALSE` it enters through its main
-#'   effect alone. For a multiplicative alternative that rescales thermal sensitivity
-#'   instead, see \sQuote{Two kinds of temperature interaction} below.
+#' @param interaction A single logical value. When `FALSE` (the default) the
+#'   co-stressor enters through its main effect alone, changing the failure rate by
+#'   the same proportion at every temperature. When `TRUE` it also enters through a
+#'   temperature interaction `dT<name>`, so it can change the temperature slope of
+#'   log M. For a multiplicative alternative that rescales thermal sensitivity
+#'   instead, see \sQuote{Two kinds of temperature interaction} below, and for what
+#'   an interaction implies outside the temperatures of the data, see
+#'   \sQuote{An interaction outside the temperatures of the data}.
 #' @param trajectory An optional data frame giving the co-stressor over time, with
 #'   columns `path_id`, `time` and the `column` named above, in the shape of the
 #'   `path` argument of [build_hazard_data]. Supply it for a stressor that changes
@@ -690,14 +706,18 @@ brms_log_h0 <- list(
 #'   [build_hazard_prior] and [fit_hazard].
 #' @examples
 #' # Dissolved oxygen held at a fixed level per trial: benign at air-saturation
-#' # (about 8.5 mg/L), expressed per mg/L, with less oxygen meaning more stress.
+#' # (about 8.5 mg/L), expressed per mg/L, with less oxygen meaning more stress. It
+#' # enters through its main effect alone.
 #' costressor("DO", column = "do", ref = 8.5, scale = 1, direction = -1)
 #'
-#' # A toxicant that changes over the trial, supplied as its own trajectory, and
-#' # entering through its main effect alone (no temperature interaction).
+#' # The same with its interaction with temperature.
+#' costressor("DO", column = "do", ref = 8.5, scale = 1, direction = -1,
+#'            interaction = TRUE)
+#'
+#' # A toxicant that changes over the trial, supplied as its own trajectory.
 #' tox_path <- data.frame(path_id = "A", time = c(0, 60), conc = c(0, 4))
 #' costressor("Tox", column = "conc", ref = 0, scale = 1, direction = 1,
-#'            interaction = FALSE, trajectory = tox_path)
+#'            trajectory = tox_path)
 #'
 #' # Salinity, harmful above or below an optimum: a squared standardised deviation
 #' # makes z measure distance from the optimum (about 15 PSU, per 5 PSU) in either
@@ -706,7 +726,7 @@ brms_log_h0 <- list(
 #'            transform = function(u) u^2)
 #' @export
 costressor <- function(name, column, ref, scale, direction,
-                       interaction = TRUE, trajectory = NULL, transform = NULL) {
+                       interaction = FALSE, trajectory = NULL, transform = NULL) {
   if (!is.character(name) || length(name) != 1L || is.na(name) ||
       !grepl("^[A-Za-z][A-Za-z0-9]*$", name))
     cli::cli_abort(c(
@@ -1325,7 +1345,8 @@ build_hazard_data <- function(ind, path, observation = c("interval", "continuous
 #'
 #' # A crossed temperature-by-oxygen design: dissolved oxygen enters log M as a main
 #' # effect (cDO) and a temperature interaction (dTDO).
-#' do <- costressor("DO", column = "do", ref = 8.5, scale = 1, direction = -1)
+#' do <- costressor("DO", column = "do", ref = 8.5, scale = 1, direction = -1,
+#'                  interaction = TRUE)
 #' build_hazard_spec("exp", costressors = list(do))
 #'
 #' # Advanced: a gentler threshold switch than the catalogue default.

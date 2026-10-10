@@ -10,7 +10,7 @@ costressor(
   ref,
   scale,
   direction,
-  interaction = TRUE,
+  interaction = FALSE,
   trajectory = NULL,
   transform = NULL
 )
@@ -37,11 +37,14 @@ control level for salinity or pH). The failure rate reduces to the pure M(T) her
 stress: \code{-1} for dissolved oxygen (less oxygen is more stress), \code{1} for a
 toxicant (more is more stress).}
 
-\item{interaction}{A single logical value. When \code{TRUE} (the default) the
-co-stressor also enters through a temperature interaction \verb{dT<name>}, so it can
-change the temperature slope of log M; when \code{FALSE} it enters through its main
-effect alone. For a multiplicative alternative that rescales thermal sensitivity
-instead, see \sQuote{Two kinds of temperature interaction} below.}
+\item{interaction}{A single logical value. When \code{FALSE} (the default) the
+co-stressor enters through its main effect alone, changing the failure rate by
+the same proportion at every temperature. When \code{TRUE} it also enters through a
+temperature interaction \verb{dT<name>}, so it can change the temperature slope of
+log M. For a multiplicative alternative that rescales thermal sensitivity
+instead, see \sQuote{Two kinds of temperature interaction} below, and for what
+an interaction implies outside the temperatures of the data, see
+\sQuote{An interaction outside the temperatures of the data}.}
 
 \item{trajectory}{An optional data frame giving the co-stressor over time, with
 columns \code{path_id}, \code{time} and the \code{column} named above, in the shape of the
@@ -65,9 +68,9 @@ Describes one non-temperature environmental variable (Z) the individual is expos
 and that co-determines the failure rate: dissolved oxygen, salinity, pH, a
 toxicant concentration, or, for a terrestrial ectotherm, humidity. The failure
 rate then becomes a surface M(T, Z). The co-stressor enters log M(T) as its own
-term plus, by default, an interaction with temperature, so a crossed
-temperature-by-stressor design (a ramp run at two or more stressor levels) can
-estimate how the stressor changes the thermal response. Build one for each
+term and, when asked for with \code{interaction = TRUE}, an interaction with
+temperature, so a crossed temperature-by-stressor design (a ramp run at two or
+more stressor levels) can estimate how the stressor changes the thermal response. Build one for each
 co-stressor and pass them together, as a list, to \link{build_hazard_data},
 \link{build_hazard_spec}, \link{build_hazard_prior} and \link{fit_hazard}, so all four read the
 same declaration.
@@ -100,10 +103,11 @@ transform = function(u) u^2, makes z = ((X - ref) / scale)^2, zero at the optimu
 and rising on both sides. The \code{direction} then no longer applies, since z is
 symmetric.
 
-The co-stressor contributes two parameters, named from \code{name}. The main effect
-\verb{c<name>} is the change in the log failure rate per \code{scale} of stressor beyond
-the reference, and the interaction \verb{dT<name>} (kept unless switched off) is how
-that change varies with temperature. These are the names brms estimates and that
+The co-stressor contributes one or two parameters, named from \code{name}. The main
+effect \verb{c<name>} is the change in the log failure rate per \code{scale} of stressor
+beyond the reference, and the interaction \verb{dT<name>} (with \code{interaction = TRUE})
+is how that change varies with temperature. These are the names brms estimates
+and that
 \link{build_hazard_prior} sets priors on. \verb{c<name>} is a continuous dose term: with
 three or more stressor levels it is a per-\code{scale} slope through them, but with
 only two it cannot be told apart from a per-treatment shift of the amplitude
@@ -143,9 +147,23 @@ treatment can instead be encoded 0/1 and passed to \code{costressor()}, which th
 the co-stressor's own main and interaction terms.
 }
 
+\section{An interaction outside the temperatures of the data}{
+
+The interaction is off by default because of how it behaves away from the
+temperatures at which individuals failed. It makes the effect of the stressor a
+straight line in temperature, c + dT (Ta - Tr), which is informed only over those
+temperatures: a few degrees, in a ramping assay. Extended below them the line
+reaches zero at Tr - c / dT and changes sign beyond, so a model in which the
+stressor is harmful where individuals failed may have it protective at cooler
+temperatures, such as those of a field record. Use the interaction to describe
+how the stressor's effect changes within the temperatures of the assay, and
+compare what the models with and without it imply at the temperatures a
+prediction is needed for (see the vignette \emph{Temperature and a co-stressor}).
+}
+
 \section{Two kinds of temperature interaction}{
 
-The default \verb{dT<name>} interaction is additive on the temperature slope: it adds
+The \verb{dT<name>} interaction is additive on the temperature slope: it adds
 \verb{dT<name> * (Ta - Tr) * z} to log M, so the per-degree effect shifts by a constant
 amount per unit of stressor. This is the standard temperature-by-stressor
 interaction, it works the same on every M(T) function, and it lets the slope
@@ -168,14 +186,18 @@ when the biology is a proportional change in sensitivity that should stay positi
 
 \examples{
 # Dissolved oxygen held at a fixed level per trial: benign at air-saturation
-# (about 8.5 mg/L), expressed per mg/L, with less oxygen meaning more stress.
+# (about 8.5 mg/L), expressed per mg/L, with less oxygen meaning more stress. It
+# enters through its main effect alone.
 costressor("DO", column = "do", ref = 8.5, scale = 1, direction = -1)
 
-# A toxicant that changes over the trial, supplied as its own trajectory, and
-# entering through its main effect alone (no temperature interaction).
+# The same with its interaction with temperature.
+costressor("DO", column = "do", ref = 8.5, scale = 1, direction = -1,
+           interaction = TRUE)
+
+# A toxicant that changes over the trial, supplied as its own trajectory.
 tox_path <- data.frame(path_id = "A", time = c(0, 60), conc = c(0, 4))
 costressor("Tox", column = "conc", ref = 0, scale = 1, direction = 1,
-           interaction = FALSE, trajectory = tox_path)
+           trajectory = tox_path)
 
 # Salinity, harmful above or below an optimum: a squared standardised deviation
 # makes z measure distance from the optimum (about 15 PSU, per 5 PSU) in either

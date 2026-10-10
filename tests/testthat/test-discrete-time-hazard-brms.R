@@ -1320,7 +1320,8 @@ test_that("assess_ramp_linearity errors on a missing column", {
 # and reduces to the pure M(T). Expected z values and predictor strings are written
 # out by hand, not read back from the function.
 
-do_cs <- costressor("DO", column = "do", ref = 8.5, scale = 1, direction = -1)
+do_cs <- costressor("DO", column = "do", ref = 8.5, scale = 1, direction = -1,
+                    interaction = TRUE)
 
 
 test_that("costressor stores the declaration and carries its class", {
@@ -1330,7 +1331,9 @@ test_that("costressor stores the declaration and carries its class", {
   expect_equal(do_cs$ref, 8.5)
   expect_equal(do_cs$scale, 1)
   expect_equal(do_cs$direction, -1)
-  expect_true(do_cs$interaction)            # temperature interaction on by default
+  expect_true(do_cs$interaction)            # the temperature interaction, asked for
+  # without asking, the co-stressor enters through its main effect alone
+  expect_false(costressor("DO", "do", 8.5, 1, -1)$interaction)
   expect_null(do_cs$trajectory)
   expect_null(do_cs$transform)
 })
@@ -1370,7 +1373,7 @@ test_that(".costressor_dpars and .costressor_logM emit the parameters and terms"
   expect_equal(.costressor_dpars(list(do_noint)), "cDO")
   expect_equal(.costressor_logM(list(do_noint)), "cDO * z_DO")
   # two stressors accumulate
-  sal <- costressor("Sal", "sal", 0, 5, 1)
+  sal <- costressor("Sal", "sal", 0, 5, 1, interaction = TRUE)
   expect_equal(.costressor_dpars(list(do_cs, sal)), c("cDO", "dTDO", "cSal", "dTSal"))
   # empty
   expect_equal(.costressor_dpars(list()), character(0))

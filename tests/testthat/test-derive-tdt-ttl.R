@@ -121,7 +121,8 @@ test_that("a threshold rate uses the catalogue steepness, or the one it was fitt
 
 
 test_that("a co-stressor enters at its chosen level, standardised as in the fit", {
-  do_cs <- costressor("DO", column = "do", ref = 8.5, scale = 1, direction = -1)
+  do_cs <- costressor("DO", column = "do", ref = 8.5, scale = 1, direction = -1,
+                      interaction = TRUE)
   draws <- list(loga = -5, logb = log(0.5), cDO = 0.2, dTDO = 0.03)
   # at 6 mg/L, z = -(6 - 8.5) / 1 = 2.5, so
   # log M = loga + b (Ta - Tr) + cDO z + dTDO (Ta - Tr) z
@@ -157,7 +158,8 @@ test_that(".M_draws refuses missing or mismatched draws", {
 
 
 test_that(".M_draws needs a level for each co-stressor", {
-  do_cs <- costressor("DO", column = "do", ref = 8.5, scale = 1, direction = -1)
+  do_cs <- costressor("DO", column = "do", ref = 8.5, scale = 1, direction = -1,
+                      interaction = TRUE)
   draws <- list(loga = -5, logb = log(0.5), cDO = 0.2, dTDO = 0.03)
   expect_error(.M_draws("exp", draws, Ta = 32, Tr = 30, costressors = list(do_cs)),
                class = "rTFT_bad_levels")
@@ -167,7 +169,8 @@ test_that(".M_draws needs a level for each co-stressor", {
 
 
 test_that(".M_draws warns about levels the model has no co-stressor for", {
-  do_cs <- costressor("DO", column = "do", ref = 8.5, scale = 1, direction = -1)
+  do_cs <- costressor("DO", column = "do", ref = 8.5, scale = 1, direction = -1,
+                      interaction = TRUE)
   draws <- list(loga = -5, logb = log(0.5), cDO = 0.2, dTDO = 0.03)
   # an extra level beside the one needed: warned about, and the rate is still the
   # one at DO = 6
@@ -222,7 +225,8 @@ test_that(".M_draws reports the rate the model formula fits", {
   # Under the memoryless baseline the formula is log M + log_exposure, so the two
   # must agree exactly: a threshold function with a custom steepness and a
   # co-stressor, the cases where fitting and reporting could most easily part.
-  do_cs <- costressor("DO", column = "do", ref = 8.5, scale = 1, direction = -1)
+  do_cs <- costressor("DO", column = "do", ref = 8.5, scale = 1, direction = -1,
+                      interaction = TRUE)
   pars  <- list(loga = -5, logb = log(0.5), Tc = 34, cDO = 0.2, dTDO = 0.03)
   spec  <- build_hazard_spec("exp_threshold", k_sw = 20, costressors = list(do_cs))
   Ta    <- c(33, 34.5, 36)
@@ -346,7 +350,8 @@ test_that("sCTmax solves the functions without a closed form", {
 
 test_that("a custom steepness and a co-stressor move sCTmax as the formula says", {
   # exp with oxygen: loga + b (T - Tr) + cDO z + dTDO (T - Tr) z = L, z = 2.5 at 6 mg/L
-  do_cs <- costressor("DO", column = "do", ref = 8.5, scale = 1, direction = -1)
+  do_cs <- costressor("DO", column = "do", ref = 8.5, scale = 1, direction = -1,
+                      interaction = TRUE)
   d <- list(loga = -5, logb = log(0.5), cDO = 0.2, dTDO = 0.03)
   L <- log(0.05)
   expect_equal(.sctmax_draws("exp", d, 0.05, Tr = 30, costressors = list(do_cs),
@@ -375,7 +380,8 @@ test_that("a rate that never crosses the target gives +Inf or -Inf, not NA", {
 
 
 test_that("sCTmax refuses a co-stressor level at which the rate falls with temperature", {
-  do_cs <- costressor("DO", column = "do", ref = 8.5, scale = 1, direction = -1)
+  do_cs <- costressor("DO", column = "do", ref = 8.5, scale = 1, direction = -1,
+                      interaction = TRUE)
   # at 6 mg/L (z = 2.5) the thermal slope is b + dTDO z = 0.5 - 0.3 * 2.5 < 0
   falls <- list(loga = -5, logb = log(0.5), cDO = 0.2, dTDO = -0.3)
   expect_error(.sctmax_draws("exp", falls, 0.05, Tr = 30, costressors = list(do_cs),
@@ -655,7 +661,8 @@ test_that(".baseline_draws fixes the Weibull scale at the reference time", {
 
 
 test_that(".param_draws uses the thermal sensitivity at the co-stressor levels", {
-  do_cs <- costressor("DO", column = "do", ref = 8.5, scale = 1, direction = -1)
+  do_cs <- costressor("DO", column = "do", ref = 8.5, scale = 1, direction = -1,
+                      interaction = TRUE)
   d <- list(loga = -5, logb = log(0.5), cDO = 0.2, dTDO = 0.03)
   q <- .param_draws("exp", "mem", d, list(do_cs), list(DO = 2.5))
   expect_equal(q$b_at_levels, 0.5 + 0.03 * 2.5)

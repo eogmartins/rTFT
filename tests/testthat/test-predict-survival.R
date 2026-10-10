@@ -102,7 +102,8 @@ test_that("the zero-type rates are zero at and below the reference, and power is
 
 
 test_that("a co-stressor in the record is followed through time", {
-  do_cs <- costressor("DO", column = "do", ref = 8, scale = 1, direction = -1)
+  do_cs <- costressor("DO", column = "do", ref = 8, scale = 1, direction = -1,
+                      interaction = TRUE)
   st <- settings(costressors = list(do_cs))
   steady <- transform(flat, do = 6)
   varying <- transform(flat, do = c(8, 8, 4, 4))       # midpoints 8, 6, 4
