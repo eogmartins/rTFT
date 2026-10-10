@@ -1515,3 +1515,38 @@ test_that(".fit_settings refuses a fit that carries no settings", {
   bare <- structure(list(), class = "brmsfit")
   expect_error(.fit_settings(bare), class = "rTFT_no_settings")
 })
+
+
+test_that("one table holds a static trial checked at intervals and a ramp watched throughout", {
+  static <- static_assay[static_assay$trial == "S09", ]          # ten fish held at 27 degC
+  ramp   <- ramp_assay[ramp_assay$trial == "R01", ]               # ten fish warmed at 0.1 degC per min
+  ind <- rbind(
+    data.frame(id = static$id, path_id = static$path_id, event = static$event,
+               obs_type = "interval", t_upper = static$t_upper, t_event = NA),
+    data.frame(id = 1000 + ramp$id, path_id = ramp$path_id, event = ramp$event,
+               obs_type = "continuous", t_upper = NA, t_event = ramp$t_event)
+  )
+  path <- rbind(
+    data.frame(path_id = "T27", time = c(0, 7200), temp = 27),
+    ramp_path("r0.1", T_start = 14, rate = 0.1, t_max = 155)
+  )
+  checks <- data.frame(path_id = "T27", time = seq(0, 7200, by = 60))
+  expect_no_error(suppressMessages(
+    long <- build_hazard_data(ind, path, "mixed", checks = checks)
+  ))
+
+  of_static <- long$path_id == "T27"
+  expect_setequal(long$id, ind$id)
+  # the static trial stays at its temperature and the ramp warms
+  expect_equal(unique(long$Ta[of_static]), 27)
+  expect_gt(diff(range(long$Ta[!of_static])), 10)
+  # every failure is counted once, and only the rows of the ramp are marked as
+  # having a failure time known exactly
+  expect_equal(sum(long$failed[of_static]), sum(static$event))
+  expect_equal(sum(long$failed[!of_static]), sum(ramp$event))
+  expect_true(all(long$exact[of_static] == 0))
+  expect_true(all(long$exact[!of_static] == 1))
+  # the two share one reference temperature and time, as one model needs
+  expect_length(unique(long$Tr), 1)
+  expect_length(unique(long$tau_ref), 1)
+})
