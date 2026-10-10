@@ -1,0 +1,288 @@
+# rTFT: hazard models for thermal failure time data
+
+`rTFT` fits discrete-time survival models to the times at which
+individual organisms fail under thermal exposure (e.g., loss of
+equilibrium, knockdown or death), using Bayesian inference in
+[Stan](https://mc-stan.org) through
+[brms](https://paulbuerkner.com/brms/). The hazard is the product of a
+failure rate that depends on temperature, following [Kingsolver and
+Umbanhowar (2018)](https://doi.org/10.1242/jeb.167858), and a baseline
+that may depend on the time under exposure.
+
+Thermal tolerance is usually reported as a summary of an assay, such as
+the critical thermal maximum (CTmax) of a ramping trial or the time to
+failure at a constant temperature. These summaries depend on how the
+assay was run (e.g., the ramp rate or the temperatures chosen). In
+`rTFT`, a model is fitted to the failure times themselves (available in
+both types of assays), and the usual summaries are derived from the
+fitted model, each with its posterior uncertainty.
+
+With the package, one can:
+
+- fit failure times that are exact, interval-censored or both, from
+  static assays, ramping assays or both, with any of several functions
+  for the failure rate and for the baseline;
+- let the failure rate depend on covariates (e.g., body mass), on
+  group-level effects (e.g., trials) and on other stressors (e.g.,
+  dissolved oxygen);
+- check the fit of a model against the data;
+- derive static and dynamic critical thermal maxima, thermal death time
+  curves and thermal tolerance landscapes;
+- compare models by cross-validation that leaves out whole individuals
+  or trials, and average them;
+- predict survival along a record of temperature (e.g., a stream during
+  a heat wave), and of any co-stressors recorded with it.
+
+## Installation
+
+`rTFT` is installed from GitHub.
+
+``` r
+
+# install.packages("remotes")
+remotes::install_github("eogmartins/rTFT", build_vignettes = TRUE)
+```
+
+Fitting a model requires a working installation of Stan, through either
+`cmdstanr` or `rstan` (see the [installation notes of
+brms](https://github.com/paul-buerkner/brms#how-do-i-install-brms)).
+`cmdstanr` is recommended and was used to fit the models of the
+vignettes. It can be asked for with `backend = "cmdstanr"` in
+[`fit_hazard()`](https://eogmartins.github.io/rTFT/reference/fit_hazard.md).
+
+Building the vignettes requires [Quarto](https://quarto.org).
+
+## Example
+
+Three simulated datasets are included with the package: a static assay
+(`static_assay`), a ramping assay run at two levels of dissolved oxygen
+(`ramp_assay`) and a record of stream temperature (`stream_record`).
+They were simulated from a known model, so that what a model estimates
+can be compared with the values used in the simulation.
+
+The example below uses `static_assay`, which contains the times to loss
+of equilibrium of 120 juvenile salmonids held at 23, 25 or 27°C and
+checked every hour for five days. It shows the four steps of an
+analysis, which the vignette *Getting started with rTFT* describes in
+detail.
+
+``` r
+
+library(rTFT)
+
+# 1. The table of intervals at risk, built from the temperature of each treatment
+#    through time and the times of the checks.
+path   <- data.frame(path_id = rep(c("T23", "T25", "T27"), each = 2),
+                     time    = rep(c(0, 7200), times = 3),
+                     temp    = rep(c(23, 25, 27), each = 2))
+checks <- expand.grid(path_id = c("T23", "T25", "T27"), time = seq(0, 7200, by = 60))
+long   <- build_hazard_data(static_assay, path, observation = "interval",
+                            covariates = c("mass", "trial"), checks = checks)
+
+# 2. An exponential failure rate with a Weibull baseline, with the failure rate
+#    depending on body mass and varying among trials.
+fit <- fit_hazard(long, m_form = "exp", baseline = "weibull",
+                  dpar_formulas = list(loga = ~ 1 + I(mass - 15) + (1 | trial)),
+                  chains = 4, cores = 4, backend = "cmdstanr")
+
+# 3. The static critical thermal maximum for an exposure of 60 min and the thermal
+#    death time curves of a 15 g fish.
+tol <- derive_tdt_ttl(fit, newdata = data.frame(mass = 15), t_ref = 60)
+tol$sctmax
+plot_tdt(tol, time_unit = "min")
+
+# 4. Survival along 30 days of hourly stream temperature.
+pred <- predict_survival(fit, stream_record, newdata = data.frame(mass = 15))
+plot_survival(pred, temperature = TRUE)
+```
+
+## Vignettes
+
+Four vignettes describe the package, and are best read in this order.
+They can be read, with the help pages, on the [website of the
+package](https://eogmartins.github.io/rTFT/).
+
+1.  *Getting started with rTFT*
+    ([`vignette("getting-started", package = "rTFT")`](https://eogmartins.github.io/rTFT/articles/getting-started.md)):
+    the model, a static assay, the checks of a fitted model, the derived
+    quantities and a prediction of survival along a record of stream
+    temperature.
+2.  *Ramping assays*
+    ([`vignette("ramping-assays", package = "rTFT")`](https://eogmartins.github.io/rTFT/articles/ramping-assays.md)):
+    how a ramp is given to the package, the dynamic critical thermal
+    maximum, and what the choice of ramp rates allows a model to
+    estimate.
+3.  *Comparing and averaging models*
+    ([`vignette("comparing-and-averaging-models", package = "rTFT")`](https://eogmartins.github.io/rTFT/articles/comparing-and-averaging-models.md)):
+    cross-validation by individual or trial, model weights and averaged
+    predictions.
+4.  *Temperature and a co-stressor*
+    ([`vignette("temperature-and-a-co-stressor", package = "rTFT")`](https://eogmartins.github.io/rTFT/articles/temperature-and-a-co-stressor.md)):
+    dissolved oxygen as a second stressor, with and without an
+    interaction with temperature.
+
+## Getting help
+
+Problems and suggestions can be reported at
+<https://github.com/eogmartins/rTFT/issues>.
+
+## Citation
+
+If you use the package, please cite it as:
+
+> Martins, E. G. (2026). rTFT: hazard models for thermal failure time
+> data. R package version 0.1.0. <https://github.com/eogmartins/rTFT>
+
+The same reference is given by `citation("rTFT")`.
+
+## Use of generative AI
+
+The code, tests and documentation of this package were drafted with the
+assistance of Claude (Anthropic), used through Claude Code (models Opus
+4.8–5.5 and Fable 5.1). The author specified the models, their
+parameterisation and the quantities derived from them, reviewed each
+function and its tests before they entered the package, and takes
+responsibility for its content.
+
+## Licence
+
+The package is released under the MIT licence (see `LICENSE.md`). As
+that licence states, the software is provided “as is”, without warranty
+of any kind.
+
+# Package index
+
+## Fitting
+
+Building the table of intervals at risk from the failure times and the
+temperature of each trial, and fitting the model.
+
+- [`build_hazard_data()`](https://eogmartins.github.io/rTFT/reference/build_hazard_data.md)
+  : Build the row-per-interval table a failure-rate model is fitted to
+- [`ramp_path()`](https://eogmartins.github.io/rTFT/reference/ramp_path.md)
+  : Build a linear ramp temperature trajectory
+- [`assess_ramp_linearity()`](https://eogmartins.github.io/rTFT/reference/assess_ramp_linearity.md)
+  : Assess how linear a logged temperature trace is
+- [`fit_hazard()`](https://eogmartins.github.io/rTFT/reference/fit_hazard.md)
+  : Fit a failure-rate hazard model with brms
+- [`costressor()`](https://eogmartins.github.io/rTFT/reference/costressor.md)
+  : Declare a co-stressor for a failure-rate hazard model
+- [`build_hazard_prior()`](https://eogmartins.github.io/rTFT/reference/build_hazard_prior.md)
+  : Weakly-informative default priors for a failure-rate hazard model
+- [`M_catalogue`](https://eogmartins.github.io/rTFT/reference/M_catalogue.md)
+  : Failure rate functions M(T)
+- [`h0_catalogue`](https://eogmartins.github.io/rTFT/reference/h0_catalogue.md)
+  : Baseline hazard functions h0(tau)
+
+## Checking a fitted model
+
+- [`check_survival()`](https://eogmartins.github.io/rTFT/reference/check_survival.md)
+  : Check a fitted model against the survival observed in each group
+- [`plot_check()`](https://eogmartins.github.io/rTFT/reference/plot_check.md)
+  : Plot the check of a fitted model against observed survival
+- [`hazard_residuals()`](https://eogmartins.github.io/rTFT/reference/hazard_residuals.md)
+  : Residuals of a fitted model, one per individual
+- [`plot_residuals()`](https://eogmartins.github.io/rTFT/reference/plot_residuals.md)
+  : Plot the residuals of a fitted model
+
+## Derived quantities
+
+Critical thermal maxima, thermal death time curves and thermal tolerance
+landscapes, each with its posterior uncertainty.
+
+- [`derive_tdt_ttl()`](https://eogmartins.github.io/rTFT/reference/derive_tdt_ttl.md)
+  : Thermal tolerance derived from a fitted failure-rate model
+- [`derive_dctmax()`](https://eogmartins.github.io/rTFT/reference/derive_dctmax.md)
+  : Dynamic critical thermal maximum under a ramp, from a fitted model
+- [`plot_tdt()`](https://eogmartins.github.io/rTFT/reference/plot_tdt.md)
+  : Plot the thermal death time curves
+- [`plot_ttl()`](https://eogmartins.github.io/rTFT/reference/plot_ttl.md)
+  : Plot the thermal tolerance landscape
+- [`plot_ttl_3d()`](https://eogmartins.github.io/rTFT/reference/plot_ttl_3d.md)
+  : Plot the thermal tolerance landscape as a surface to rotate
+- [`M_draws()`](https://eogmartins.github.io/rTFT/reference/M_draws.md)
+  : The fitted failure rate over temperature, for each posterior draw
+
+## Comparing and averaging models
+
+- [`loo_hazard()`](https://eogmartins.github.io/rTFT/reference/loo_hazard.md)
+  : Leave-one-out cross-validation that leaves out whole individuals or
+  groups
+- [`kfold_hazard()`](https://eogmartins.github.io/rTFT/reference/kfold_hazard.md)
+  : Cross-validation by refitting, leaving out whole individuals or
+  groups
+- [`hazard_weights()`](https://eogmartins.github.io/rTFT/reference/hazard_weights.md)
+  : Weights for averaging failure-rate models
+- [`average_tdt_ttl()`](https://eogmartins.github.io/rTFT/reference/average_tdt_ttl.md)
+  : Thermal tolerance averaged over several fitted models
+- [`average_dctmax()`](https://eogmartins.github.io/rTFT/reference/average_dctmax.md)
+  : Dynamic critical thermal maximum averaged over several fitted models
+- [`average_survival()`](https://eogmartins.github.io/rTFT/reference/average_survival.md)
+  : Survival along a record of temperature, averaged over several fitted
+  models
+
+## Predicting survival
+
+- [`predict_survival()`](https://eogmartins.github.io/rTFT/reference/predict_survival.md)
+  : Survival along a record of temperature, from a fitted failure-rate
+  model
+- [`plot_survival()`](https://eogmartins.github.io/rTFT/reference/plot_survival.md)
+  : Plot survival along a record of temperature
+- [`plot_risk()`](https://eogmartins.github.io/rTFT/reference/plot_risk.md)
+  : Plot each period's share of the risk along a record
+
+## Data
+
+Simulated datasets used in the help pages and the vignettes.
+
+- [`static_assay`](https://eogmartins.github.io/rTFT/reference/static_assay.md)
+  : A simulated static assay of thermal tolerance
+- [`ramp_assay`](https://eogmartins.github.io/rTFT/reference/ramp_assay.md)
+  : A simulated ramping assay of thermal tolerance, with two levels of
+  oxygen
+- [`stream_record`](https://eogmartins.github.io/rTFT/reference/stream_record.md)
+  : A simulated record of stream temperature
+
+## Building blocks
+
+The pieces that
+[`fit_hazard()`](https://eogmartins.github.io/rTFT/reference/fit_hazard.md)
+and the derived quantities are assembled from. Most analyses do not call
+them directly.
+
+- [`build_hazard_spec()`](https://eogmartins.github.io/rTFT/reference/build_hazard_spec.md)
+  : Assemble the brms formula and family for a failure-rate hazard model
+- [`brms_log_M`](https://eogmartins.github.io/rTFT/reference/brms_log_M.md)
+  : log M(T) for each failure rate function, as a brms expression string
+- [`brms_log_h0`](https://eogmartins.github.io/rTFT/reference/brms_log_h0.md)
+  : log h0(tau) for each baseline function, as a brms expression string
+- [`H0_of()`](https://eogmartins.github.io/rTFT/reference/H0_of.md) :
+  The cumulative baseline hazard of a given shape
+- [`H0inv_of()`](https://eogmartins.github.io/rTFT/reference/H0inv_of.md)
+  : The inverse of the cumulative baseline hazard
+- [`cloglog_bern_family()`](https://eogmartins.github.io/rTFT/reference/cloglog_bern_family.md)
+  : Complementary log-log Bernoulli response, on the identity link
+- [`hazard_mixed_family()`](https://eogmartins.github.io/rTFT/reference/hazard_mixed_family.md)
+  : Response distribution for a table mixing interval-censored and
+  known-time failures
+
+## The package
+
+- [`rTFT`](https://eogmartins.github.io/rTFT/reference/rTFT-package.md)
+  [`rTFT-package`](https://eogmartins.github.io/rTFT/reference/rTFT-package.md)
+  : rTFT: Hazard Models for Thermal Failure Time Data
+
+# Articles
+
+### Vignettes
+
+Best read in this order.
+
+- [Getting started with
+  rTFT](https://eogmartins.github.io/rTFT/articles/getting-started.md):
+- [Ramping
+  assays](https://eogmartins.github.io/rTFT/articles/ramping-assays.md):
+- [Comparing and averaging
+  models](https://eogmartins.github.io/rTFT/articles/comparing-and-averaging-models.md):
+- [Temperature and a
+  co-stressor](https://eogmartins.github.io/rTFT/articles/temperature-and-a-co-stressor.md):

@@ -1,0 +1,12 @@
+pandoc: 3.8.3
+pkgdown: 2.2.1
+pkgdown_sha: ~
+articles:
+  comparing-and-averaging-models: comparing-and-averaging-models.html
+  getting-started: getting-started.html
+  ramping-assays: ramping-assays.html
+  temperature-and-a-co-stressor: temperature-and-a-co-stressor.html
+last_built: 2026-10-10T19:21Z
+urls:
+  reference: https://eogmartins.github.io/rTFT/reference
+  article: https://eogmartins.github.io/rTFT/articles

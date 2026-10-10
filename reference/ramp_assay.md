@@ -1,0 +1,134 @@
+# A simulated ramping assay of thermal tolerance, with two levels of oxygen
+
+Times to loss of equilibrium of 320 juvenile salmonids warmed from 14
+degrees C at a constant rate until they failed or the water reached 29.5
+degrees C, simulated from a known model. The fish were run in 32 trials
+of ten. Four ramp rates (0.025, 0.1, 0.2 and 0.3 degrees C per minute)
+are crossed with two levels of dissolved oxygen (10 and 5 mg/L), four
+trials of each combination. The fish were watched throughout, so each
+time of failure is known exactly.
+
+## Usage
+
+``` r
+ramp_assay
+```
+
+## Format
+
+A tibble with 320 rows, one per fish, and 8 columns:
+
+- id:
+
+  Integer, the fish.
+
+- trial:
+
+  Character, the trial the fish was in (`"R01"` to `"R32"`).
+
+- path_id:
+
+  Character, the ramp (`"r0.025"`, `"r0.1"`, `"r0.2"`, `"r0.3"`), the
+  key to its temperature trajectory.
+
+- rate:
+
+  Numeric, the ramp rate, degrees C per minute.
+
+- do:
+
+  Numeric, dissolved oxygen in the trial, mg/L (10 or 5).
+
+- mass:
+
+  Numeric, body mass, g.
+
+- event:
+
+  Integer, 1 if the fish lost equilibrium, 0 if it survived to the end
+  of the ramp.
+
+- t_event:
+
+  Numeric, the time of failure, or of the end of the ramp for a
+  survivor, minutes from its start.
+
+## Source
+
+Simulated by `data-raw/make-example-data.R` in the package's repository.
+
+## Details
+
+The slow rate allows the same data to show what the choice of ramp rates
+lets a model estimate: the three faster rates span 3-fold, and the rates
+of 0.025, 0.1 and 0.3 span 12-fold (see the vignette *Ramping assays*).
+
+The data are simulated, not measured. The values are plausible for a
+juvenile rainbow trout acclimated to 14 degrees C, and stand for no
+particular study.
+
+## The model the data were simulated from
+
+The hazard of losing equilibrium is h0(tau) M(T), with an exponential
+failure rate M(T) = a exp(b (T - 26)) and a Weibull baseline h0(tau) =
+(k / s) (tau / s)^(k - 1), with times in minutes. The values, stored as
+`attr(ramp_assay, "truth")`, are b = 1.7 per degree C, k = 1.5, s = 60
+minutes, and log a = -2.13 at 26 degrees C for a 15 g fish in normoxia.
+log a varies among trials with a standard deviation of 0.3 and rises by
+0.03 per gram of body mass. At a constant temperature half the fish then
+fail in about 1 hour at 27 degrees C, 10 hours at 25 and 4 days at 23.
+[static_assay](https://eogmartins.github.io/rTFT/reference/static_assay.md)
+was simulated from the same model.
+
+Low dissolved oxygen raises the failure rate, and the more so the warmer
+the water: each mg/L of oxygen below 10 adds 0.3 + 0.04 (T - 26) to log
+M(T). The effect is 0.3 per mg/L at 26 degrees C and changes by 0.04 for
+each degree (0.38 at 28 degrees C, 0.22 at 24), which is the form that
+the interaction of a co-stressor with temperature fits (see
+[`costressor()`](https://eogmartins.github.io/rTFT/reference/costressor.md)).
+The two values are stored as `b_do` and `d_do`.
+
+## See also
+
+[static_assay](https://eogmartins.github.io/rTFT/reference/static_assay.md),
+[stream_record](https://eogmartins.github.io/rTFT/reference/stream_record.md)
+
+## Examples
+
+``` r
+head(ramp_assay)
+#> # A tibble: 6 × 8
+#>      id trial path_id  rate    do  mass event t_event
+#>   <int> <chr> <chr>   <dbl> <dbl> <dbl> <int>   <dbl>
+#> 1     1 R01   r0.1      0.1    10  10.2     1    136.
+#> 2     2 R01   r0.1      0.1    10  18.3     1    133.
+#> 3     3 R01   r0.1      0.1    10  15.2     1    132 
+#> 4     4 R01   r0.1      0.1    10  26.3     1    130.
+#> 5     5 R01   r0.1      0.1    10  23.8     1    125.
+#> 6     6 R01   r0.1      0.1    10  18.6     1    132.
+
+# The four ramps, from 14 to 29.5 degrees C.
+rates <- c(0.025, 0.1, 0.2, 0.3)
+path  <- ramp_path(c("r0.025", "r0.1", "r0.2", "r0.3"), T_start = 14, rate = rates,
+                   t_max = 15.5 / rates)
+# No grid is given: the intervals follow the ramp in steps of 0.1 degrees C.
+long  <- build_hazard_data(ramp_assay, path, "continuous",
+                           covariates = c("mass", "do", "trial"))
+#> ℹ The intervals at risk were divided further, into 43406 rows from 325, so that
+#>   temperature changes by at most 0.1 degrees within each.
+#> ℹ The hazard is taken as constant within an interval, which biases the fit when
+#>   temperature changes much within it. Failures at a known time are also given a
+#>   short closing interval, so their hazard is that of the moment of failure.
+#> ℹ Set `grid_dT` to change the step, or to `Inf` to keep the intervals as given.
+head(long)
+#> # A tibble: 6 × 13
+#>      id  mass    do trial path_id   tau exposure    Ta failed    Tr log_tau
+#>   <int> <dbl> <dbl> <chr> <chr>   <dbl>    <dbl> <dbl>  <int> <dbl>   <dbl>
+#> 1     1  10.2    10 R01   r0.1    0.500    0.999  14.0      0  27.5  -0.694
+#> 2     1  10.2    10 R01   r0.1    1.50     0.999  14.1      0  27.5   0.405
+#> 3     1  10.2    10 R01   r0.1    2.50     0.999  14.2      0  27.5   0.916
+#> 4     1  10.2    10 R01   r0.1    3.50     0.999  14.3      0  27.5   1.25 
+#> 5     1  10.2    10 R01   r0.1    4.50     0.999  14.4      0  27.5   1.50 
+#> 6     1  10.2    10 R01   r0.1    5.50     0.999  14.5      0  27.5   1.70 
+#> # ℹ 2 more variables: tau_ref <dbl>, log_exposure <dbl>
+```

@@ -1,0 +1,338 @@
+# Build the row-per-interval table a failure-rate model is fitted to
+
+Reshapes one row per individual, together with a temperature trajectory,
+into one row per individual and at-risk interval. An interval-censored
+failure gives the failure its whole censoring interval; a known-time one
+truncates the final at-risk interval at the recorded time. The
+cumulative hazard is integrated numerically over the at-risk intervals,
+with the failure-check times serving as the integration nodes. For a
+known-time failure, the fit integrates on the checks (its final interval
+ending exactly at the failure time) and no finer sub-grid is required
+but can be provided.
+
+## Usage
+
+``` r
+build_hazard_data(
+  ind,
+  path,
+  observation = c("interval", "continuous", "mixed"),
+  covariates = character(0),
+  Tr = NULL,
+  tau_ref = NULL,
+  checks = NULL,
+  grid_dt = NULL,
+  grid_dT = 0.1,
+  costressors = list()
+)
+```
+
+## Arguments
+
+- ind:
+
+  A data frame with one row per individual. Required: `id`, `path_id`
+  (key into `path`), `event` (1 = failed, 0 = right-censored), plus the
+  covariate columns referenced in the model. Timing depends on how the
+  failure was observed: interval-censored individuals have `t_upper`
+  (the check at which failure was found, or a survivor's last observed
+  check); known-time ones have `t_event` (the exact failure or censoring
+  time). For `observation = "mixed"` the data also needs an `obs_type`
+  column per individual (`"interval"` or `"continuous"`), and each type
+  supplies its own timing column.
+
+- path:
+
+  A data frame giving the temperature trajectory for each path. Required
+  columns: `path_id`, `time`, `temp`. The function interpolates these
+  points linearly in time, so a minimal two-point path (start and end)
+  encodes a linear ramp. Interpolation uses the full series, so a
+  temperature data logger whose records are finer than the checks still
+  supplies the true temperature at each interval midpoint (never a
+  check-to-check straight line); the checks control only the integration
+  grid, not the temperature. Temperatures outside the recorded time
+  range are held flat at the nearest endpoint rather than returned as
+  `NA`, because the at-risk grid (the checks, the exact failure time,
+  and the `t = 0` start) need not sit strictly inside the logged times:
+  a check or failure time can fall just past the last reading, or the
+  first interval can begin before the first reading, and an `NA`
+  temperature there would propagate into `Ta` and the linear predictor.
+
+- observation:
+
+  How each failure time was observed. One of `"interval"` (every failure
+  known only to fall within a censoring interval), `"continuous"` (every
+  failure time known exactly), or `"mixed"` (both kinds in one table,
+  each individual's kind given by its `obs_type` column). This
+  determines which response family the table is fitted with, and whether
+  the `exact` flag is added; the response column is `failed` in every
+  mode.
+
+- covariates:
+
+  A character vector of column names in `ind` to carry through onto
+  every row of the output table, so they are available in the model
+  formula as fixed-effect predictors or as grouping factors for random
+  effects. A trial identifier is the common case: include it here, then
+  place a trial-level random intercept on a parameter in
+  [build_hazard_spec](https://eogmartins.github.io/rTFT/reference/build_hazard_spec.md),
+  e.g. `dpar_formulas = list(loga = ~ 1 + (1 | trial))`. The individual
+  identifier `id` is always kept, so an individual-level grouping term
+  needs no entry here.
+
+- Tr:
+
+  The reference temperature, written to a constant `Tr` column so the
+  functions can form `Ta - Tr`. It is a single model reference, not the
+  per-trial starting temperature (see
+  [M_catalogue](https://eogmartins.github.io/rTFT/reference/M_catalogue.md));
+  the per-trial starts live in the temperature trajectories (`path`).
+  For the forms that take a logarithm or fractional power of `Ta - Tr`
+  (`zeroexp`, `power`, `zeropower`) it is the temperature at which the
+  rate is zero (or, for `power`, falls to its baseline), so it must be
+  given, at or below the coldest temperature in the data. Otherwise it
+  defaults (`NULL`) to the median temperature at which failures were
+  observed, which places `loga` where the data are and keeps it from
+  being tied to the thermal sensitivity b; a reference far from the
+  failures makes the two hard to tell apart. It must be set to a common
+  value across datasets when comparing `loga`, whose meaning is anchored
+  at `Tr`.
+
+- tau_ref:
+
+  A single positive number, the reference time, in the time unit of the
+  data, written to a constant `tau_ref` column. The scale of the
+  `weibull` baseline is fixed at it (see
+  [h0_catalogue](https://eogmartins.github.io/rTFT/reference/h0_catalogue.md)),
+  and the default priors of the parameters that depend on the time unit
+  are scaled by it (see
+  [build_hazard_prior](https://eogmartins.github.io/rTFT/reference/build_hazard_prior.md)).
+  It defaults (`NULL`) to the median time at which failures were
+  observed, which places `loga` where the data are, as the default `Tr`
+  does. A reference time much longer than the times at which individuals
+  fail makes `loga` an extrapolation in time that depends heavily on the
+  shape of the baseline. Like `Tr`, set it to a common value across
+  datasets when comparing `loga` under a `weibull` baseline, whose
+  meaning is anchored at it.
+
+- checks:
+
+  An optional data frame with `path_id`, `time` giving the failure-check
+  schedule per path (i.e., the times at which each individual was
+  inspected for failure). Defaults to the distinct `path` times (logger
+  reading = check). As noted above, these times double as the
+  integration nodes for the cumulative hazard, so their spacing sets the
+  midpoint-rule resolution. For a known-time failure, a regular grid can
+  be used instead (see `grid_dt`).
+
+- grid_dt:
+
+  An optional numeric giving a fixed time step (in the units of
+  `path$time`). If set, a known-time failure is followed on a regular
+  grid of this step, from `t = 0` to the failure time, instead of on
+  `checks`. Defaults to `NULL` (the checks, or the readings of `path`).
+  Either way the intervals are divided further where `grid_dT` requires
+  it.
+
+- grid_dT:
+
+  A single positive number, the largest change in temperature allowed
+  within an interval at risk, in degrees. An interval over which
+  temperature changes by more is divided into equal parts (see *The time
+  grid*). Defaults to 0.1; `Inf` keeps the intervals as given.
+
+- costressors:
+
+  An optional list of
+  [costressor](https://eogmartins.github.io/rTFT/reference/costressor.md)
+  objects declaring non-temperature stressors (dissolved oxygen and the
+  like). Each adds a standardised column `z_<name>`, read from its own
+  trajectory (interpolated to the interval midpoints) or, for a stressor
+  held fixed within a trial, from a column of `ind`. Defaults to none.
+
+## Value
+
+A long-format data frame, one row per individual and at-risk interval,
+holding the identifiers `id` and `path_id`; the model columns `Ta`,
+`Tr`, `tau`, `log_tau`, `tau_ref`, `exposure`, `log_exposure`; the
+carried covariates; one `z_<name>` column per co-stressor; the 0/1
+response column `failed`; and, for mixed observation, the integer
+`exact` flag the family branches on.
+
+## The time grid
+
+Within each interval at risk the hazard is taken as constant, at its
+value at the midpoint of the interval. That is accurate while
+temperature changes little within the interval, and biases the fit when
+it changes much, as in a ramp with widely spaced checks, because the
+failure rate rises steeply with temperature. With a thermal sensitivity
+of b = 1.7 per degree, for example, the rate is exp(1.7 x 0.1) = 1.19
+times higher at the end of an interval that spans 0.1 degrees than at
+its start, and exp(1.7 x 0.5) = 2.3 times higher across one that spans
+half a degree. So any interval over which temperature changes by more
+than `grid_dT` is divided into equal parts, each with its own row, and a
+message says how many rows resulted.
+
+Two cases are treated apart. A failure at a known time needs the hazard
+at the moment it happened, and the midpoint of the interval it fell in
+is earlier and, in a ramp, cooler; so that interval is closed with a
+very short one ending at the failure. A failure known only to the
+interval between two checks keeps that interval whole, since where in it
+the individual failed is not known, and its contribution is the
+probability of failing anywhere in it. A warning is given when
+temperature changes by more than half a degree within such an interval,
+so that the estimates can be interpreted with that in mind.
+
+When neither `checks` nor `grid_dt` is given for failures at known
+times, the intervals are those between the readings of `path`, divided
+as above, and into at least 20 per individual, so that a trajectory
+given by its two ends is still followed closely.
+
+## Examples
+
+``` r
+# A single linear ramp encoded as two points: 20 -> 35 degrees over 60 minutes,
+# with failure checked for every 10 minutes.
+path   <- data.frame(path_id = "A", time = c(0, 60), temp = c(20, 35))
+checks <- data.frame(path_id = "A", time = seq(0, 60, by = 10))
+
+# Interval-censored: one failure found at the 30-minute check, one survivor.
+ind <- data.frame(id = 1:2, path_id = "A", event = c(1, 0), t_upper = c(30, 60))
+build_hazard_data(ind, path, "interval", checks = checks)
+#> ℹ The intervals at risk were divided further, into 201 rows from 9, so that
+#>   temperature changes by at most 0.1 degrees within each.
+#> ℹ The hazard is taken as constant within an interval, which biases the fit when
+#>   temperature changes much within it. Failures at a known time are also given a
+#>   short closing interval, so their hazard is that of the moment of failure.
+#> ℹ Set `grid_dT` to change the step, or to `Inf` to keep the intervals as given.
+#> Warning: ! For 1 individual, temperature changes by up to 2.5 degrees within the
+#>   interval in which failure was found.
+#> ℹ That interval cannot be divided, since where in it the individual failed is
+#>   not known, and the hazard is taken at its midpoint, so the estimates may be
+#>   somewhat biased.
+#> # A tibble: 201 × 10
+#>       id path_id   tau exposure    Ta failed    Tr log_tau tau_ref log_exposure
+#>    <int> <chr>   <dbl>    <dbl> <dbl>  <int> <dbl>   <dbl>   <dbl>        <dbl>
+#>  1     1 A         0.2    0.4    20.0      0  26.2  -1.61       30       -0.916
+#>  2     1 A         0.6    0.4    20.2      0  26.2  -0.511      30       -0.916
+#>  3     1 A         1      0.4    20.2      0  26.2   0          30       -0.916
+#>  4     1 A         1.4    0.4    20.4      0  26.2   0.336      30       -0.916
+#>  5     1 A         1.8    0.4    20.4      0  26.2   0.588      30       -0.916
+#>  6     1 A         2.2    0.400  20.6      0  26.2   0.788      30       -0.916
+#>  7     1 A         2.6    0.4    20.6      0  26.2   0.956      30       -0.916
+#>  8     1 A         3      0.4    20.8      0  26.2   1.10       30       -0.916
+#>  9     1 A         3.4    0.4    20.8      0  26.2   1.22       30       -0.916
+#> 10     1 A         3.8    0.4    21.0      0  26.2   1.34       30       -0.916
+#> # ℹ 191 more rows
+
+# Known-time: the exact failure time, integrated on the same checks.
+ind_c <- data.frame(id = 1, path_id = "A", event = 1, t_event = 42)
+build_hazard_data(ind_c, path, "continuous", checks = checks)
+#> ℹ The intervals at risk were divided further, into 106 rows from 5, so that
+#>   temperature changes by at most 0.1 degrees within each.
+#> ℹ The hazard is taken as constant within an interval, which biases the fit when
+#>   temperature changes much within it. Failures at a known time are also given a
+#>   short closing interval, so their hazard is that of the moment of failure.
+#> ℹ Set `grid_dT` to change the step, or to `Inf` to keep the intervals as given.
+#> # A tibble: 106 × 10
+#>       id path_id   tau exposure    Ta failed    Tr log_tau tau_ref log_exposure
+#>    <dbl> <chr>   <dbl>    <dbl> <dbl>  <int> <dbl>   <dbl>   <dbl>        <dbl>
+#>  1     1 A         0.2    0.4    20.0      0  30.5  -1.61       42       -0.916
+#>  2     1 A         0.6    0.4    20.2      0  30.5  -0.511      42       -0.916
+#>  3     1 A         1      0.4    20.2      0  30.5   0          42       -0.916
+#>  4     1 A         1.4    0.4    20.4      0  30.5   0.336      42       -0.916
+#>  5     1 A         1.8    0.4    20.4      0  30.5   0.588      42       -0.916
+#>  6     1 A         2.2    0.400  20.6      0  30.5   0.788      42       -0.916
+#>  7     1 A         2.6    0.4    20.6      0  30.5   0.956      42       -0.916
+#>  8     1 A         3      0.4    20.8      0  30.5   1.10       42       -0.916
+#>  9     1 A         3.4    0.4    20.8      0  30.5   1.22       42       -0.916
+#> 10     1 A         3.8    0.4    21.0      0  30.5   1.34       42       -0.916
+#> # ℹ 96 more rows
+
+# A finer, regular integration grid instead of the checks (known-time only);
+# the last interval still closes exactly on the failure time.
+build_hazard_data(ind_c, path, "continuous", grid_dt = 5)
+#> ℹ The intervals at risk were divided further, into 110 rows from 9, so that
+#>   temperature changes by at most 0.1 degrees within each.
+#> ℹ The hazard is taken as constant within an interval, which biases the fit when
+#>   temperature changes much within it. Failures at a known time are also given a
+#>   short closing interval, so their hazard is that of the moment of failure.
+#> ℹ Set `grid_dT` to change the step, or to `Inf` to keep the intervals as given.
+#> # A tibble: 110 × 10
+#>       id path_id   tau exposure    Ta failed    Tr log_tau tau_ref log_exposure
+#>    <dbl> <chr>   <dbl>    <dbl> <dbl>  <int> <dbl>   <dbl>   <dbl>        <dbl>
+#>  1     1 A       0.192    0.385  20.0      0  30.5 -1.65        42       -0.956
+#>  2     1 A       0.577    0.385  20.1      0  30.5 -0.550       42       -0.956
+#>  3     1 A       0.962    0.385  20.2      0  30.5 -0.0392      42       -0.956
+#>  4     1 A       1.35     0.385  20.3      0  30.5  0.297       42       -0.956
+#>  5     1 A       1.73     0.385  20.4      0  30.5  0.549       42       -0.956
+#>  6     1 A       2.12     0.385  20.5      0  30.5  0.749       42       -0.956
+#>  7     1 A       2.5      0.385  20.6      0  30.5  0.916       42       -0.956
+#>  8     1 A       2.88     0.385  20.7      0  30.5  1.06        42       -0.956
+#>  9     1 A       3.27     0.385  20.8      0  30.5  1.18        42       -0.956
+#> 10     1 A       3.65     0.385  20.9      0  30.5  1.30        42       -0.956
+#> # ℹ 100 more rows
+
+# Mixed: each individual carries its kind in obs_type; the unused timing
+# column is left NA.
+ind_m <- data.frame(id = 1:2, path_id = "A", event = 1,
+                    obs_type = c("interval", "continuous"),
+                    t_upper = c(30, NA), t_event = c(NA, 42))
+build_hazard_data(ind_m, path, "mixed", checks = checks)
+#> ℹ The intervals at risk were divided further, into 157 rows from 8, so that
+#>   temperature changes by at most 0.1 degrees within each.
+#> ℹ The hazard is taken as constant within an interval, which biases the fit when
+#>   temperature changes much within it. Failures at a known time are also given a
+#>   short closing interval, so their hazard is that of the moment of failure.
+#> ℹ Set `grid_dT` to change the step, or to `Inf` to keep the intervals as given.
+#> Warning: ! For 1 individual, temperature changes by up to 2.5 degrees within the
+#>   interval in which failure was found.
+#> ℹ That interval cannot be divided, since where in it the individual failed is
+#>   not known, and the hazard is taken at its midpoint, so the estimates may be
+#>   somewhat biased.
+#> # A tibble: 157 × 11
+#>       id path_id   tau exposure    Ta failed exact    Tr log_tau tau_ref
+#>    <int> <chr>   <dbl>    <dbl> <dbl>  <int> <int> <dbl>   <dbl>   <dbl>
+#>  1     1 A         0.2    0.4    20.0      0     0  28.4  -1.61       36
+#>  2     1 A         0.6    0.4    20.2      0     0  28.4  -0.511      36
+#>  3     1 A         1      0.4    20.2      0     0  28.4   0          36
+#>  4     1 A         1.4    0.4    20.4      0     0  28.4   0.336      36
+#>  5     1 A         1.8    0.4    20.4      0     0  28.4   0.588      36
+#>  6     1 A         2.2    0.400  20.6      0     0  28.4   0.788      36
+#>  7     1 A         2.6    0.4    20.6      0     0  28.4   0.956      36
+#>  8     1 A         3      0.4    20.8      0     0  28.4   1.10       36
+#>  9     1 A         3.4    0.4    20.8      0     0  28.4   1.22       36
+#> 10     1 A         3.8    0.4    21.0      0     0  28.4   1.34       36
+#> # ℹ 147 more rows
+#> # ℹ 1 more variable: log_exposure <dbl>
+
+# A covariate carried through to every row, and a shared reference Tr.
+ind$mass <- c(12.1, 9.8)
+build_hazard_data(ind, path, "interval", covariates = "mass", Tr = 15, checks = checks)
+#> ℹ The intervals at risk were divided further, into 201 rows from 9, so that
+#>   temperature changes by at most 0.1 degrees within each.
+#> ℹ The hazard is taken as constant within an interval, which biases the fit when
+#>   temperature changes much within it. Failures at a known time are also given a
+#>   short closing interval, so their hazard is that of the moment of failure.
+#> ℹ Set `grid_dT` to change the step, or to `Inf` to keep the intervals as given.
+#> Warning: ! For 1 individual, temperature changes by up to 2.5 degrees within the
+#>   interval in which failure was found.
+#> ℹ That interval cannot be divided, since where in it the individual failed is
+#>   not known, and the hazard is taken at its midpoint, so the estimates may be
+#>   somewhat biased.
+#> # A tibble: 201 × 11
+#>       id  mass path_id   tau exposure    Ta failed    Tr log_tau tau_ref
+#>    <int> <dbl> <chr>   <dbl>    <dbl> <dbl>  <int> <dbl>   <dbl>   <dbl>
+#>  1     1  12.1 A         0.2    0.4    20.0      0    15  -1.61       30
+#>  2     1  12.1 A         0.6    0.4    20.2      0    15  -0.511      30
+#>  3     1  12.1 A         1      0.4    20.2      0    15   0          30
+#>  4     1  12.1 A         1.4    0.4    20.4      0    15   0.336      30
+#>  5     1  12.1 A         1.8    0.4    20.4      0    15   0.588      30
+#>  6     1  12.1 A         2.2    0.400  20.6      0    15   0.788      30
+#>  7     1  12.1 A         2.6    0.4    20.6      0    15   0.956      30
+#>  8     1  12.1 A         3      0.4    20.8      0    15   1.10       30
+#>  9     1  12.1 A         3.4    0.4    20.8      0    15   1.22       30
+#> 10     1  12.1 A         3.8    0.4    21.0      0    15   1.34       30
+#> # ℹ 191 more rows
+#> # ℹ 1 more variable: log_exposure <dbl>
+```
