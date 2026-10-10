@@ -8,11 +8,12 @@
 \description{
 \if{html}{\figure{logo.png}{options: style='float: right' alt='logo' width='120'}}
 
-Fits discrete-time survival models to the times at which individual organisms fail under thermal exposure (e.g., loss of equilibrium, knockdown or death), using Bayesian inference in 'Stan' through 'brms'. The hazard is the product of a failure rate that depends on temperature, following Kingsolver and Umbanhowar (2018) \doi{10.1242/jeb.167858}, and a baseline that may depend on the time under exposure. Failure times may be exact or interval-censored (or a mix of both) and come from static or ramping assays (or a mix of both), and the failure rate may depend on covariates, group-level effects and other stressors such as dissolved oxygen. Static and dynamic critical thermal maxima, thermal death time curves and thermal tolerance landscapes are derived from the fitted model with their posterior uncertainty. Models can be compared by cross-validation that leaves out whole individuals or trials, averaged, and used to predict survival along a record of temperature and of any co-stressors recorded with it.
+Fits discrete-time survival models to the times at which individual organisms fail under thermal exposure (e.g., loss of equilibrium, knockdown or death), using Bayesian inference in 'Stan' through 'brms'. The hazard is the product of a failure rate that depends on temperature, following Kingsolver and Umbanhowar (2018) \doi{10.1242/jeb.167858}, and a baseline that may depend on the time under exposure. Failure times may be exact, interval-censored or both, and may come from static assays, ramping assays or both. The failure rate may depend on covariates, group-level effects and other stressors such as dissolved oxygen. Static and dynamic critical thermal maxima, thermal death time curves and thermal tolerance landscapes are derived from the fitted model with their posterior uncertainty. Models can be compared by cross-validation that leaves out whole individuals or trials, averaged, and used to predict survival along a record of temperature and of any co-stressors recorded with it.
 }
 \seealso{
 Useful links:
 \itemize{
+  \item \url{https://eogmartins.github.io/rTFT/}
   \item \url{https://github.com/eogmartins/rTFT}
   \item Report bugs at \url{https://github.com/eogmartins/rTFT/issues}
 }

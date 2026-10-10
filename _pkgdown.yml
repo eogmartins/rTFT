@@ -1,0 +1,94 @@
+url: https://eogmartins.github.io/rTFT/
+
+template:
+  bootstrap: 5
+  bslib:
+    primary: "#1D3F6E"
+  opengraph:
+    image:
+      src: man/figures/card.png
+      alt: "The rTFT hex sticker beside the title of the package"
+
+navbar:
+  structure:
+    left: [intro, articles, reference, news]
+    right: [search, github]
+
+articles:
+- title: Vignettes
+  navbar: ~
+  desc: Best read in this order.
+  contents:
+  - getting-started
+  - ramping-assays
+  - comparing-and-averaging-models
+  - temperature-and-a-co-stressor
+
+reference:
+- title: Fitting
+  desc: >
+    Building the table of intervals at risk from the failure times and the
+    temperature of each trial, and fitting the model.
+  contents:
+  - build_hazard_data
+  - ramp_path
+  - assess_ramp_linearity
+  - fit_hazard
+  - costressor
+  - build_hazard_prior
+  - M_catalogue
+  - h0_catalogue
+- title: Checking a fitted model
+  contents:
+  - check_survival
+  - plot_check
+  - hazard_residuals
+  - plot_residuals
+- title: Derived quantities
+  desc: >
+    Critical thermal maxima, thermal death time curves and thermal tolerance
+    landscapes, each with its posterior uncertainty.
+  contents:
+  - derive_tdt_ttl
+  - derive_dctmax
+  - plot_tdt
+  - plot_ttl
+  - plot_ttl_3d
+  - M_draws
+- title: Comparing and averaging models
+  contents:
+  - loo_hazard
+  - kfold_hazard
+  - hazard_weights
+  - average_tdt_ttl
+  - average_dctmax
+  - average_survival
+- title: Predicting survival
+  contents:
+  - predict_survival
+  - plot_survival
+  - plot_risk
+- title: Data
+  desc: Simulated datasets used in the help pages and the vignettes.
+  contents:
+  - static_assay
+  - ramp_assay
+  - stream_record
+- title: Building blocks
+  desc: >
+    The pieces that `fit_hazard()` and the derived quantities are assembled from.
+    Most analyses do not call them directly.
+  contents:
+  - build_hazard_spec
+  - brms_log_M
+  - brms_log_h0
+  - H0_of
+  - H0inv_of
+  - cloglog_bern_family
+  - hazard_mixed_family
+  - starts_with("log_lik_")
+  - starts_with("posterior_epred_")
+  - starts_with("posterior_predict_")
+- title: The package
+  contents:
+  - rTFT-package

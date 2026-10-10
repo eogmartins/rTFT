@@ -15,3 +15,6 @@ Rplots\.pdf
 ^vignettes/_precompute\.R$
 ^vignettes/.*\.html$
 ^vignettes/.*_files$
+^_pkgdown\.yml$
+^docs$
+^pkgdown$

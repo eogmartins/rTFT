@@ -22,9 +22,9 @@ from the fitted model, each with its posterior uncertainty.
 
 With the package, one can:
 
-- fit failure times that are exact or interval-censored (or a mix of both), from
-  static or ramping assays (or a mix of both), with any of several functions for
-  the failure rate and for the baseline;
+- fit failure times that are exact, interval-censored or both, from static assays,
+  ramping assays or both, with any of several functions for the failure rate and
+  for the baseline;
 - let the failure rate depend on covariates (e.g., body mass), on group-level effects
   (e.g., trials) and on other stressors (e.g., dissolved oxygen);
 - check the fit of a model against the data;
@@ -96,7 +96,8 @@ plot_survival(pred, temperature = TRUE)
 
 ## Vignettes
 
-Four vignettes describe the package, and are best read in this order:
+Four vignettes describe the package, and are best read in this order. They can be
+read, with the help pages, on the [website of the package](https://eogmartins.github.io/rTFT/).
 
 1. *Getting started with rTFT* (`vignette("getting-started", package = "rTFT")`):
    the model, a static assay, the checks of a fitted model, the derived quantities
