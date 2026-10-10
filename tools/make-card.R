@@ -30,6 +30,13 @@ if (!file.exists("DESCRIPTION")) {
 source(file.path("tools", "brand.R"))
 library(grid)
 
+# Turning the hexagon into a drawing that can be placed on the card needs a
+# graphics device to measure it. With none open, R opens its default, which writes
+# a stray Rplots.pdf in the working directory. A device that writes to no file is
+# opened here in its place and closed once the card is saved.
+grDevices::pdf(NULL)
+measuring_device <- grDevices::dev.cur()
+
 # Layout -----------------------------------------------------------------------
 
 card_w <- 1200; card_h <- 630
@@ -75,6 +82,9 @@ out_png <- file.path("man", "figures", "card.png")
 ggsave(out_png, p, width = card_w / 300, height = card_h / 300, dpi = 300,
        device = ragg::agg_png)
 
+grDevices::dev.off(measuring_device)
+
 if (!file.exists(out_png)) stop("the card was not written", call. = FALSE)
+if (file.exists("Rplots.pdf")) stop("a stray Rplots.pdf was written", call. = FALSE)
 message("wrote ", out_png, "  (", card_w, " x ", card_h, ")")
 message("tagline taken from DESCRIPTION: ", rtft_title())
