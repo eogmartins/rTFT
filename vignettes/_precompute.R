@@ -34,6 +34,7 @@
 #   vignettes/results-01.rds
 #   vignettes/results-02.rds
 #   vignettes/results-03.rds
+#   vignettes/results-04.rds
 
 # Setup ------------------------------------------------------------------------
 
@@ -52,8 +53,8 @@ seed  <- 20261006
 # The vignettes whose models are fitted in this run: all of them, unless their
 # numbers were given on the command line.
 vignettes <- as.integer(commandArgs(trailingOnly = TRUE))
-if (!length(vignettes)) vignettes <- 1:3
-stopifnot("the vignettes are numbered 1 to 3" = all(vignettes %in% 1:3))
+if (!length(vignettes)) vignettes <- 1:4
+stopifnot("the vignettes are numbered 1 to 4" = all(vignettes %in% 1:4))
 
 # Convergence, checked on every fit --------------------------------------------
 
@@ -86,15 +87,18 @@ check_fit <- function(fit) {
 warm_periods <- list(heat_wave = 16:20, warmest_day = 18)
 stopifnot("day 18 is not the warmest day of the record" =
             stream_record$day[which.max(stream_record$temp)] == 18)
-part_of_record <- function(days) {
-  part <- stream_record[stream_record$day %in% days, ]
+part_of_record <- function(days, record = stream_record) {
+  part <- record[record$day %in% days, ]
   part$time <- part$time - part$time[1]
   part
 }
 # The mortality of a 15 g fish over each warm period, predicted by a fitted model.
-warm_period_mortality <- function(fit) {
+# `record` and `levels` are for a model with a co-stressor, whose record may follow
+# the co-stressor and whose levels are otherwise given.
+warm_period_mortality <- function(fit, record = stream_record, levels = NULL) {
   lapply(warm_periods, \(days) suppressMessages(
-    predict_survival(fit, part_of_record(days), newdata = data.frame(mass = 15)))$mortality)
+    predict_survival(fit, part_of_record(days, record), newdata = data.frame(mass = 15),
+                     levels = levels))$mortality)
 }
 
 # Vignette 1: getting started, on the static assay ------------------------------
@@ -411,4 +415,119 @@ if (3 %in% vignettes) {
     average_sctmax_pseudobma = average_sctmax_pbma)
 
   saveRDS(results_03, "vignettes/results-03.rds", compress = "xz")
+}
+
+# Vignette 4: temperature and a co-stressor ------------------------------------
+
+if (4 %in% vignettes) {
+  # The ramping trials at the three rates of the wide span (0.025, 0.1 and 0.3 degC
+  # per min) at both levels of oxygen, with dissolved oxygen as a co-stressor. Its
+  # reference is normoxia (10 mg/L), so the coefficient is per mg/L of oxygen deficit.
+  # Two models are fitted: oxygen with its main effect alone, and with its interaction
+  # with temperature as well.
+  rates_4 <- c(0.025, 0.1, 0.3)
+  ramp_4  <- ramp_assay[ramp_assay$rate %in% rates_4, ]
+  stopifnot(nrow(ramp_4) == 240, all(table(ramp_4$rate, ramp_4$do) == 40))
+  paths_4 <- ramp_path(sprintf("r%s", rates_4), T_start = 14, rate = rates_4,
+                       t_max = 15.5 / rates_4)
+  oxygen <- list(
+    "Main effect" = costressor("DO", column = "do", ref = 10, scale = 1, direction = -1),
+    "Main effect and interaction" = costressor("DO", column = "do", ref = 10, scale = 1,
+                                               direction = -1, interaction = TRUE))
+  # The table of intervals at risk is the same for both: it holds the oxygen
+  # deficit of each row whichever way oxygen enters the model.
+  long_4 <- build_hazard_data(ramp_4, paths_4, "continuous",
+                              covariates = c("mass", "trial"),
+                              costressors = list(oxygen[[1]]))
+
+  fits_4 <- lapply(oxygen, \(DO) fit_hazard(
+    long_4, m_form = "exp", baseline = "weibull",
+    dpar_formulas = list(loga = ~ 1 + I(mass - 15) + (1 | trial)),
+    costressors = list(DO),
+    chains = 4, iter = 2000, warmup = 1000, cores = 4, seed = seed,
+    control = list(adapt_delta = 0.95),
+    backend = "cmdstanr", refresh = 0))
+  convergence_4 <- lapply(fits_4, check_fit)
+
+  # Each model against the data, for each ramp and level of oxygen.
+  fit_checks_4 <- do.call(rbind, lapply(names(fits_4), \(m) {
+    set.seed(seed)
+    check <- check_survival(fits_4[[m]], by = "z_DO")
+    set.seed(seed)
+    residuals <- hazard_residuals(fits_4[[m]])
+    outside <- !(check$observed >= check$lower & check$observed <= check$upper)
+    data.frame(model = m, n_times = nrow(check), n_outside = sum(outside),
+               ks_p = suppressWarnings(stats::ks.test(residuals$residual, "punif")$p.value))
+  }))
+
+  fish <- data.frame(mass = 15)
+  Ta_4 <- seq(25.5, 29.5, by = 0.1)
+  do_levels <- c(10, 5)
+
+  # The stream record with an oxygen series that falls as the stream warms: 10 mg/L
+  # at 15 degC and below, and 0.5 mg/L less for each degree above it.
+  record_4 <- stream_record
+  record_4$do <- pmin(10, 10 - 0.5 * (record_4$temp - 15))
+
+  # What the vignette reports of each model: its parameters; sCTmax, the thermal
+  # death time curves, the thermal tolerance landscape and dCTmax at each level of
+  # oxygen; the effect of 1 mg/L of
+  # oxygen deficit on the log failure rate across temperatures; and mortality along
+  # the stream record, over the 30 days and over the warm periods, with oxygen at
+  # 10 mg/L throughout and with oxygen following the series above.
+  summarise_oxygen <- function(fit) {
+    tolerance <- lapply(do_levels, \(level) suppressMessages(
+      derive_tdt_ttl(fit, newdata = fish, t_ref = 60, levels = c(DO = level), Ta = Ta_4)))
+    dctmax <- lapply(do_levels, \(level) suppressMessages(
+      derive_dctmax(fit, rate = c(0.1, 0.3), T_start = 14, newdata = fish,
+                    levels = c(DO = level))))
+    temperatures <- seq(16, 29, by = 0.5)
+    rate_at <- function(level) {
+      suppressMessages(M_draws(fit, Ta = temperatures, newdata = fish,
+                               levels = c(DO = level), n_draws = 1000))
+    }
+    normoxia <- rate_at(10)
+    deficit  <- rate_at(9)
+    stopifnot(identical(normoxia[c(".draw", "Ta")], deficit[c(".draw", "Ta")]))
+    effect <- log(deficit$M / normoxia$M)
+    oxygen_effect <- do.call(rbind, lapply(temperatures, \(Ta) {
+      x <- effect[normoxia$Ta == Ta]
+      data.frame(Ta = Ta, median = stats::median(x),
+                 lower = unname(stats::quantile(x, 0.025)),
+                 upper = unname(stats::quantile(x, 0.975)), p_negative = mean(x < 0))
+    }))
+    whole <- function(record, levels) suppressMessages(
+      predict_survival(fit, record, newdata = fish, levels = levels))
+    list(
+      params = tolerance[[1]]$params,
+      sctmax = stats::setNames(lapply(tolerance, `[[`, "sctmax"), do_levels),
+      tdt_curves = stats::setNames(lapply(tolerance, `[[`, "tdt_curves"), do_levels),
+      ttl_surface = stats::setNames(lapply(tolerance, `[[`, "ttl_surface"), do_levels),
+      dctmax = stats::setNames(dctmax, do_levels),
+      oxygen_effect = oxygen_effect,
+      prediction = list(normoxia = whole(stream_record, c(DO = 10)),
+                        following = whole(record_4, NULL)),
+      warm_periods = list(normoxia  = warm_period_mortality(fit, levels = c(DO = 10)),
+                          following = warm_period_mortality(fit, record = record_4)))
+  }
+
+  results_04 <- list(
+    stamp       = stamp,
+    convergence = convergence_4,
+    fit_checks  = fit_checks_4,
+    models      = lapply(fits_4, summarise_oxygen),
+    # the posterior probability that the interaction is positive
+    p_interaction_positive =
+      mean(as.matrix(fits_4[[2]], variable = "b_dTDO_Intercept") > 0),
+    # the reference temperature and time of the fitted models
+    Tr = unique(long_4$Tr), tau_ref = unique(long_4$tau_ref))
+
+  # The interaction is estimated in the direction of the model the data come from,
+  # and its credible interval holds the simulated value.
+  truth_4    <- attr(ramp_assay, "truth")
+  interaction_4 <- with(results_04$models[[2]], params[params$quantity == "dTDO", ])
+  stopifnot(results_04$p_interaction_positive > 0.95,
+            interaction_4$lower <= truth_4$d_do, truth_4$d_do <= interaction_4$upper)
+
+  saveRDS(results_04, "vignettes/results-04.rds", compress = "xz")
 }
