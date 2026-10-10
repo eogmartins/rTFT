@@ -9,7 +9,7 @@ Description: Fits discrete-time survival models to the times at which individual
     or death), using Bayesian inference in 'Stan' through 'brms'. The hazard is
     the product of a failure rate that depends on temperature, following
     Kingsolver and Umbanhowar (2018) <doi:10.1242/jeb.167858>, and a baseline
-    that may depend on the time under exposure. Failure times may be exact,
+    that may depend on the time under exposure. Failure times may be known-time,
     interval-censored or both, and may come from static assays, ramping assays
     or both. The failure rate may depend on covariates, group-level effects and
     other stressors such as dissolved oxygen. Static and dynamic critical

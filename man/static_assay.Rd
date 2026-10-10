@@ -9,7 +9,7 @@ A tibble with 120 rows, one per fish, and 7 columns:
 \describe{
 \item{id}{Integer, the fish.}
 \item{trial}{Character, the trial the fish was in (\code{"S01"} to \code{"S12"}).}
-\item{path_id}{Character, the temperature treatment (\code{"T23"}, \code{"T25"},
+\item{path_id}{Character, the temperature group (\code{"T23"}, \code{"T25"},
 \code{"T27"}), the key to its temperature trajectory.}
 \item{temp}{Numeric, the constant temperature of the trial, degrees C.}
 \item{mass}{Numeric, body mass, g.}
@@ -44,7 +44,7 @@ stored with the data as \code{attr(static_assay, "truth")}.
 \examples{
 head(static_assay)
 
-# The temperature trajectory of each treatment, and the checks.
+# The temperature trajectory of each group, and the checks.
 path <- data.frame(path_id = rep(c("T23", "T25", "T27"), each = 2),
                    time = rep(c(0, 7200), 3),
                    temp = rep(c(23, 25, 27), each = 2))

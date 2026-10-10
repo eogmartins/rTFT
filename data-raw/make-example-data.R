@@ -23,16 +23,16 @@
 # the stream record is warm enough for fish to fail.
 #
 # The static assay holds 12 trials of 10 fish, four at each of three constant
-# temperatures (23, 25 and 27 degC), checked every hour for five days. Its failure
-# times are therefore known to an interval. The coolest temperature is within reach
-# of a summer heat wave, which lets the assay inform a prediction for the field. The ramping assay
-# holds 32 trials of 10 fish warmed from 14 degC to 29.5 degC, watched throughout, so
-# its failure times are known exactly. Four ramp rates (0.025, 0.1, 0.2 and 0.3 degC
+# temperatures (23, 25 and 27 degC), checked every hour for five days. Its failure times
+# are therefore known to an interval. The coolest temperature is within reach of a
+# summer heat wave, which lets the assay inform a prediction for the field. The ramping
+# assay holds 32 trials of 10 fish warmed from 14 degC to 29.5 degC, watched throughout,
+# so its failure times are known exactly. Four ramp rates (0.025, 0.1, 0.2 and 0.3 degC
 # per min) are crossed with two levels of dissolved oxygen, four trials of each. The
-# slow rate is there so that the same data can show what a narrow set of rates (0.1
-# to 0.3, a 3-fold span) and a wide one (0.025 to 0.3, a 12-fold span) allow a model
-# to estimate. Either design can be observed either way; the two
-# datasets differ in this only so that both ways are shown.
+# slow rate is there so that the same data can show what a narrow set of rates (0.1 to
+# 0.3, a 3-fold span) and a wide one (0.025 to 0.3, a 12-fold span) allow a model to
+# estimate. Either design can be observed either way; the two datasets differ in this
+# only so that both ways are shown.
 #
 # The stream record is 30 days of hourly temperature with a daily cycle and a
 # heat wave in the third week that takes the afternoon maximum to about 24 degC.

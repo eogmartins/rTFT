@@ -39,9 +39,9 @@
 # Shape (k) and scale (s) arrive as per-draw vectors; tau or x may be a vector or a
 # matrix whose rows are draws, and recycle column-wise over draws. The Weibull scale
 # is not estimated: it is the reference time tau_ref, the same for every draw, so
-# its H0 is 1 at tau_ref. The Gompertz shape
-# holds its rate constant gamma in the first slot and ignores the second, because
-# its amplitude is loga in M(T) rather than a parameter of its own.
+# its H0 is 1 at tau_ref. The Gompertz baseline holds its rate constant gamma in
+# the first slot and ignores the second, because its amplitude is loga in M(T)
+# rather than a parameter of its own.
 #
 # Both Gompertz expressions are singular at gamma = 0, where they are 0/0 rather than
 # undefined: the limits are H0(tau) = tau and H0^-1(x) = x, the memoryless case. gamma
@@ -69,15 +69,15 @@
 
 # H0_of() ----------------------------------------------------------------------
 
-#' The cumulative baseline hazard of a given shape
+#' The cumulative baseline hazard of a given baseline function
 #'
-#' Returns the function H0(tau) for the chosen baseline. Under the memoryless shape
-#' it is elapsed exposure itself; the Weibull, log-logistic and Gompertz shapes let
-#' the hazard rise or fall with how long the individual has already been exposed. Shape
-#' and scale arrive as per-draw vectors, and elapsed time may be a vector or a matrix
-#' whose rows are draws.
+#' Returns the function H0(tau) for the chosen baseline. Under the memoryless
+#' baseline it is elapsed exposure itself; the Weibull, log-logistic and Gompertz
+#' baselines let the hazard rise or fall with how long the individual has already
+#' been exposed. Shape and scale arrive as per-draw vectors, and elapsed time may be
+#' a vector or a matrix whose rows are draws.
 #'
-#' For the Gompertz shape the first argument is the rate constant gamma and the
+#' For the Gompertz baseline the first argument is the rate constant gamma and the
 #' second is ignored. A negative gamma is a valid value and means a hazard that
 #' falls the longer the individual has been exposed. The cumulative hazard then levels
 #' off: it rises towards 1/|gamma| but never reaches it, instead of growing without
@@ -122,7 +122,7 @@ H0_of <- function(baseline) {
 #' hazard reaches a given value, which is what turns a failure probability into a
 #' thermal death time.
 #'
-#' Under the Gompertz shape with a negative rate constant the cumulative hazard
+#' Under the Gompertz baseline with a negative rate constant the cumulative hazard
 #' levels off below 1/|gamma|, so a target above that level is never reached. The
 #' time returned there is `NaN`, rather than a large number standing in for
 #' "never". A target exactly at the level is reached only after infinite time, and
@@ -593,10 +593,9 @@ H0inv_of <- function(baseline) {
 #'   columns of `newdata`, `.draw` (the draw's number in the fit, so draws from
 #'   different calls can be matched), `Ta` and the failure rate `M`.
 #' @examples
-#' \dontrun{
-#' fit  <- fit_hazard(long, "exp", dpar_formulas = list(loga = ~ 1 + mass))
-#' rate <- M_draws(fit, Ta = seq(25, 40, by = 0.5), newdata = data.frame(mass = c(8, 12)))
-#' }
+#' \dontrun{ fit <- fit_hazard(long, "exp", dpar_formulas = list(loga = ~ 1 + mass))
+#' rate <- M_draws(fit, Ta = seq(25, 40, by = 0.5), newdata = data.frame(mass = c(8,
+#' 12))) }
 #' @export
 M_draws <- function(fit, Ta, newdata = NULL, levels = NULL, n_draws = NULL) {
   st   <- .fit_settings(fit)
@@ -653,15 +652,15 @@ M_draws <- function(fit, Ta, newdata = NULL, levels = NULL, n_draws = NULL) {
 }
 
 # The draws of each reported parameter, on its natural scale: a, b and c from their
-# logarithms, Tc as it is, the baseline's shape, its scale where that is estimated
-# (the log-logistic) or its rate constant, and each co-stressor's coefficients. Which parameters are reported is decided by the
-# failure-rate function, the baseline and the co-stressors, never by which draws
-# happen to be in `d`. Where a co-stressor interacts with temperature,
-# the thermal sensitivity at the chosen levels, b + sum of dT z, is added as
-# `b_at_levels`. z is added only where the thermal death time curve is straight in
-# log time against temperature, the exponential rate with the memoryless or Weibull
-# baseline, where the time to a given fraction failing scales as M^(-1/k), so
-# log10 t falls by b / (k log 10) per degree and z = k log(10) / b.
+# logarithms, Tc as it is, the baseline's shape, its scale where that is estimated (the
+# log-logistic) or its rate constant, and each co-stressor's coefficients. Which
+# parameters are reported is decided by the failure-rate function, the baseline and the
+# co-stressors, never by which draws happen to be in `d`. Where a co-stressor interacts
+# with temperature, the thermal sensitivity at the chosen levels, b + sum of dT z, is
+# added as `b_at_levels`. z is added only where the thermal death time curve is straight
+# in log time against temperature, the exponential rate with the memoryless or Weibull
+# baseline, where the time to a given fraction failing scales as M^(-1/k), so log10 t
+# falls by b / (k log 10) per degree and z = k log(10) / b.
 .param_draws <- function(m_form, baseline, d, costressors = list(), z_at = list(),
                          tau_ref = NULL) {
   nd     <- length(d$loga)
@@ -861,10 +860,11 @@ M_draws <- function(fit, Ta, newdata = NULL, levels = NULL, n_draws = NULL) {
 #' Derives, from a model fitted with [fit_hazard()], the failure-rate parameters on
 #' their natural scale, the static critical thermal maximum sCTmax, the thermal death
 #' time curves and the thermal tolerance landscape, each with its posterior median
-#' and credible interval, at the covariate values in each row of `newdata`. The model's 
-#' settings (failure-rate and baseline functions, reference temperature, softening 
-#' steepness, co-stressors) are read from the fit. Random effects are set to zero, so 
-#' the results are those of a typical group.
+#' and equal-tailed credible interval (the interval between the (1 - `prob`) / 2
+#' and 1 - (1 - `prob`) / 2 quantiles of the draws), at the covariate values in
+#' each row of `newdata`. The model's settings (failure-rate and baseline functions,
+#' reference temperature, softening steepness, co-stressors) are read from the fit.
+#' Random effects are set to zero, so the results are those of a typical group.
 #'
 #' sCTmax is the constant temperature at which a fraction `p` of individuals fail within
 #' the reference exposure time `t_ref`, the static critical thermal maximum of
@@ -933,7 +933,9 @@ M_draws <- function(fit, Ta, newdata = NULL, levels = NULL, n_draws = NULL) {
 #' @param prob A single number strictly between 0 and 1, the coverage of the
 #'   credible intervals.
 #' @param n_draws An optional single number, the number of posterior draws to use,
-#'   evenly spaced through the posterior. `NULL` uses them all.
+#'   evenly spaced through the posterior. Defaults to 1000, which keeps the
+#'   derivation fast while the limits of a 95% interval still rest on about 25
+#'   draws in each tail; `NULL` uses them all.
 #' @return A list of four tibbles, each starting with the columns of `newdata` and
 #'   ending with the posterior summary `median`, `lower`, `upper`, `prob`, `n_draws`
 #'   and `n_unreached`:

@@ -20,7 +20,7 @@
 #' \describe{
 #'   \item{id}{Integer, the fish.}
 #'   \item{trial}{Character, the trial the fish was in (`"S01"` to `"S12"`).}
-#'   \item{path_id}{Character, the temperature treatment (`"T23"`, `"T25"`,
+#'   \item{path_id}{Character, the temperature group (`"T23"`, `"T25"`,
 #'     `"T27"`), the key to its temperature trajectory.}
 #'   \item{temp}{Numeric, the constant temperature of the trial, degrees C.}
 #'   \item{mass}{Numeric, body mass, g.}
@@ -34,7 +34,7 @@
 #' @examples
 #' head(static_assay)
 #'
-#' # The temperature trajectory of each treatment, and the checks.
+#' # The temperature trajectory of each group, and the checks.
 #' path <- data.frame(path_id = rep(c("T23", "T25", "T27"), each = 2),
 #'                    time = rep(c(0, 7200), 3),
 #'                    temp = rep(c(23, 25, 27), each = 2))
@@ -52,7 +52,7 @@
 #' simulated from a known model. The fish were run in 32 trials of ten. Four ramp
 #' rates (0.025, 0.1, 0.2 and 0.3 degrees C per minute) are crossed with two levels
 #' of dissolved oxygen (10 and 5 mg/L), four trials of each combination. The fish
-#' were watched throughout, so each time of failure is known exactly.
+#' were watched throughout, so each failure was observed at a known time.
 #'
 #' The slow rate allows the same data to show what the choice of ramp rates lets a
 #' model estimate: the three faster rates span 3-fold, and the rates of 0.025, 0.1

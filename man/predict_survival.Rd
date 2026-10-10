@@ -82,15 +82,15 @@ median and credible interval, at the covariate values in each row of \code{newda
 Random effects are set to zero, so the prediction is for a typical group.
 }
 \details{
-Along the record the cumulative hazard grows, over each step, by
-M(T) (H0(tau_1) - H0(tau_0)): the failure rate at the temperature in the middle of
-the step, times the growth of the cumulative baseline hazard over it. A step is
-the interval between two readings, or a part of it where the temperature changes
-by more than \code{grid_dT} between them. Survival to a time is exp(-cumulative hazard up to it). With the
-memoryless baseline the growth of H0 is the length of the interval, so the
-cumulative hazard is the failure rate summed over the record, and it does not
-matter where the record begins. With the other baselines the hazard depends on
-elapsed exposure, which is counted from the first time in the record.
+Along the record the cumulative hazard grows, over each step, by M(T) (H0(tau_1) -
+H0(tau_0)): the failure rate at the temperature in the middle of the step, times the
+growth of the cumulative baseline hazard over it. A step is the interval between two
+readings, or a part of it where the temperature changes by more than \code{grid_dT}
+between them. Survival to a time is exp(-cumulative hazard up to it). With the
+memoryless baseline the growth of H0 is the length of the interval, so the cumulative
+hazard is the failure rate summed over the record, and it does not matter where the
+record begins. With the other baselines the hazard depends on elapsed exposure, which
+is counted from the first time in the record.
 }
 \section{Outside the temperatures and exposures of the assay}{
 
@@ -135,7 +135,8 @@ those probabilities by their mean and by their median. The mean is the
 probability of surviving with the uncertainty in the parameters taken into
 account (and, from \code{\link[=average_survival]{average_survival()}}, the uncertainty about the model, as
 far as the weights measure it): it is the fraction of individuals expected to
-survive. The median is the value that half of the posterior lies below. The two
+survive in a typical group (random effects at zero). The median is the value
+that half of the posterior lies below. The two
 are close when the posterior is concentrated, and differ when it is skewed or
 has two separate groups of values, as it can when models that disagree are
 averaged; the credible interval should then be reported with either.

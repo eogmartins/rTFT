@@ -47,10 +47,10 @@ an interaction implies outside the temperatures of the data, see
 \sQuote{An interaction outside the temperatures of the data}.}
 
 \item{trajectory}{An optional data frame giving the co-stressor over time, with
-columns \code{path_id}, \code{time} and the \code{column} named above, in the shape of the
-\code{path} argument of \link{build_hazard_data}. Supply it for a stressor that changes
-during a trial; it is interpolated to the same interval midpoints as temperature.
-Leave \code{NULL} for a stressor held fixed within a trial, which is then read from \code{ind}.}
+columns \code{path_id}, \code{time} and the \code{column} named above, in the shape of the \code{path}
+argument of \link{build_hazard_data}. Supply it for a stressor that changes during a
+trial; it is interpolated to the same interval midpoints as temperature. Leave
+\code{NULL} for a stressor held fixed within a trial, which is then read from \code{ind}.}
 
 \item{transform}{An optional function of the standardised deviation
 (X - ref) / scale that returns the column \code{z}. Use it for a stressor whose harm
@@ -65,15 +65,15 @@ A \code{costressor} object: a named list holding the declaration, for the
 }
 \description{
 Describes one non-temperature environmental variable (Z) the individual is exposed to
-and that co-determines the failure rate: dissolved oxygen, salinity, pH, a
-toxicant concentration, or, for a terrestrial ectotherm, humidity. The failure
-rate then becomes a surface M(T, Z). The co-stressor enters log M(T) as its own
-term and, when asked for with \code{interaction = TRUE}, an interaction with
-temperature, so a crossed temperature-by-stressor design (a ramp run at two or
-more stressor levels) can estimate how the stressor changes the thermal response. Build one for each
+and that co-determines the failure rate: dissolved oxygen, salinity, pH, a toxicant
+concentration, or, for a terrestrial ectotherm, humidity. The failure rate then
+becomes a surface M(T, Z). The co-stressor enters log M(T) as its own term and, when
+asked for with \code{interaction = TRUE}, an interaction with temperature, so a crossed
+temperature-by-stressor design (a ramp run at two or more stressor levels) can
+estimate how the stressor changes the thermal response. Build one for each
 co-stressor and pass them together, as a list, to \link{build_hazard_data},
-\link{build_hazard_spec}, \link{build_hazard_prior} and \link{fit_hazard}, so all four read the
-same declaration.
+\link{build_hazard_spec}, \link{build_hazard_prior} and \link{fit_hazard}, so all four read the same
+declaration.
 }
 \details{
 The raw measurement \code{X} becomes a standardised column
@@ -95,13 +95,12 @@ stressor onto a common axis on which a larger z always means more stress, so the
 main effect \verb{c<name>} has the same sign meaning for every stressor: a positive value
 is a hazard that rises under stress.
 
-This signed-linear column assumes the stressor harm runs one way. For a stressor that is
-harmful in either direction (salinity or pH, where a departure above or below the
-optimum both add stress), supply a \code{transform} function so z measures distance from the
-reference rather than a signed deficit: a squared standardised deviation,
-transform = function(u) u^2, makes z = ((X - ref) / scale)^2, zero at the optimum
-and rising on both sides. The \code{direction} then no longer applies, since z is
-symmetric.
+This signed-linear column assumes the stressor harm runs one way. For a stressor that
+is harmful in either direction (salinity or pH, where a departure above or below the
+optimum both add stress), supply a \code{transform} function so z measures distance from
+the reference rather than a signed deficit: a squared standardised deviation,
+transform = function(u) u^2, makes z = ((X - ref) / scale)^2, zero at the optimum and
+rising on both sides. The \code{direction} then no longer applies, since z is symmetric.
 
 The co-stressor contributes one or two parameters, named from \code{name}. The main
 effect \verb{c<name>} is the change in the log failure rate per \code{scale} of stressor

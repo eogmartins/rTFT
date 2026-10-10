@@ -161,15 +161,15 @@ fit <- fit_hazard(
   baseline      = "weibull",
   dpar_formulas = formulas,
   chains = 4, iter = 2000, warmup = 1000, cores = 4, seed = 20261006,
-  control = list(adapt_delta = 0.95)
+  control = list(adapt_delta = 0.95), backend = "cmdstanr"
 )
 ```
 
-Any argument that `fit_hazard()` does not use itself is passed to `brms::brm()`. For example, we raised `adapt_delta` from its default of 0.8, which makes the sampler take smaller steps. With the default, one of the 4000 post-warmup transitions was divergent. A single divergent transition is not a concern in itself, but divergent transitions are common in models with a group-level standard deviation that is poorly informed by the data (12 trials here), and a smaller step size usually removes them at little cost.
+Any argument that `fit_hazard()` does not use itself is passed to `brms::brm()`. For example, we raised `adapt_delta` from its default of 0.8, which makes the sampler take smaller steps, because a trial run at the default gave a divergent transition. A single divergent transition is not a concern in itself, but divergent transitions are common in models with a group-level standard deviation that is poorly informed by the data (12 trials here), and a smaller step size usually removes them at little cost. We kept this setting for every model fitted in these vignettes. The models were fitted with the `cmdstanr` backend, which is given in the code because the default backend produces different draws for the same seed, so the results below are reproduced exactly only with it.
 
 ## Convergence
 
-The estimates should not be interpreted before checking that the sampler converged. We use the rank-normalized split-$\hat{R}$ and the bulk and tail effective sample sizes (ESS) of the `posterior` package, together with the number of divergent transitions.
+The estimates should not be interpreted before checking that the sampler converged. We use the rank-normalised split-$\hat{R}$ and the bulk and tail effective sample sizes (ESS) of the `posterior` package, together with the number of divergent transitions.
 
 ```{r}
 #| label: convergence-code
@@ -247,7 +247,7 @@ The residuals followed the uniform distribution closely and showed no trial whos
 
 ## Thermal tolerance derived from the fit
 
-The function `derive_tdt_ttl()` computes every derived quantity for each posterior draw and summarises the draws by their median and credible interval (95% by default). It requires the covariate values at which to report (`newdata`) and the exposure time to which the critical thermal maximum refers (`t_ref`), in the time unit of the data. Group-level effects are set to zero, so the results describe a typical trial.
+The function `derive_tdt_ttl()` computes every derived quantity for each posterior draw and summarises the draws by their median and equal-tailed credible interval (95% by default, i.e., the interval between the 2.5% and 97.5% quantiles of the draws). By default it uses 1,000 draws spaced evenly through the posterior (the argument `n_draws`), which keeps the derivation, and the predictions along a record below, fast; the limits of a 95% interval then rest on about 25 draws in each tail. It requires the covariate values at which to report (`newdata`) and the exposure time to which the critical thermal maximum refers (`t_ref`), in the time unit of the data. Group-level effects are set to zero, so the results describe a typical trial.
 
 ```{r}
 #| label: derive
@@ -296,11 +296,11 @@ The amplitude $a$ is the cumulative hazard reached over the reference time (`r u
 knitr::kable(tol$sctmax[c("mass", "p", "t_ref", "median", "lower", "upper")], digits = 2)
 ```
 
-The static critical thermal maximum (sCTmax; [Jørgensen et al. 2021](https://doi.org/10.1038/s41598-021-92004-6){target="_blank"}) is the constant temperature at which a fraction $p$ of individuals fail within the reference time. For a 10 g fish, half of the individuals are expected to fail within 60 min at `r sprintf("%.1f", tol$sctmax$median[tol$sctmax$mass == 10 & tol$sctmax$p == 0.5])`°C (95% credible interval: `r sprintf("%.1f", tol$sctmax$lower[tol$sctmax$mass == 10 & tol$sctmax$p == 0.5])`–`r sprintf("%.1f", tol$sctmax$upper[tol$sctmax$mass == 10 & tol$sctmax$p == 0.5])`°C). sCTmax should not be confused with the CTmax recorded in a ramping trial. sCTmax refers to a constant temperature held for a fixed time, so it is a property of the organism alone (at the covariate values given). The CTmax of a ramping trial is the temperature at which an individual fails while the temperature is still rising (the dynamic critical thermal maximum, dCTmax; [Jørgensen et al. 2021](https://doi.org/10.1038/s41598-021-92004-6){target="_blank"}), and it depends on how the trial was run: individuals accrue hazard throughout the ramp, so a slower ramp gives them more time to fail before a given temperature is reached and results in a lower CTmax. Both sCTmax and dCTmax can be derived from the same fitted model.
+The static critical thermal maximum (sCTmax; [Jørgensen et al. 2021](https://doi.org/10.1038/s41598-021-92004-6){target="_blank"}) is the constant temperature at which a fraction $p$ of individuals fail within the reference time. For a 10 g fish, half of the individuals are expected to fail within 60 min at `r sprintf("%.1f", tol$sctmax$median[tol$sctmax$mass == 10 & tol$sctmax$p == 0.5])`°C (95% credible interval: `r sprintf("%.1f", tol$sctmax$lower[tol$sctmax$mass == 10 & tol$sctmax$p == 0.5])`–`r sprintf("%.1f", tol$sctmax$upper[tol$sctmax$mass == 10 & tol$sctmax$p == 0.5])`°C). sCTmax should not be confused with the CTmax recorded in a ramping trial. sCTmax refers to a constant temperature held for a fixed time, so it does not depend on how a ramp was run (it does depend on the fraction $p$, on the reference time and on the covariate values given). The CTmax of a ramping trial is the temperature at which an individual fails while the temperature is still rising (the dynamic critical thermal maximum, dCTmax; [Jørgensen et al. 2021](https://doi.org/10.1038/s41598-021-92004-6){target="_blank"}), and it depends on how the trial was run: individuals accrue hazard throughout the ramp, so a slower ramp gives them more time to fail before a given temperature is reached and results in a lower CTmax. Both sCTmax and dCTmax can be derived from the same fitted model.
 
 ### Dynamic critical thermal maximum
 
-The function `derive_dctmax()` gives the CTmax that a ramping trial would be expected to record (dCTmax), for any starting temperature and ramp rate. The rate is in degrees per unit of time of the data (here, °C per min). Although the model was fitted to a static assay, it can be asked what three ramps starting at 14°C would give.
+The function `derive_dctmax()` gives the temperature at which half of the individuals would have failed in a ramping trial (dCTmax; i.e., the median CTmax that such a trial would record), for any starting temperature and ramp rate. The rate is in degrees per unit of time of the data (here, °C per min). Although the model was fitted to a static assay, it can be asked what three ramps starting at 14°C would give.
 
 ```{r}
 #| label: dctmax-code
@@ -325,7 +325,7 @@ The expected CTmax increased with the ramp rate, from `r sprintf("%.1f", dct$med
 
 ### Thermal death time curves
 
-The thermal death time (TDT) curves give the time until a fraction $p$ of individuals has failed at each constant temperature (@fig-tdt). "Thermal death time" is the name of the curve in the literature ([Rezende et al. 2014](https://doi.org/10.1111/1365-2435.12268){target="_blank"}), and we keep it whatever the endpoint of the assay (here, loss of equilibrium).
+The thermal death time (TDT) curves give the time until a fraction $p$ of individuals has failed at each constant temperature (@fig-tdt). "Thermal death time" is the name of the curve in the literature, where it is a century old ([Bigelow 1921](https://doi.org/10.1093/infdis/29.5.528){target="_blank"}; [Rezende et al. 2014](https://doi.org/10.1111/1365-2435.12268){target="_blank"}), and we keep it whatever the endpoint of the assay (here, loss of equilibrium).
 
 ```{r}
 #| label: fig-tdt
@@ -395,7 +395,7 @@ plot_survival(pred, temperature = TRUE) +
 knitr::kable(pred$mortality[c("mass", "mean", "median", "lower", "upper")], digits = 2)
 ```
 
-The model predicts that `r sprintf("%.0f", 100 * pred$mortality$median)`% of fish of 15 g would fail by the end of the 30 days (95% credible interval: `r sprintf("%.0f", 100 * pred$mortality$lower)`–`r sprintf("%.0f", 100 * pred$mortality$upper)`%), with nearly all of the decrease in survival occurring during the heat wave (@fig-survival). The table gives both the median and the mean of the posterior draws of that probability. The mean (`r sprintf("%.0f", 100 * pred$mortality$mean)`% here) is the probability that a fish fails with the uncertainty in the parameters taken into account, and therefore the fraction of fish expected to fail, whereas the median is the value below which half of the posterior lies. The two are close when the posterior is concentrated around one value, as it is here, and may differ greatly when several models that disagree are averaged (see the vignette [*Comparing and averaging models*](comparing-and-averaging-models.html)). The table `risk` shows where along the record the risk was concentrated (@fig-risk).
+The model predicts that `r sprintf("%.0f", 100 * pred$mortality$median)`% of fish of 15 g would fail by the end of the 30 days (95% credible interval: `r sprintf("%.0f", 100 * pred$mortality$lower)`–`r sprintf("%.0f", 100 * pred$mortality$upper)`%), with nearly all of the decrease in survival occurring during the heat wave (@fig-survival). The table gives both the median and the mean of the posterior draws of that probability. The mean (`r sprintf("%.0f", 100 * pred$mortality$mean)`% here) is the probability that a fish fails with the uncertainty in the parameters taken into account, and therefore the fraction of fish expected to fail in a typical trial, whereas the median is the value below which half of the posterior lies. The two are close when the posterior is concentrated around one value, as it is here, and may differ greatly when several models that disagree are averaged (see the vignette [*Comparing and averaging models*](comparing-and-averaging-models.html)). The table `risk` shows where along the record the risk was concentrated (@fig-risk).
 
 ```{r}
 #| label: fig-risk
@@ -425,7 +425,7 @@ temperature_columns <- c("mass", "Ta_failed_min", "Ta_failed_max", "below", "wit
 knitr::kable(pred$coverage[temperature_columns], digits = 2)
 ```
 
-Here the record was below the temperatures of the assay (`r pred$coverage$Ta_failed_min`–`r pred$coverage$Ta_failed_max`°C) for `r sprintf("%.0f", 100 * pred$coverage$below)`% of its duration, but only `r sprintf("%.0f", 100 * pred$coverage$risk_below)`% of the predicted risk was accrued at those temperatures. The remaining `r sprintf("%.0f", 100 * pred$coverage$risk_within)`% was accrued during the hours above 23°C, which the assay did cover. The share of the risk is the more informative of the two. At temperatures outside those of the assay the data do not constrain the failure rate function, and functions that fit the assay data equally well may give very different predictions there (see the vignette [*Comparing and averaging models*](comparing-and-averaging-models.html)). `predict_survival()` prints a message with both shares whenever part of the record lies outside the temperatures at which failures were observed. An assay intended to support predictions for the field should therefore include temperatures as low as those that are expected to cause failures in the field, which is why the coolest temperature of this assay was 23°C.
+Here the record was below the temperatures of the assay (`r pred$coverage$Ta_failed_min`–`r pred$coverage$Ta_failed_max`°C) for `r sprintf("%.0f", 100 * pred$coverage$below)`% of its duration, but only `r sprintf("%.0f", 100 * pred$coverage$risk_below)`% of the predicted risk was accrued at those temperatures. The remaining `r sprintf("%.0f", 100 * pred$coverage$risk_within)`% was accrued during the hours above 23°C, which the assay did cover. The share of the risk is the more informative of the two. At temperatures outside those of the assay the data do not constrain the failure rate function, and functions that fit the assay data equally well may give very different predictions there (see the vignette [*Comparing and averaging models*](comparing-and-averaging-models.html)). `predict_survival()` prints a message with both shares whenever part of the record lies outside the temperatures at which failures were observed. An assay intended to support predictions for the field should therefore include temperatures as low as those that are expected to cause failures in the field, which is why the coolest temperature of this assay was 23°C. The table classifies the record by temperature alone. The record exceeded 23°C in `r sum(stream_record$temp > 23)` of its `r nrow(stream_record)` hours, in afternoon pulses of one to three hours, whereas the information of the assay at 23°C comes from five days of constant exposure, so the table says where the temperatures of the record fall relative to those of the assay and not that the assay included exposures like those of the record.
 
 Second, a baseline other than the memoryless one makes the hazard depend on how long an individual has been exposed, and in a field record there is no obvious moment at which exposure begins. `predict_survival()` counts exposure from the first reading of the record, which is an assumption. In the assay, the model estimated that the hazard at a given temperature increased the longer the fish had been held at it ($k$ > 1). Applied to the record, this means that a fish reaching 24°C on day 18 is assigned a higher hazard than it would have had at 24°C on day 1, because it is treated as having been exposed for 17 days already. However, it spent the first two weeks of the record at 15–21°C, which is below the coolest temperature of the assay (23°C), so the assay provides no information on whether time spent at those temperatures counts as exposure. Whether the increase in hazard observed over five days at 23–27°C also applies to weeks spent at cooler temperatures cannot be assessed with the data of the assay.
 
@@ -549,10 +549,12 @@ The remaining vignettes cover ramping assays ([*Ramping assays*](ramping-assays.
 ::: {.callout-note}
 ## Precomputed results
 
-The model in this vignette was fitted with `rTFT` `r results$stamp$version` on `r results$stamp$date` by the script `vignettes/_precompute.R` in the package's repository. The vignette displays the saved summaries, and all other code runs when the vignette is built.
+The model in this vignette was fitted on `r results$stamp$date` with the development version of `rTFT` that became 0.1.0 (`r results$stamp$version`), by the script `vignettes/_precompute.R` in the package's repository. The vignette displays the saved summaries, and all other code runs when the vignette is built.
 :::
 
 ## References
+
+Bigelow, W. D. (1921). The logarithmic nature of thermal death time curves. *The Journal of Infectious Diseases* 29, 528–536. [https://doi.org/10.1093/infdis/29.5.528](https://doi.org/10.1093/infdis/29.5.528){target="_blank"}
 
 Bürkner, P.-C. (2017). brms: An R package for Bayesian multilevel models using Stan. *Journal of Statistical Software* 80(1), 1–28. [https://doi.org/10.18637/jss.v080.i01](https://doi.org/10.18637/jss.v080.i01){target="_blank"}
 

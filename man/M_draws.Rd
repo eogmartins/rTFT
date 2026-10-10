@@ -41,8 +41,7 @@ The draws are returned as they are, not summarised, for plotting the rate with
 its uncertainty or for further calculation.
 }
 \examples{
-\dontrun{
-fit  <- fit_hazard(long, "exp", dpar_formulas = list(loga = ~ 1 + mass))
-rate <- M_draws(fit, Ta = seq(25, 40, by = 0.5), newdata = data.frame(mass = c(8, 12)))
-}
+\dontrun{ fit <- fit_hazard(long, "exp", dpar_formulas = list(loga = ~ 1 + mass))
+rate <- M_draws(fit, Ta = seq(25, 40, by = 0.5), newdata = data.frame(mass = c(8,
+12))) }
 }

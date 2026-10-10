@@ -81,13 +81,15 @@ long  <- build_hazard_data(ramp, path, observation = "continuous",
 
 Three of the four models share the exponential failure rate, $M(T) = a \exp\{b (T - T_r)\}$, and differ in the baseline $h_0(\tau)$:
 
-- the memoryless baseline (`"mem"`), under which the hazard at a given temperature does not depend on the time under exposure. With the exponential failure rate, this is the exponential model of [Kingsolver and Umbanhowar (2018)](https://doi.org/10.1242/jeb.167858){target="_blank"}. Under this model, the warmer the temperature at which individuals are held in a static trial, the sooner they fail, with the logarithm of the time to failure decreasing linearly with the temperature of the trial. This is the relationship of the thermal death time model, which is the model most often used in the literature ([Rezende et al. 2014](https://doi.org/10.1111/1365-2435.12268){target="_blank"});
+- the memoryless baseline (`"mem"`), under which the hazard at a given temperature does not depend on the time under exposure. With the exponential failure rate, this is the exponential model of [Kingsolver and Umbanhowar (2018)](https://doi.org/10.1242/jeb.167858){target="_blank"};
 - the Weibull baseline (`"weibull"`), under which the hazard rises or falls throughout the exposure, as a power of the time under exposure;
 - the log-logistic baseline (`"llogis"`), under which the hazard may rise at the start of the exposure and fall later.
 
+Under all three, the logarithm of the time to failure of individuals held at a constant temperature decreases linearly with that temperature (see the vignette [*Getting started with rTFT*](getting-started.html)), which is the relationship of the thermal death time model, the model most often used in the literature ([Rezende et al. 2014](https://doi.org/10.1111/1365-2435.12268){target="_blank"}); they differ in how the hazard changes with the time under exposure, which a static trial of a single duration cannot show.
+
 The fourth model has a different failure rate function, the zero-power threshold of [Kingsolver and Umbanhowar (2018)](https://doi.org/10.1242/jeb.167858){target="_blank"} (`"zeropower_threshold"`), with the memoryless baseline. Under this function the failure rate is zero below a critical temperature $T_c$, which is estimated, and increases above it as a power of the temperature in excess of $T_c$, $M(T) = a (T - T_c)^b$.
 
-In each model, $\log a$ depends on body mass and varies among trials, as in the previous vignettes. The models are fitted in turn and kept in a named list, which the functions used below take as their input.
+We chose the three baselines because they differ in what the hazard does with the time under exposure (it stays the same, keeps rising, or rises and then falls), and the fourth model as a failure rate function of another family, with a threshold. The other functions of `M_catalogue` and the Gompertz baseline can be fitted and compared in the same way. In each model, $\log a$ depends on body mass and varies among trials, as in the previous vignettes. The models are fitted in turn and kept in a named list, which the functions used below take as their input.
 
 ```{r}
 #| label: fit
@@ -104,11 +106,11 @@ fits <- lapply(candidates, \(model) fit_hazard(
   baseline      = model[2],
   dpar_formulas = list(loga = ~ 1 + I(mass - 15) + (1 | trial)),
   chains = 4, iter = 2000, warmup = 1000, cores = 4, seed = 20261006,
-  control = list(adapt_delta = 0.95)
+  control = list(adapt_delta = 0.95), backend = "cmdstanr"
 ))
 ```
 
-Fitting and cross-validating the models takes about six hours, so the code of this vignette that uses the fitted models was run once and its results were saved with the package (see the note at the end of this vignette).
+The sampler settings are those chosen in the vignette [*Getting started with rTFT*](getting-started.html) and were not tuned for these models. Fitting and cross-validating the models takes about six hours, so the code of this vignette that uses the fitted models was run once and its results were saved with the package (see the note at the end of this vignette).
 
 ```{r}
 #| label: tbl-convergence
@@ -217,7 +219,7 @@ The approximation could not be trusted for `r min(psis$n_high_k)`–`r max(psis$
 ```{r}
 #| label: kfold-code
 #| eval: false
-cv <- lapply(fits, kfold_hazard, cores = 4)
+cv <- lapply(fits, kfold_hazard, cores = 4, seed = 20261006)
 ```
 
 Each model is refitted 12 times, once without each trial, which is what takes most of the time needed to run the code of this vignette. With many trials, the argument `K` of `kfold_hazard()` sets a smaller number of refits, each leaving out several trials (see `?kfold_hazard`).
@@ -260,7 +262,7 @@ For the three exponential models, the elpd obtained by refitting was within `r s
 
 ## Model weights
 
-The function `hazard_weights()` turns the results of the cross-validation into weights for averaging the models. By default it uses stacking ([Yao et al. 2018](https://doi.org/10.1214/17-BA1091){target="_blank"}), which finds the combination of models that best predicts the trials left out. Pseudo-BMA weights, which follow the elpd of each model with its uncertainty among the trials, are the alternative. Their uncertainty is assessed by the Bayesian bootstrap, which draws random numbers, so we set a seed before computing them.
+The function `hazard_weights()` turns the results of the cross-validation into weights for averaging the models. By default it uses stacking ([Yao et al. 2018](https://doi.org/10.1214/17-BA1091){target="_blank"}), which finds the combination of models that best predicts the trials left out. Pseudo-BMA weights, which follow the elpd of each model with its uncertainty among the trials, are the alternative. That uncertainty is assessed by the Bayesian bootstrap (the weights are then those called pseudo-BMA+ by Yao et al. 2018), which draws random numbers, so we set a seed before computing them.
 
 ```{r}
 #| label: weights-code
@@ -289,7 +291,7 @@ knitr::kable(data.frame(
 weight_of <- function(model, table = w) sprintf("%.2f", table$weight[table$model == model])
 ```
 
-Stacking gave nearly all of the weight to two models, the exponential failure rate with the log-logistic baseline (`r weight_of("Exponential, log-logistic")`) and with the Weibull baseline (`r weight_of("Exponential, Weibull")`) (@tbl-weights). The memoryless model received a weight of `r weight_of("Exponential, memoryless")` although its elpd was within `r sprintf("%.1f", abs(compare["Exponential, memoryless", "elpd_diff"]))` of the best. This is how stacking treats a model whose predictions for the trials left out are close to those of models already in the combination: it adds nothing to the combination and receives no weight, even though it would predict almost as well on its own. Which of several similar models receives the weight depends on small differences in how each of them combines with the others to predict the trials left out, so a weight of zero should not be read as evidence against a model. The pseudo-BMA weights follow the elpd of each model instead, and gave the memoryless model a weight of `r weight_of("Exponential, memoryless", w_pseudobma)`. Under both methods the zero-power threshold model received almost no weight.
+Stacking gave nearly all of the weight to two models, the exponential failure rate with the log-logistic baseline (`r weight_of("Exponential, log-logistic")`) and with the Weibull baseline (`r weight_of("Exponential, Weibull")`) (@tbl-weights). The memoryless model received a weight of `r weight_of("Exponential, memoryless")` although its elpd was within `r sprintf("%.1f", abs(compare["Exponential, memoryless", "elpd_diff"]))` of the best. This is how stacking treats a model whose predictions for the trials left out are close to those of models already in the combination: it adds nothing to the combination and receives no weight, even though it would predict almost as well on its own. Which of several similar models receives the weight depends on small differences in how each of them combines with the others to predict the trials left out, so a weight of zero should not be read as evidence against a model. The pseudo-BMA weights follow the elpd of each model instead, and gave the memoryless model a weight of `r weight_of("Exponential, memoryless", w_pseudobma)`. Under both methods the zero-power threshold model received almost no weight. Weights computed from 12 trials are themselves uncertain, and a different sample of trials could move them.
 
 We use the stacking weights below, and the pseudo-BMA weights where the two are compared. With the argument `min_weight`, `hazard_weights()` keeps only the models with the highest weights, as many as needed for their weights to reach the given total (e.g., `min_weight = 0.95`), and computes the weights again among them.
 
@@ -449,7 +451,7 @@ ggplot(mapping = aes(x = time / 1440)) +
 ```{r}
 #| label: tbl-mortality
 #| echo: false
-#| tbl-cap: "Probability (%) that a 15 g fish fails by the end of the 30 days of the stream record, predicted by each model and averaged over the models with the stacking weights and with the pseudo-BMA weights with the weights of each model. The mean and the median are two summaries of the same posterior distribution, whose 95% credible interval (CrI) is given once."
+#| tbl-cap: "Probability (%) that a 15 g fish fails by the end of the 30 days of the stream record, predicted by each model (with its stacking and pseudo-BMA weights) and averaged over the models with each set of weights. The mean and the median are two summaries of the same posterior distribution, whose 95% credible interval (CrI) is given once."
 shown     <- c("mean", "median", "lower", "upper")
 mortality <- rbind(do.call(rbind, lapply(each, \(x) x$mortality))[shown],
                    averaged$mortality[shown], averaged_pseudobma$mortality[shown])
@@ -471,15 +473,20 @@ mortality_of <- function(model) each[[model]]$mortality
 describe     <- function(x) sprintf("%s%% (%s%%)", percent(x$median), interval(x, 0, 100))
 pooled_share <- averaged$weights
 coverage     <- each[["Exponential, Weibull"]]$coverage
+# The elapsed time at which the log-logistic hazard turns from rising to falling,
+# s (k - 1)^(1 / k), on the posterior medians of its scale s and shape k.
+llogis_turn  <- with(params[["Exponential, log-logistic"]],
+                     median[quantity == "scale"] *
+                       (median[quantity == "shape"] - 1)^(1 / median[quantity == "shape"]))
 ```
 
 The four models gave very different predictions for the same record (@fig-survival; @tbl-mortality). The probability of failing by the end of the 30 days was `r describe(mortality_of("Exponential, log-logistic"))` under the log-logistic baseline, `r describe(mortality_of("Zero-power threshold, memoryless"))` under the zero-power threshold model, `r describe(mortality_of("Exponential, memoryless"))` under the exponential model with the memoryless baseline and `r describe(mortality_of("Exponential, Weibull"))` under the Weibull baseline. The two models that cross-validation weighted the most, and could not tell apart, gave the two most distant predictions.
 
-The models differ because the record lasts much longer than the assay. The longest exposure in the assay was `r sprintf("%.1f", coverage$tau_max / 60)` h, and `r percent(coverage$risk_beyond)`% of the risk predicted along the record was accrued after that time, as the message of `predict_survival()` and its table `coverage` report (see the vignette [*Ramping assays*](ramping-assays.html)). Over the exposures of the assay the three baselines describe the failures equally well. Beyond them they diverge. Under the Weibull baseline, the hazard at a given temperature keeps rising with the time under exposure. Under the memoryless baseline, it stays the same. Under the log-logistic baseline, it falls after an initial rise, and it is under this baseline alone that the heat wave carries almost no risk, because it comes after two weeks of exposure. The zero-power threshold model predicts few failures for another reason, which is that its failure rate is zero below the critical temperature $T_c$, estimated at `r sprintf("%.1f", Tc$median)`°C (95% credible interval: `r interval(Tc)`°C; @tbl-params), and the stream exceeded that temperature only during the afternoons of the heat wave.
+The models differ because the record lasts much longer than the assay. The longest exposure in the assay was `r sprintf("%.1f", coverage$tau_max / 60)` h, and `r percent(coverage$risk_beyond)`% of the risk predicted along the record was accrued after that time, as the message of `predict_survival()` and its table `coverage` report (see the vignette [*Ramping assays*](ramping-assays.html)). Over the exposures of the assay the three baselines describe the failures equally well. Beyond them they diverge. Under the Weibull baseline, the hazard at a given temperature keeps rising with the time under exposure. Under the memoryless baseline, it stays the same. Under the log-logistic baseline, it falls after an initial rise, and it is under this baseline alone that the heat wave carries almost no risk, because it comes after two weeks of exposure. Where that fall begins is set by the scale of the log-logistic baseline (its hazard turns down at about `r sprintf("%.0f", llogis_turn)` min on the posterior medians, against a longest exposure of `r sprintf("%.0f", coverage$tau_max)` min in the assay), which the data inform only weakly (see `?h0_catalogue`), so the posterior of that scale rests partly on its prior, and so does the prediction of this model for the record. The zero-power threshold model predicts few failures for another reason, which is that its failure rate is zero below the critical temperature $T_c$, estimated at `r sprintf("%.1f", Tc$median)`°C (95% credible interval: `r interval(Tc)`°C; @tbl-params), and the stream exceeded that temperature only during the afternoons of the heat wave.
 
 The average reflects this disagreement. With the stacking weights, its 95% credible interval was `r interval(averaged$mortality, 0, 100)`%, which includes nearly every possible outcome, and its median was `r percent(averaged$mortality$median)`%.
 
-The median is not a value between the predictions of the two models with the highest weights, as might be expected of an average. A model average is a mixture of the posterior distributions of the models, in which each model contributes posterior draws in proportion to its weight, and what is reported is the median and the interval of that mixture. Here, about half of the draws came from the log-logistic model (`r pooled_share$n_draws[pooled_share$model == "Exponential, log-logistic"]` of `r sum(pooled_share$n_draws)`), all of which predict a mortality of a few percent, and about half from the Weibull model (`r pooled_share$n_draws[pooled_share$model == "Exponential, Weibull"]`), nearly all of which predict a mortality above 30%, with almost no draws in between. The median of a mixture with two separate groups of values lies at the edge of whichever group holds slightly more than half of the draws, and a small change in the weights moves it from one group to the other. With the pseudo-BMA weights, the interval was nearly the same (`r interval(averaged_pseudobma$mortality, 0, 100)`%) but the median was `r percent(averaged_pseudobma$mortality$median)`%.
+The median is not a value between the predictions of the two models with the highest weights, as might be expected of an average. A model average is a mixture of the posterior distributions of the models, in which each model contributes posterior draws in proportion to its weight, and what is reported is the median and the interval of that mixture. Here, about half of the draws came from the log-logistic model (`r pooled_share$n_draws[pooled_share$model == "Exponential, log-logistic"]` of `r sum(pooled_share$n_draws)`), all of which predict a mortality of a few percent, and about half from the Weibull model (`r pooled_share$n_draws[pooled_share$model == "Exponential, Weibull"]`), nearly all of which predict a mortality above 30%, with almost no draws in between. The median of a mixture with two separate groups of values lies at the edge of whichever group holds slightly more than half of the draws, and a small change in the weights, or in the number of draws each model happens to contribute, moves it from one group to the other. With the pseudo-BMA weights, the interval was nearly the same (`r interval(averaged_pseudobma$mortality, 0, 100)`%) but the median was `r percent(averaged_pseudobma$mortality$median)`%.
 
 This is a consequence of the disagreement among the models, and not of model averaging. Where the models agree, as for the sCTmax above, the average is nearly the same under either set of weights and its median summarises it well. Where they disagree as much as they do for this record, no single value summarises the average, and the interval and the predictions of each model should be reported with whichever value is given.
 
@@ -491,7 +498,7 @@ gap <- function(x) abs(x$mean - x$median)
 
 `predict_survival()` and `average_survival()` report the mean of the posterior draws beside their median (@tbl-mortality), and the two mean different things. For a probability such as mortality, the mean is the probability that a fish fails once the uncertainty in the parameters, and in the model as far as the weights measure it, is taken into account. It is therefore the fraction of fish expected to fail. The median is the value below which half of the posterior lies, and it describes the posterior well when its values form a single group. The credible interval belongs to the posterior distribution and not to either of its summaries, so it is the same whichever of the two is reported. For each model on its own, the two differed by at most `r sprintf("%.0f", 100 * max(vapply(each, \(x) gap(x$mortality), numeric(1))))` percentage points.
 
-For the average they differed greatly. The mean was `r percent(averaged$mortality$mean)`% with the stacking weights and `r percent(averaged_pseudobma$mortality$mean)`% with the pseudo-BMA weights, against medians of `r percent(averaged$mortality$median)`% and `r percent(averaged_pseudobma$mortality$median)`%, so the mean changed little with the weights. Relying on the mean amounts to treating the weights as the degree to which each model should be believed for this record. The weights measure how well each model predicts within the conditions of the assay, which is not the same, and the mean of `r percent(averaged$mortality$mean)`% is a value that neither of the two models with the highest weights predicts: it is what is expected on average when the mortality is either about `r percent(mortality_of("Exponential, log-logistic")$median)`% or about `r percent(mortality_of("Exponential, Weibull")$median)`%. Relying on the median amounts to reporting the centre of a posterior that has no centre here. Where the models agree, the choice is of no consequence: for the warmest day of the record (see below), the mean and the median of the average were `r percent(results$shorter_records$warmest_day$average$mean)`% and `r percent(results$shorter_records$warmest_day$average$median)`%.
+For the average they differed greatly. The mean was `r percent(averaged$mortality$mean)`% with the stacking weights and `r percent(averaged_pseudobma$mortality$mean)`% with the pseudo-BMA weights, against medians of `r percent(averaged$mortality$median)`% and `r percent(averaged_pseudobma$mortality$median)`%, so the mean changed little with the weights. The mean of the pooled draws is the prediction that stacking is built to give, and relying on it amounts to treating the weights as the degree to which each model should be believed for this record. The weights measure how well each model predicts within the conditions of the assay, which is not the same, and the mean of `r percent(averaged$mortality$mean)`% is a value that neither of the two models with the highest weights predicts: it is what is expected on average when the mortality is either about `r percent(mortality_of("Exponential, log-logistic")$median)`% or about `r percent(mortality_of("Exponential, Weibull")$median)`%. Relying on the median amounts to reporting the centre of a posterior that has no centre here. Where the models agree, the choice is of no consequence: for the warmest day of the record (see below), the mean and the median of the average were `r percent(results$shorter_records$warmest_day$average$mean)`% and `r percent(results$shorter_records$warmest_day$average$median)`%.
 
 The weights indicate how well each model predicts failures under the conditions of the assay. They do not indicate which model extrapolates better beyond those conditions, which the data of the assay cannot show.
 
@@ -555,7 +562,7 @@ When several candidate models are fitted, we recommend reporting: (i) the compar
 ::: {.callout-note}
 ## Precomputed results
 
-The models in this vignette were fitted and cross-validated with `rTFT` `r results$stamp$version` on `r results$stamp$date` by the script `vignettes/_precompute.R` in the package's repository. The vignette displays the saved summaries, and all other code runs when the vignette is built.
+The models in this vignette were fitted and cross-validated on `r results$stamp$date` with the development version of `rTFT` that became 0.1.0 (`r results$stamp$version`), by the script `vignettes/_precompute.R` in the package's repository. The vignette displays the saved summaries, and all other code runs when the vignette is built.
 :::
 
 ## References

@@ -1,12 +1,12 @@
 # discrete-time-hazard-brms.R
 
-# Functions to fit thermal failure times (i.e., the time at which an individual fails 
-# under a thermal exposure) as discrete-time complementary log-log survival models 
-# in brms, following the failure-rate framework of Kingsolver and Umbanhowar (2018). Each
+# Functions to fit thermal failure times (i.e., the time at which an individual fails
+# under a thermal exposure) as discrete-time complementary log-log survival models in
+# brms, following the failure-rate framework of Kingsolver and Umbanhowar (2018). Each
 # at-risk interval of a trial contributes a Bernoulli failure indicator whose hazard
 # is h0(tau) * M(T): a failure rate M(T) set by the current temperature, and a
 # baseline hazard h0(tau) in elapsed exposure. The failure rate takes one of a
-# catalogue of forms (M_catalogue) and the baseline one of a catalogue of shapes
+# catalogue of functions (M_catalogue) and the baseline one of another
 # (h0_catalogue). Both are written once as log-scale expression strings (brms_log_M,
 # brms_log_h0) that fitting, simulation and reporting all read, so the model has a
 # single definition.
@@ -14,13 +14,13 @@
 # The path is build_hazard_data() -> build_hazard_spec() -> build_hazard_prior() ->
 # fit_hazard(): reshape one row per individual into one row per at-risk interval,
 # assemble the nonlinear formula and its response family, supply weakly-informative
-# default priors, and hand it to brms. Failure times may be interval-censored,
-# observed at a known time, or a mix of the two; each has its own response
-# family (the numerically stable cloglog Bernoulli family here, brms's Poisson, or
-# the unified mixed family). A non-temperature co-stressor Z (e.g., dissolved oxygen, pH)
-# enters through costressor(), turning the failure rate into a surface
-# M(T, Z). ramp_path() and assess_ramp_linearity() help when the exposure is a
-# controlled linear temperature ramp.
+# default priors, and hand it to brms. Failure times may be interval-censored, observed
+# at a known time, or a mix of the two; each has its own response family (the
+# numerically stable cloglog Bernoulli family here, brms's Poisson, or the unified mixed
+# family). A non-temperature co-stressor Z (e.g., dissolved oxygen, pH) enters through
+# costressor(), turning the failure rate into a surface M(T, Z). ramp_path() and
+# assess_ramp_linearity() help when the exposure is a controlled linear temperature
+# ramp.
 
 # ===========================================================================
 # 0a. Numerically stable cloglog Bernoulli family (interval mode)
@@ -402,8 +402,9 @@ h0_catalogue <- list(
 #' Each entry is the expression string of log M(T) for one function of [M_catalogue],
 #' which brms uses to build the model formula. The strings are written in terms
 #' of the parameter names and the data columns `Ta` (the row's temperature: the
-#' interval midpoint, or the exact temperature for a known-time failure) and `Tr`
-#' (the starting temperature). The threshold functions add a small constant
+#' interval midpoint, or the temperature at the moment of a known-time failure)
+#' and `Tr` (the reference temperature of the model; see [M_catalogue]). The
+#' threshold functions add a small constant
 #' inside a logarithm so it stays finite at the critical temperature. The constant
 #' is written `10^-12` and not `1e-12`, because brms spaces out the minus sign of a
 #' number in scientific notation when it writes the Stan program (`1e - 12`), which
@@ -441,8 +442,8 @@ brms_log_M <- list(
 #' written in terms of the parameter names and the data columns `log_tau` (the log
 #' of the row's elapsed exposure time), for `weibull` `tau_ref` (the reference time
 #' its scale is fixed at) and, for `gompertz`, `tau` itself (the
-#' elapsed exposure time: the midpoint for an interval row, or the exact time for
-#' a known-time failure). `mem` is the empty string, because a memoryless
+#' elapsed exposure time: the midpoint for an interval row, or the time of a
+#' known-time failure). `mem` is the empty string, because a memoryless
 #' baseline contributes nothing: h0(tau) = 1 and the hazard is M(T) alone.
 #'
 #' Each string is the baseline **hazard** on the log scale, not the density. For
@@ -555,15 +556,15 @@ brms_log_h0 <- list(
 #' Declare a co-stressor for a failure-rate hazard model
 #'
 #' Describes one non-temperature environmental variable (Z) the individual is exposed to
-#' and that co-determines the failure rate: dissolved oxygen, salinity, pH, a
-#' toxicant concentration, or, for a terrestrial ectotherm, humidity. The failure
-#' rate then becomes a surface M(T, Z). The co-stressor enters log M(T) as its own
-#' term and, when asked for with `interaction = TRUE`, an interaction with
-#' temperature, so a crossed temperature-by-stressor design (a ramp run at two or
-#' more stressor levels) can estimate how the stressor changes the thermal response. Build one for each
+#' and that co-determines the failure rate: dissolved oxygen, salinity, pH, a toxicant
+#' concentration, or, for a terrestrial ectotherm, humidity. The failure rate then
+#' becomes a surface M(T, Z). The co-stressor enters log M(T) as its own term and, when
+#' asked for with `interaction = TRUE`, an interaction with temperature, so a crossed
+#' temperature-by-stressor design (a ramp run at two or more stressor levels) can
+#' estimate how the stressor changes the thermal response. Build one for each
 #' co-stressor and pass them together, as a list, to [build_hazard_data],
-#' [build_hazard_spec], [build_hazard_prior] and [fit_hazard], so all four read the
-#' same declaration.
+#' [build_hazard_spec], [build_hazard_prior] and [fit_hazard], so all four read the same
+#' declaration.
 #'
 #' The raw measurement `X` becomes a standardised column
 #' z = direction * (X - ref) / scale, which is zero at the benign reference. There
@@ -584,13 +585,12 @@ brms_log_h0 <- list(
 #' main effect `c<name>` has the same sign meaning for every stressor: a positive value
 #' is a hazard that rises under stress.
 #'
-#' This signed-linear column assumes the stressor harm runs one way. For a stressor that is
-#' harmful in either direction (salinity or pH, where a departure above or below the
-#' optimum both add stress), supply a `transform` function so z measures distance from the
-#' reference rather than a signed deficit: a squared standardised deviation,
-#' transform = function(u) u^2, makes z = ((X - ref) / scale)^2, zero at the optimum
-#' and rising on both sides. The `direction` then no longer applies, since z is
-#' symmetric.
+#' This signed-linear column assumes the stressor harm runs one way. For a stressor that
+#' is harmful in either direction (salinity or pH, where a departure above or below the
+#' optimum both add stress), supply a `transform` function so z measures distance from
+#' the reference rather than a signed deficit: a squared standardised deviation,
+#' transform = function(u) u^2, makes z = ((X - ref) / scale)^2, zero at the optimum and
+#' rising on both sides. The `direction` then no longer applies, since z is symmetric.
 #'
 #' The co-stressor contributes one or two parameters, named from `name`. The main
 #' effect `c<name>` is the change in the log failure rate per `scale` of stressor
@@ -692,10 +692,10 @@ brms_log_h0 <- list(
 #'   an interaction implies outside the temperatures of the data, see
 #'   \sQuote{An interaction outside the temperatures of the data}.
 #' @param trajectory An optional data frame giving the co-stressor over time, with
-#'   columns `path_id`, `time` and the `column` named above, in the shape of the
-#'   `path` argument of [build_hazard_data]. Supply it for a stressor that changes
-#'   during a trial; it is interpolated to the same interval midpoints as temperature.
-#'   Leave `NULL` for a stressor held fixed within a trial, which is then read from `ind`.
+#'   columns `path_id`, `time` and the `column` named above, in the shape of the `path`
+#'   argument of [build_hazard_data]. Supply it for a stressor that changes during a
+#'   trial; it is interpolated to the same interval midpoints as temperature. Leave
+#'   `NULL` for a stressor held fixed within a trial, which is then read from `ind`.
 #' @param transform An optional function of the standardised deviation
 #'   (X - ref) / scale that returns the column `z`. Use it for a stressor whose harm
 #'   is not signed-linear, for example a squared deviation for a U-shaped response to
@@ -908,23 +908,28 @@ costressor <- function(name, column, ref, scale, direction,
 #' @section The time grid:
 #' Within each interval at risk the hazard is taken as constant, at its value at the
 #' midpoint of the interval. That is accurate while temperature changes little
-#' within the interval, and biases the fit when it changes much, as in a ramp with
-#' widely spaced checks, because the failure rate rises steeply with temperature.
+#' within the interval, because the failure rate rises steeply with temperature.
 #' With a thermal sensitivity of b = 1.7 per degree, for example, the rate is
 #' exp(1.7 x 0.1) = 1.19 times higher at the end of an interval that spans 0.1
 #' degrees than at its start, and exp(1.7 x 0.5) = 2.3 times higher across one that
-#' spans half a degree. So any interval over which temperature changes by more than
-#' `grid_dT` is divided into equal parts, each with its own row, and a message says
-#' how many rows resulted.
+#' spans half a degree; the hazard accrued over the interval, taken at its
+#' midpoint, is then understated by about (b dT)^2 / 24, that is by 0.1% over a
+#' tenth of a degree and by 3% over half a degree, an error that grows with the
+#' square of the change in temperature. So any interval over which temperature
+#' changes by more than `grid_dT` is divided into equal parts, each with its own
+#' row, and a message says how many rows resulted.
 #'
 #' Two cases are treated apart. A failure at a known time needs the hazard at the
 #' moment it happened, and the midpoint of the interval it fell in is earlier and,
 #' in a ramp, cooler; so that interval is closed with a very short one ending at the
-#' failure. A failure known only to the interval between two checks keeps that
-#' interval whole, since where in it the individual failed is not known, and its
-#' contribution is the probability of failing anywhere in it. A warning is given
-#' when temperature changes by more than half a degree within such an interval, so
-#' that the estimates can be interpreted with that in mind.
+#' failure. This is the larger of the two errors: without the closing interval, a
+#' ramp followed in intervals of a minute underestimated b = 1.7 by about 4% in a
+#' simulation of eight large assays, and with it b was recovered whatever the
+#' length of the intervals. A failure known only to the interval between two
+#' checks keeps that interval whole, since where in it the individual failed is
+#' not known, and its contribution is the probability of failing anywhere in it. A
+#' warning is given when temperature changes by more than half a degree within
+#' such an interval, so that the estimates can be interpreted with that in mind.
 #'
 #' When neither `checks` nor `grid_dt` is given for failures at known times, the
 #' intervals are those between the readings of `path`, divided as above, and into
@@ -936,10 +941,12 @@ costressor <- function(name, column, ref, scale, direction,
 #'   columns referenced in the model. Timing depends on how the failure was
 #'   observed: interval-censored individuals have `t_upper` (the check at which
 #'   failure was found, or a survivor's last observed check); known-time ones
-#'   have `t_event` (the exact failure or censoring time). For
+#'   have `t_event` (the known time of failure or censoring). For
 #'   `observation = "mixed"` the data also needs an `obs_type` column per
 #'   individual (`"interval"` or `"continuous"`), and each type supplies its own
-#'   timing column.
+#'   timing column. Every individual is taken to be at risk from time 0 of its
+#'   path: the table has no entry time, so an individual that joins an exposure
+#'   after it began cannot be represented.
 #' @param path A data frame giving the temperature trajectory for each path.
 #'   Required columns: `path_id`, `time`, `temp`. The function interpolates these
 #'   points linearly in time, so a minimal two-point path (start and end) encodes a
@@ -955,7 +962,7 @@ costressor <- function(name, column, ref, scale, direction,
 #'   linear predictor.
 #' @param observation How each failure time was observed. One of `"interval"`
 #'   (every failure known only to fall within a censoring interval), `"continuous"`
-#'   (every failure time known exactly), or `"mixed"` (both kinds in one table,
+#'   (every failure observed at a known time), or `"mixed"` (both kinds in one table,
 #'   each individual's kind given by its `obs_type` column). This determines which
 #'   response family the table is fitted with, and whether the `exact` flag is
 #'   added; the response column is `failed` in every mode.
@@ -1009,10 +1016,10 @@ costressor <- function(name, column, ref, scale, direction,
 #'   the interval midpoints) or, for a stressor held fixed within a trial, from a
 #'   column of `ind`. Defaults to none.
 #' @return A long-format data frame, one row per individual and at-risk interval,
-#'   holding the identifiers `id` and `path_id`; the model columns `Ta`, `Tr`,
-#'   `tau`, `log_tau`, `tau_ref`, `exposure`, `log_exposure`; the carried covariates; one
-#'   `z_<name>` column per co-stressor; the 0/1 response column `failed`; and, for
-#'   mixed observation, the integer `exact` flag the family branches on.
+#'   holding the identifiers `id` and `path_id`; the model columns `Ta`, `Tr`, `tau`,
+#'   `log_tau`, `tau_ref`, `exposure`, `log_exposure`; the carried covariates; one
+#'   `z_<name>` column per co-stressor; the 0/1 response column `failed`; and, for mixed
+#'   observation, the integer `exact` flag the family branches on.
 #' @examples
 #' # A single linear ramp encoded as two points: 20 -> 35 degrees over 60 minutes,
 #' # with failure checked for every 10 minutes.
@@ -1023,7 +1030,7 @@ costressor <- function(name, column, ref, scale, direction,
 #' ind <- data.frame(id = 1:2, path_id = "A", event = c(1, 0), t_upper = c(30, 60))
 #' build_hazard_data(ind, path, "interval", checks = checks)
 #'
-#' # Known-time: the exact failure time, integrated on the same checks.
+#' # Known-time: the failure time itself, integrated on the same checks.
 #' ind_c <- data.frame(id = 1, path_id = "A", event = 1, t_event = 42)
 #' build_hazard_data(ind_c, path, "continuous", checks = checks)
 #'
@@ -1038,9 +1045,9 @@ costressor <- function(name, column, ref, scale, direction,
 #'                     t_upper = c(30, NA), t_event = c(NA, 42))
 #' build_hazard_data(ind_m, path, "mixed", checks = checks)
 #'
-#' # A covariate carried through to every row, and a shared reference Tr.
-#' ind$mass <- c(12.1, 9.8)
-#' build_hazard_data(ind, path, "interval", covariates = "mass", Tr = 15, checks = checks)
+#' # A covariate carried through to every row, and a shared reference Tr. ind$mass <-
+#' c(12.1, 9.8) build_hazard_data(ind, path, "interval", covariates = "mass", Tr = 15,
+#' checks = checks)
 #' @export
 build_hazard_data <- function(ind, path, observation = c("interval", "continuous", "mixed"),
                               covariates = character(0), Tr = NULL, tau_ref = NULL,
@@ -1073,11 +1080,11 @@ build_hazard_data <- function(ind, path, observation = c("interval", "continuous
   need_cols(path, c("path_id", "time", "temp"), "path")
   if (!is.null(checks)) need_cols(checks, c("path_id", "time"), "checks")
 
-  # In the two non-mixed modes, the observation mode fixes a single timing column
-  # for the whole table: `t_upper` for interval, `t_event` for continuous. Guard it
-  # the same way as the input columns above: a missing column reads back as NULL, and
-  # findInterval() on it then returns a single at-risk interval rather than erroring. Mixed
-  # mode carries a column per level and is guarded separately below.
+  # In the two non-mixed modes, the observation mode fixes a single timing column for
+  # the whole table: `t_upper` for interval, `t_event` for continuous. Guard it the same
+  # way as the input columns above: a missing column reads back as NULL, and
+  # findInterval() on it then returns a single at-risk interval rather than erroring.
+  # Mixed mode carries a column per level and is guarded separately below.
   if (observation != "mixed") {
     timing <- c(interval = "t_upper", continuous = "t_event")[[observation]]
     need_cols(ind, timing, "ind")
@@ -1431,7 +1438,7 @@ build_hazard_spec <- function(m_form, baseline = "mem", dpar_formulas = list(),
   is.call(term) && identical(term[[1]], quote(`(`)) && is.call(term[[2]]) &&
     (identical(term[[2]][[1]], quote(`|`)) || identical(term[[2]][[1]], quote(`||`)))
 
-# Checks if a one-sided formula contain a random effect term
+# Checks if a one-sided formula contains a random effect term
 .has_re <- function(f)
   !is.null(f) && any(vapply(.rhs_terms(f), .is_bar, logical(1)))
 
@@ -1481,7 +1488,7 @@ build_hazard_spec <- function(m_form, baseline = "mem", dpar_formulas = list(),
 #' Weakly-informative default priors for a failure-rate hazard model
 #'
 #' Supplies a sensible starting prior for the model [build_hazard_spec] assembles,
-#' keyed to each parameter's intercept and robust to whatever covariates the
+#' keyed to each parameter's intercept and unaffected by whatever covariates the
 #' `dpar_formulas` add. For every parameter the chosen functions need, it sets a
 #' weakly-informative prior on the intercept (the parameter's value at the reference
 #' temperature and start of exposure), a generic Normal(0, 1) on any covariate
@@ -1519,6 +1526,19 @@ build_hazard_spec <- function(m_form, baseline = "mem", dpar_formulas = list(),
 #' random-effect standard deviation. Each co-stressor in `costressors` adds a
 #' `normal(0, 1)` on its main effect `c<name>` and a tighter `normal(0, 0.5)` on its
 #' temperature interaction `dT<name>`, both overridable through `intercept_priors`.
+#'
+#' The constants in these priors (the centre of exp(-1) and the standard deviation
+#' of 2 for the amplitude, the centre of -0.7 for log b, the rate of 2 for the
+#' group standard deviations, the 0.5 for an interaction) are judgements of what
+#' is plausible for a thermal failure assay, not values estimated from data, and
+#' the centres that are read from `long` make the prior depend on the data in a
+#' weak way, as a standard deviation of 2 on the log scale is wide. The prior on a
+#' covariate slope is per unit of the covariate, so a covariate measured in large
+#' units (body mass in grams, say) should be centred and scaled, or the slope
+#' prior widened, before `normal(0, 1)` is taken as weak. With few groups, the
+#' prior on a group standard deviation can matter for predictions of new groups
+#' (which cross-validation by group scores, see [kfold_hazard()]); a sensitivity
+#' check against `exponential(1)` is cheap insurance.
 #'
 #' @section The prior on a when the reference is far from the failures:
 #' For the rates anchored at the reference temperature (`exp`, `zeroexp`,
@@ -1873,10 +1893,12 @@ build_hazard_prior <- function(m_form, baseline = "mem", dpar_formulas = list(),
 #'   [brms::brm] for the full set.
 #' @return A `brmsfit`, carrying in `$rtft` the settings it was fitted with: the
 #'   failure-rate and baseline functions, the observation mode, the reference
-#'   temperature `Tr`, the softening steepness, the co-stressors, the ranges of
-#'   temperature and elapsed exposure time the data cover, and the individual each
-#'   row of `long` belongs to. The reporting functions read them from there, so they
-#'   are never re-entered by hand.
+#'   temperature `Tr` and reference time `tau_ref`, the softening steepness, the
+#'   co-stressors, the ranges of temperature and elapsed exposure time the data
+#'   cover, and, for each row of `long`, the individual and the temperature
+#'   trajectory it belongs to and the elapsed time at which its interval ends. The
+#'   reporting functions and the checks read them from there, so they are never
+#'   re-entered by hand.
 #' @examples
 #' \dontrun{
 #' path <- data.frame(path_id = "A", time = c(0, 60), temp = c(20, 35))
@@ -1977,8 +1999,8 @@ ramp_path <- function(path_id, T_start, rate, t_max, by = NULL) {
 #'   `max_dev_hot` (the worst absolute deviation in the hot quartile); plus
 #'   `rate_nominal` and `rate_bias` when `nominal` is supplied.
 #' @examples
-#' # A logged temperature series close to a 0.3 degree/min ramp, with a small mid-run wobble.
-#' path <- data.frame(path_id = "r1", time = 0:20,
+#' # A logged temperature series close to a 0.3 degree/min ramp, with a small mid-run
+#' wobble. path <- data.frame(path_id = "r1", time = 0:20,
 #'                    temp = 20 + 0.3 * (0:20) + c(rep(0, 8), 0.4, 0.5, 0.3, rep(0, 10)))
 #' assess_ramp_linearity(path)
 #'

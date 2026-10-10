@@ -7,7 +7,7 @@
 # drawn from), with the package version and the date. Everything else in a vignette
 # runs when it is built.
 #
-# Each fit is checked before anything is saved: rank-normalized split-Rhat below
+# Each fit is checked before anything is saved: rank-normalised split-Rhat below
 # 1.01, bulk and tail effective sample sizes above 400, and divergent transitions
 # in at most 0.1% of the draws (4 of 4,000). A fit that fails stops the script, so a
 # vignette cannot report a model that did not converge. A few divergent transitions

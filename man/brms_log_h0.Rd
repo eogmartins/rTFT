@@ -16,8 +16,8 @@ Each entry is the expression string of log h0(tau) for one function of
 written in terms of the parameter names and the data columns \code{log_tau} (the log
 of the row's elapsed exposure time), for \code{weibull} \code{tau_ref} (the reference time
 its scale is fixed at) and, for \code{gompertz}, \code{tau} itself (the
-elapsed exposure time: the midpoint for an interval row, or the exact time for
-a known-time failure). \code{mem} is the empty string, because a memoryless
+elapsed exposure time: the midpoint for an interval row, or the time of a
+known-time failure). \code{mem} is the empty string, because a memoryless
 baseline contributes nothing: h0(tau) = 1 and the hazard is M(T) alone.
 }
 \details{

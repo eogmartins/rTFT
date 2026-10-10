@@ -48,7 +48,9 @@ measurement scale, e.g. \code{c(DO = 6)}. Required when the model has co-stresso
 credible intervals.}
 
 \item{n_draws}{An optional single number, the number of posterior draws to use,
-evenly spaced through the posterior. \code{NULL} uses them all.}
+evenly spaced through the posterior. Defaults to 1000, which keeps the
+derivation fast while the limits of a 95\% interval still rest on about 25
+draws in each tail; \code{NULL} uses them all.}
 }
 \value{
 A list of four tibbles, each starting with the columns of \code{newdata} and
@@ -67,10 +69,11 @@ the summary is of survival.
 Derives, from a model fitted with \code{\link[=fit_hazard]{fit_hazard()}}, the failure-rate parameters on
 their natural scale, the static critical thermal maximum sCTmax, the thermal death
 time curves and the thermal tolerance landscape, each with its posterior median
-and credible interval, at the covariate values in each row of \code{newdata}. The model's
-settings (failure-rate and baseline functions, reference temperature, softening
-steepness, co-stressors) are read from the fit. Random effects are set to zero, so
-the results are those of a typical group.
+and equal-tailed credible interval (the interval between the (1 - \code{prob}) / 2
+and 1 - (1 - \code{prob}) / 2 quantiles of the draws), at the covariate values in
+each row of \code{newdata}. The model's settings (failure-rate and baseline functions,
+reference temperature, softening steepness, co-stressors) are read from the fit.
+Random effects are set to zero, so the results are those of a typical group.
 }
 \details{
 sCTmax is the constant temperature at which a fraction \code{p} of individuals fail within

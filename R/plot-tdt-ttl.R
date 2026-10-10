@@ -203,8 +203,8 @@
 #'
 #' Draws the thermal death time curves from [derive_tdt_ttl()]: the time until a
 #' fraction `p` of individuals has failed, against constant temperature, as the
-#' posterior median with its credible interval. The result is a ggplot object, which 
-#' be refined by the user with further ggplot2 layers, scales, labels and themes.
+#' posterior median with its credible interval. The result is a ggplot object, which
+#' can be refined by the user with further ggplot2 layers, scales, labels and themes.
 #'
 #' By default each fraction `p` has its own colour, from blue for the fewest failed
 #' to red for the most, and each setting of `newdata` its own panel. Each setting has

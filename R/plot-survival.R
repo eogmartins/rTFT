@@ -3,7 +3,7 @@
 # Basic plots of what predict_survival() and average_survival() return.
 # plot_survival() draws survival along the record, with the record itself above it
 # when asked, and plot_risk() each period's share of the risk. Both return ggplot
-# objects, so the user can refines them with further ggplot2 layers, scales, labels 
+# objects, so the user can refine them with further ggplot2 layers, scales, labels
 # and themes. They share the panels, colours and theme of the plots of thermal death
 # time curves, whose helpers they use.
 

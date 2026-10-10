@@ -53,7 +53,7 @@ A \code{brmsprior}.
 }
 \description{
 Supplies a sensible starting prior for the model \link{build_hazard_spec} assembles,
-keyed to each parameter's intercept and robust to whatever covariates the
+keyed to each parameter's intercept and unaffected by whatever covariates the
 \code{dpar_formulas} add. For every parameter the chosen functions need, it sets a
 weakly-informative prior on the intercept (the parameter's value at the reference
 temperature and start of exposure), a generic Normal(0, 1) on any covariate
@@ -93,6 +93,19 @@ with \code{normal(0, 1)} on any covariate slope and \code{exponential(2)} on any
 random-effect standard deviation. Each co-stressor in \code{costressors} adds a
 \code{normal(0, 1)} on its main effect \verb{c<name>} and a tighter \code{normal(0, 0.5)} on its
 temperature interaction \verb{dT<name>}, both overridable through \code{intercept_priors}.
+
+The constants in these priors (the centre of exp(-1) and the standard deviation
+of 2 for the amplitude, the centre of -0.7 for log b, the rate of 2 for the
+group standard deviations, the 0.5 for an interaction) are judgements of what
+is plausible for a thermal failure assay, not values estimated from data, and
+the centres that are read from \code{long} make the prior depend on the data in a
+weak way, as a standard deviation of 2 on the log scale is wide. The prior on a
+covariate slope is per unit of the covariate, so a covariate measured in large
+units (body mass in grams, say) should be centred and scaled, or the slope
+prior widened, before \code{normal(0, 1)} is taken as weak. With few groups, the
+prior on a group standard deviation can matter for predictions of new groups
+(which cross-validation by group scores, see \code{\link[=kfold_hazard]{kfold_hazard()}}); a sensitivity
+check against \code{exponential(1)} is cheap insurance.
 }
 \section{The prior on a when the reference is far from the failures}{
 

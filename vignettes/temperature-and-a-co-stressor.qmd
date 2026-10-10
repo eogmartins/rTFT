@@ -60,7 +60,7 @@ estimate <- function(x, digits = 1, scale = 1) {
 }
 ```
 
-Temperature not always acts alone. For example, fish exposed to high temperatures may simultaneously encounter low dissolved oxygen, and their tolerance to one may depend on the level of the other ([Ern et al. 2016](https://doi.org/10.1242/jeb.143495)). In `rTFT`, a second environmental variable of this kind is declared as a co-stressor, and the failure rate then depends on both temperature and the co-stressor.
+Temperature does not always act alone. For example, fish exposed to high temperatures may at the same time encounter low dissolved oxygen, and below a species-specific oxygen level their upper thermal limit declines ([Ern et al. 2016](https://doi.org/10.1242/jeb.143495){target="_blank"}). In `rTFT`, a second environmental variable of this kind is declared as a co-stressor, and the failure rate then depends on both temperature and the co-stressor.
 
 In this vignette, we fit two models to a ramping assay that was run at two levels of dissolved oxygen: one in which oxygen changes the failure rate by the same proportion at every temperature, and one in which its effect also changes with temperature (i.e., an interaction). We then: (i) derive the critical thermal maxima, the thermal death time curves and the thermal tolerance landscape at chosen levels of oxygen, and (ii) predict survival along a record of stream temperature and dissolved oxygen. We also show what an interaction between temperature and a co-stressor implies when a model is used to predict at temperatures below those of the assay. The steps shared with the previous vignettes are described in [*Getting started with rTFT*](getting-started.html) and [*Ramping assays*](ramping-assays.html).
 
@@ -112,7 +112,7 @@ A co-stressor is declared with the function `costressor()`, which requires three
 DO <- costressor("DO", column = "do", ref = 10, scale = 1, direction = -1)
 ```
 
-With these choices the model uses the oxygen deficit, $z = 10 - \mathrm{DO}$ (i.e., 0 in normoxia and 5 at 5 mg/L), and the failure rate becomes
+With these choices the model uses the oxygen deficit, $z = 10 - \mathrm{DO}$ (i.e., 0 in normoxia and 5 at 5 mg/L; this $z$ is the package's name for a standardised co-stressor, and not the $z$ of the thermal death time curves), and the failure rate becomes
 
 $$
 \log M(T, z) = \log a + b (T - T_r) + c \, z .
@@ -165,7 +165,7 @@ fit_main <- fit_hazard(
   dpar_formulas = formulas,
   costressors   = list(DO),
   chains = 4, iter = 2000, warmup = 1000, cores = 4, seed = 20261006,
-  control = list(adapt_delta = 0.95)
+  control = list(adapt_delta = 0.95), backend = "cmdstanr"
 )
 fit_interaction <- fit_hazard(
   long,
@@ -174,11 +174,11 @@ fit_interaction <- fit_hazard(
   dpar_formulas = formulas,
   costressors   = list(DO_interaction),
   chains = 4, iter = 2000, warmup = 1000, cores = 4, seed = 20261006,
-  control = list(adapt_delta = 0.95)
+  control = list(adapt_delta = 0.95), backend = "cmdstanr"
 )
 ```
 
-The default priors of the parameters of the co-stressor are shown by `build_hazard_prior()` when it is given the same list (see `?build_hazard_prior`). Fitting the two models takes about 40 min, so the code of this vignette that uses the fitted models was run once and its results were saved with the package (see the note at the end of this vignette).
+The default priors of the parameters of the co-stressor are shown by `build_hazard_prior()` when it is given the same list (see `?build_hazard_prior`). The sampler settings are those chosen in the vignette [*Getting started with rTFT*](getting-started.html) and were not tuned for these models. Fitting the two models takes about an hour, so the code of this vignette that uses the fitted models was run once and its results were saved with the package (see the note at the end of this vignette).
 
 ```{r}
 #| label: tbl-convergence
@@ -203,7 +203,7 @@ knitr::kable(data.frame(
 n_divergent <- vapply(results$convergence, \(x) x$n_divergent, numeric(1))
 ```
 
-Both models converged`r if (all(n_divergent == 0)) ", with no divergent transitions" else ""` (@tbl-convergence). The two checks of fit were made as in the vignette [*Getting started with rTFT*](getting-started.html), with the proportion of fish surviving compared for each ramp at each level of oxygen (`check_survival(fit, by = "z_DO")`). The model with the interaction described the data better: the proportion observed was outside the simulated band at `r checks$n_outside[2]` of the `r format(checks$n_times[2], big.mark = ",")` observation times, against `r checks$n_outside[1]` under the model with the main effect alone.
+Both models converged`r if (all(n_divergent == 0)) ", with no divergent transitions" else ""` (@tbl-convergence). The two checks of fit were made as in the vignette [*Getting started with rTFT*](getting-started.html), with the proportion of fish surviving compared for each ramp at each level of oxygen (`check_survival(fit, by = "z_DO")`). The proportion observed was outside the simulated band at `r checks$n_outside[2]` of the `r format(checks$n_times[2], big.mark = ",")` observation times under the model with the interaction and at `r checks$n_outside[1]` under the model with the main effect alone; a difference of that size is no evidence that one model describes the data better than the other, and the two could be compared by cross-validation as in the vignette [*Comparing and averaging models*](comparing-and-averaging-models.html).
 
 ## The effect of oxygen
 
@@ -264,7 +264,7 @@ c_inter <- inter$params[inter$params$quantity == "cDO", ]
 
 In the model with the main effect alone, the effect of oxygen was `r sprintf("%.2f", c_main$median)` per mg/L (95% credible interval: `r interval(c_main, 2)`), which is on the scale of the logarithm of the failure rate. Its exponential is the factor by which each mg/L of oxygen deficit multiplied the failure rate: $\exp(`r sprintf("%.2f", c_main$median)`)$ = `r factor_of(c_main$median)` (`r factor_of(c_main$lower)`–`r factor_of(c_main$upper)`), at every temperature (@tbl-params). A deficit of several mg/L multiplies the failure rate by that factor once for each mg/L (e.g., by $\exp(5 \times `r sprintf("%.2f", c_main$median)`)$ = `r factor_of(c_main$median, 5)` for the 5 mg/L of deficit of the trials in hypoxia).
 
-In the model with the interaction, the effect was `r sprintf("%.2f", c_inter$median)` per mg/L (`r interval(c_inter, 2)`) at the reference temperature (`r sprintf("%.1f", Tr)`°C) and increased by `r sprintf("%.2f", d_inter$median)` (`r interval(d_inter, 2)`) for each degree, with a posterior probability of `r sprintf("%.2f", results$p_interaction_positive)` that the interaction is positive. Low oxygen was therefore more harmful at higher temperatures, as it is in the model used to simulate the data. The estimate of the interaction was about twice the simulated value (`r sprintf("%.2f", truth$d_do)`), which is within its credible interval.
+In the model with the interaction, the effect was `r sprintf("%.2f", c_inter$median)` per mg/L (`r interval(c_inter, 2)`) at the reference temperature (`r sprintf("%.1f", Tr)`°C) and increased by `r sprintf("%.2f", d_inter$median)` (`r interval(d_inter, 2)`) for each degree, with a posterior probability of `r sprintf("%.3f", results$p_interaction_positive)` that the interaction is positive. Low oxygen was therefore more harmful at higher temperatures, as it is in the model used to simulate the data. The estimate of the interaction was about twice the simulated value (`r sprintf("%.2f", truth$d_do)`), which is within its credible interval.
 
 What each model implies for temperatures other than those of the assay is seen by computing the effect of oxygen on the failure rate across temperatures. The function `M_draws()` returns the posterior draws of the failure rate $M$ at given temperatures and levels of the co-stressor (the rate itself, and not its logarithm). The effect of 1 mg/L of oxygen deficit at a temperature is the difference between the logarithm of the failure rate at 9 mg/L and that at 10 mg/L (i.e., $\log M_9 - \log M_{10} = \log(M_9 / M_{10})$), which we compute for each posterior draw and summarise by its median and 95% credible interval.
 
@@ -346,7 +346,7 @@ stopifnot(
 )
 ```
 
-Within the temperatures at which most fish failed, the model with the interaction recovered the effect used to simulate the data: at 28°C it was `r sprintf("%.2f", at(28)$median)` (`r interval(at(28), 2)`), against a simulated `r sprintf("%.2f", simulated_at(28))` (@fig-effect). Below those temperatures, the credible band widens with the distance from them, because the interaction makes the effect of oxygen a straight line in temperature that is estimated where the fish failed and extended from there. In this assay the interaction was estimated to be steeper than the simulated one, so the fitted line crosses zero between `r sprintf("%.1f", crossing)` and `r sprintf("%.1f", crossing + 0.5)`°C, whereas the simulated line does so at `r sprintf("%.1f", truth$T_ref - truth$b_do / truth$d_do)`°C. At 20°C the model gave an effect of `r minus(at(20)$median)` (95% credible interval: `r minus(at(20)$lower)` to `r minus(at(20)$upper)`), against a simulated `r sprintf("%.2f", simulated_at(20))`. The interval includes the simulated value, and it also includes no effect of oxygen and effects of the opposite sign, with a posterior probability of `r sprintf("%.2f", at(20)$p_negative)` that low oxygen lowers the failure rate at that temperature. These estimates come from a single simulated assay. Among many assays simulated from the same model, the estimates of the interaction are expected to be distributed around the simulated value, and the estimate from any one of them departs from it by chance, by an amount that its credible interval describes.
+Within the temperatures at which most fish failed, the model with the interaction recovered the effect used to simulate the data: at 28°C it was `r sprintf("%.2f", at(28)$median)` (`r interval(at(28), 2)`), against a simulated `r sprintf("%.2f", simulated_at(28))` (@fig-effect). Below those temperatures, the credible band widens with the distance from them, because the interaction makes the effect of oxygen a straight line in temperature that is estimated where the fish failed and extended from there. In this assay the interaction was estimated to be steeper than the simulated one, so the fitted line crosses zero between `r sprintf("%.1f", crossing)` and `r sprintf("%.1f", crossing + 0.5)`°C, which the stream reaches during its heat wave (see below), whereas the simulated line does so at `r sprintf("%.1f", truth$T_ref - truth$b_do / truth$d_do)`°C. At 20°C the model gave an effect of `r minus(at(20)$median)` (95% credible interval: `r minus(at(20)$lower)` to `r minus(at(20)$upper)`), against a simulated `r sprintf("%.2f", simulated_at(20))`. The interval includes the simulated value, and it also includes no effect of oxygen and effects of the opposite sign, with a posterior probability of `r sprintf("%.2f", at(20)$p_negative)` that low oxygen lowers the failure rate at that temperature. These estimates come from a single simulated assay. Among many assays simulated from the same model, the estimates of the interaction are expected to be distributed around the simulated value, and the estimate from any one of them departs from it by chance, by an amount that its credible interval describes.
 
 The model with the main effect alone applies one value to every temperature. Its effect of `r sprintf("%.2f", c_main$median)` is close to the simulated effect at the reference temperature (`r sprintf("%.2f", effect_at_Tr)` at `r sprintf("%.1f", Tr)`°C), around which most fish failed, and is larger than the simulated effect at the temperatures of a stream (e.g., `r sprintf("%.2f", simulated_at(20))` at 20°C). Its credible band has the same width at every temperature, including those at which no fish failed.
 
@@ -467,12 +467,12 @@ pred_normoxia  <- predict_survival(fit_interaction, stream_record, newdata = fis
                                    levels = c(DO = 10))
 ```
 
-The record and the survival along it are shown in @fig-record. The survival predicted by a model is drawn with `plot_survival()`, as in the previous vignettes (e.g., `plot_survival(pred_following, temperature = TRUE)`).
+The record and the survival along it under each of the two models are shown in @fig-record. The survival predicted by a model is drawn with `plot_survival()`, as in the previous vignettes (e.g., `plot_survival(pred_following, temperature = TRUE)`).
 
 ```{r}
 #| label: fig-record
 #| echo: false
-#| fig-cap: "Temperature and dissolved oxygen along the stream record, and the probability of survival of a 15 g fish along it. The solid line and the band are the posterior median and the 95% credible interval predicted by the model with the interaction of oxygen with temperature, and the dashed line is the survival under the model used to simulate the data. The exposure is counted from the start of the record."
+#| fig-cap: "Temperature and dissolved oxygen along the stream record, and the probability of survival of a 15 g fish along it, predicted by the model with the main effect of oxygen alone and by the model with its interaction with temperature (lines are posterior medians and bands are 95% credible intervals). The dashed line is the survival under the model used to simulate the data. The exposure is counted from the start of the record."
 #| fig-height: 6
 # Survival under the model used to simulate the data at each reading of the record,
 # with oxygen following the record.
@@ -485,35 +485,42 @@ simulated_survival <- function(record) {
     diff((record$time / truth$scale)^truth$shape)
   c(1, exp(-cumsum(accrued)))
 }
-predicted <- inter$prediction$following$survival
-stopifnot(identical(predicted$time, record$time))
+# The survival predicted by each model, with oxygen following the record.
+predicted <- do.call(rbind, lapply(models, \(m) {
+  s <- results$models[[m]]$prediction$following$survival
+  stopifnot(identical(s$time, record$time))
+  data.frame(model = m, s)
+}))
+predicted$model <- factor(predicted$model, levels = models)
 panels <- c("Temperature (°C)", "Dissolved oxygen (mg/L)", "Survival")
 along <- rbind(
-  data.frame(panel = panels[1], day = record$time / 1440, value = record$temp,
-             lower = NA, upper = NA),
-  data.frame(panel = panels[2], day = record$time / 1440, value = record$do,
-             lower = NA, upper = NA),
-  data.frame(panel = panels[3], day = predicted$time / 1440, value = predicted$median,
-             lower = predicted$lower, upper = predicted$upper)
+  data.frame(panel = panels[1], day = record$time / 1440, value = record$temp),
+  data.frame(panel = panels[2], day = record$time / 1440, value = record$do)
 )
 along$panel <- factor(along$panel, levels = panels)
+survival <- data.frame(panel = factor(panels[3], levels = panels),
+                       day = predicted$time / 1440, model = predicted$model,
+                       value = predicted$median, lower = predicted$lower,
+                       upper = predicted$upper)
 simulated <- data.frame(panel = factor(panels[3], levels = panels),
                         day = record$time / 1440, value = simulated_survival(record))
 # the panel of survival runs from 0 to 1
 limits <- data.frame(panel = factor(panels[3], levels = panels), day = 0, value = c(0, 1))
 
-ggplot(along, aes(x = day, y = value)) +
+ggplot(mapping = aes(x = day, y = value)) +
   geom_blank(data = limits) +
-  geom_ribbon(data = along[along$panel == panels[3], ], aes(ymin = lower, ymax = upper),
-              fill = "#225EA8", alpha = 0.2) +
-  geom_line(colour = "#225EA8") +
+  geom_line(data = along, colour = "grey20") +
+  geom_ribbon(data = survival, aes(ymin = lower, ymax = upper, fill = model), alpha = 0.2) +
+  geom_line(data = survival, aes(colour = model)) +
   geom_line(data = simulated, linetype = "dashed", colour = "grey20") +
+  scale_colour_manual(values = c("#E69F00", "#225EA8"), name = NULL) +
+  scale_fill_manual(values = c("#E69F00", "#225EA8"), name = NULL) +
   facet_wrap(vars(panel), ncol = 1, scales = "free_y", strip.position = "left") +
   scale_x_continuous(breaks = seq(0, 30, by = 5)) +
   labs(x = "Time (days)", y = NULL) +
   theme_light() +
   theme(strip.placement = "outside", strip.background = element_blank(),
-        strip.text = element_text(colour = "black"))
+        strip.text = element_text(colour = "black"), legend.position = "top")
 ```
 
 As in the previous vignettes, we also predict the mortality over the five days of the heat wave and over its warmest day, with the exposure counted from the start of each period.
@@ -574,6 +581,11 @@ b_of <- function(model) model$params[model$params$quantity == "b", ]
 simulated_wave <- c(normoxia = simulated_mortality(16:20, FALSE),
                     following = simulated_mortality(16:20, TRUE))
 hypoxic_failed <- min(ramp$ctmax[ramp$do == 5 & ramp$event == 1])
+# The factor by which falling oxygen multiplies the cumulative hazard over the heat
+# wave, from the mortality with oxygen at 10 mg/L and with oxygen falling.
+hazard_ratio <- function(x) sprintf("%.1f", log(1 - x[["following"]]) / log(1 - x[["normoxia"]]))
+fitted_wave  <- function(model) c(normoxia  = wave(model, "normoxia")$median,
+                                  following = wave(model, "following")$median)
 # what the paragraphs below state about the predictions
 stopifnot(
   within(wave(main, "normoxia"), simulated_wave[["normoxia"]]),
@@ -588,7 +600,7 @@ stopifnot(
 )
 ```
 
-Under the model used to simulate the data, the mortality over the heat wave is `r percent(simulated_wave[["normoxia"]])`% with oxygen at 10 mg/L and `r percent(simulated_wave[["following"]])`% with oxygen falling as the stream warms (@tbl-survival). The model with the main effect alone predicted `r percent(wave(main, "normoxia")$median)`% (95% credible interval: `r interval(wave(main, "normoxia"), 0, 100)`) and `r percent(wave(main, "following")$median)`% (`r interval(wave(main, "following"), 0, 100)`), and the model with the interaction `r percent(wave(inter, "normoxia")$median)`% (`r interval(wave(inter, "normoxia"), 0, 100)`) and `r percent(wave(inter, "following")$median)`% (`r interval(wave(inter, "following"), 0, 100)`). The credible intervals of both models include the simulated values, but the two models differ in how much of the mortality they attribute to oxygen: under the first, falling oxygen more than doubles the mortality over the heat wave, and under the second it changes the mortality little.
+Under the model used to simulate the data, the mortality over the heat wave is `r percent(simulated_wave[["normoxia"]])`% with oxygen at 10 mg/L and `r percent(simulated_wave[["following"]])`% with oxygen falling as the stream warms (@tbl-survival). The model with the main effect alone predicted `r percent(wave(main, "normoxia")$median)`% (95% credible interval: `r interval(wave(main, "normoxia"), 0, 100)`) and `r percent(wave(main, "following")$median)`% (`r interval(wave(main, "following"), 0, 100)`), and the model with the interaction `r percent(wave(inter, "normoxia")$median)`% (`r interval(wave(inter, "normoxia"), 0, 100)`) and `r percent(wave(inter, "following")$median)`% (`r interval(wave(inter, "following"), 0, 100)`). The credible intervals of both models include the simulated values, but the two models differ in how much of the mortality they attribute to oxygen: under the first, falling oxygen more than doubles the mortality over the heat wave, and under the second it changes the mortality little. In terms of the cumulative hazard over the heat wave, falling oxygen multiplies it by `r hazard_ratio(simulated_wave)` under the model used to simulate the data, by `r hazard_ratio(fitted_wave(main))` under the model with the main effect alone and by `r hazard_ratio(fitted_wave(inter))` under the model with the interaction (on the posterior medians), so the first attributes more to oxygen than the simulating model does and the second less, while predicting a higher mortality in normoxia.
 
 The difference follows from the effect of oxygen that each model gives at the temperatures of the stream, which never exceeded `r sprintf("%.1f", max(stream_record$temp))`°C (@fig-effect). The model with the main effect alone applies there the effect that it estimated at the temperatures at which the fish failed, which is larger than the simulated effect at the temperatures of the stream. The model with the interaction gives there an effect near zero or negative, with a wide credible band. The model with the interaction also predicted a higher mortality with oxygen at 10 mg/L, because its thermal sensitivity $b$ was lower (`r sprintf("%.2f", b_of(inter)$median)` against `r sprintf("%.2f", b_of(main)$median)` per °C; @tbl-params) and a lower $b$ gives a higher failure rate at temperatures below the reference temperature.
 
@@ -639,11 +651,11 @@ The help page of `costressor()` describes the further options: a co-stressor tha
 ::: {.callout-note}
 ## Precomputed results
 
-The models in this vignette were fitted with `rTFT` `r results$stamp$version` on `r results$stamp$date` by the script `vignettes/_precompute.R` in the package's repository. The vignette displays the saved summaries, and all other code runs when the vignette is built.
+The models in this vignette were fitted on `r results$stamp$date` with the development version of `rTFT` that became 0.1.0 (`r results$stamp$version`), by the script `vignettes/_precompute.R` in the package's repository. The vignette displays the saved summaries, and all other code runs when the vignette is built.
 :::
 
 ## References
 
-Ern, R., Norin, T., Gamperl, A. K. and Esbaugh, A. J. 2016. Oxygen dependence of upper thermal limits in fishes. Journal of Experimental Biology 219:3376–3383. [https://doi.org/10.1242/jeb.143495](https://doi.org/10.1242/jeb.143495){target="_blank"}
+Ern, R., Norin, T., Gamperl, A. K. and Esbaugh, A. J. (2016). Oxygen dependence of upper thermal limits in fishes. *Journal of Experimental Biology* 219, 3376–3383. [https://doi.org/10.1242/jeb.143495](https://doi.org/10.1242/jeb.143495){target="_blank"}
 
 Ørsted, M., Jørgensen, L. B. and Overgaard, J. (2022). Finding the right thermal limit: a framework to reconcile ecological, physiological and methodological aspects of CTmax in ectotherms. *Journal of Experimental Biology* 225, jeb244514. [https://doi.org/10.1242/jeb.244514](https://doi.org/10.1242/jeb.244514){target="_blank"}

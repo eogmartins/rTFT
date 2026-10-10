@@ -2,7 +2,7 @@
 % Please edit documentation in R/derive-tdt-ttl.R
 \name{H0_of}
 \alias{H0_of}
-\title{The cumulative baseline hazard of a given shape}
+\title{The cumulative baseline hazard of a given baseline function}
 \usage{
 H0_of(baseline)
 }
@@ -20,14 +20,14 @@ What \code{shape} and \code{scale} mean depends on the baseline:
 }
 }
 \description{
-Returns the function H0(tau) for the chosen baseline. Under the memoryless shape
-it is elapsed exposure itself; the Weibull, log-logistic and Gompertz shapes let
-the hazard rise or fall with how long the individual has already been exposed. Shape
-and scale arrive as per-draw vectors, and elapsed time may be a vector or a matrix
-whose rows are draws.
+Returns the function H0(tau) for the chosen baseline. Under the memoryless
+baseline it is elapsed exposure itself; the Weibull, log-logistic and Gompertz
+baselines let the hazard rise or fall with how long the individual has already
+been exposed. Shape and scale arrive as per-draw vectors, and elapsed time may be
+a vector or a matrix whose rows are draws.
 }
 \details{
-For the Gompertz shape the first argument is the rate constant gamma and the
+For the Gompertz baseline the first argument is the rate constant gamma and the
 second is ignored. A negative gamma is a valid value and means a hazard that
 falls the longer the individual has been exposed. The cumulative hazard then levels
 off: it rises towards 1/|gamma| but never reaches it, instead of growing without

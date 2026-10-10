@@ -68,7 +68,7 @@ if (nrow(dropped)) {
             dropped$expectations, dropped$passed),
     rep("*", nrow(dropped)))
   cli::cli_abort(c(
-    "Expectation count fell — a check has stopped checking.",
+    "Expectation count fell: a check has stopped checking.",
     detail,
     "i" = "Find out which before touching {.file tests/expectation-manifest.csv}."
   ))

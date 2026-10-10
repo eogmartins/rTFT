@@ -26,7 +26,7 @@ hazard reaches a given value, which is what turns a failure probability into a
 thermal death time.
 }
 \details{
-Under the Gompertz shape with a negative rate constant the cumulative hazard
+Under the Gompertz baseline with a negative rate constant the cumulative hazard
 levels off below 1/|gamma|, so a target above that level is never reached. The
 time returned there is \code{NaN}, rather than a large number standing in for
 "never". A target exactly at the level is reached only after infinite time, and
