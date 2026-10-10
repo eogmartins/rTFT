@@ -6,6 +6,8 @@
 \alias{rTFT-package}
 \title{rTFT: Hazard Models for Thermal Failure Time Data}
 \description{
+\if{html}{\figure{logo.png}{options: style='float: right' alt='logo' width='120'}}
+
 Placeholder description.
 }
 \seealso{
