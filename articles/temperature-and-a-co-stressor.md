@@ -1,11 +1,12 @@
 # Temperature and a co-stressor
 
-Temperature not always acts alone. For example, fish exposed to high
-temperatures may simultaneously encounter low dissolved oxygen, and
-their tolerance to one may depend on the level of the other ([Ern et
-al. 2016](https://doi.org/10.1242/jeb.143495)). In `rTFT`, a second
-environmental variable of this kind is declared as a co-stressor, and
-the failure rate then depends on both temperature and the co-stressor.
+Temperature does not always act alone. For example, fish exposed to high
+temperatures may at the same time encounter low dissolved oxygen, and
+below a species-specific oxygen level their upper thermal limit declines
+([Ern et al. 2016](https://doi.org/10.1242/jeb.143495)). In `rTFT`, a
+second environmental variable of this kind is declared as a co-stressor,
+and the failure rate then depends on both temperature and the
+co-stressor.
 
 In this vignette, we fit two models to a ramping assay that was run at
 two levels of dissolved oxygen: one in which oxygen changes the failure
@@ -96,8 +97,9 @@ DO <- costressor("DO", column = "do", ref = 10, scale = 1, direction = -1)
 ```
 
 With these choices the model uses the oxygen deficit,
-$`z = 10 - \mathrm{DO}`$ (i.e., 0 in normoxia and 5 at 5 mg/L), and the
-failure rate becomes
+$`z = 10 - \mathrm{DO}`$ (i.e., 0 in normoxia and 5 at 5 mg/L; this
+$`z`$ is the package’s name for a standardised co-stressor, and not the
+$`z`$ of the thermal death time curves), and the failure rate becomes
 
 ``` math
 \log M(T, z) = \log a + b (T - T_r) + c \, z .
@@ -179,7 +181,7 @@ fit_main <- fit_hazard(
   dpar_formulas = formulas,
   costressors   = list(DO),
   chains = 4, iter = 2000, warmup = 1000, cores = 4, seed = 20261006,
-  control = list(adapt_delta = 0.95)
+  control = list(adapt_delta = 0.95), backend = "cmdstanr"
 )
 fit_interaction <- fit_hazard(
   long,
@@ -188,7 +190,7 @@ fit_interaction <- fit_hazard(
   dpar_formulas = formulas,
   costressors   = list(DO_interaction),
   chains = 4, iter = 2000, warmup = 1000, cores = 4, seed = 20261006,
-  control = list(adapt_delta = 0.95)
+  control = list(adapt_delta = 0.95), backend = "cmdstanr"
 )
 ```
 
@@ -196,9 +198,13 @@ The default priors of the parameters of the co-stressor are shown by
 [`build_hazard_prior()`](https://eogmartins.github.io/rTFT/reference/build_hazard_prior.md)
 when it is given the same list (see
 [`?build_hazard_prior`](https://eogmartins.github.io/rTFT/reference/build_hazard_prior.md)).
-Fitting the two models takes about 40 min, so the code of this vignette
-that uses the fitted models was run once and its results were saved with
-the package (see the note at the end of this vignette).
+The sampler settings are those chosen in the vignette [*Getting started
+with
+rTFT*](https://eogmartins.github.io/rTFT/articles/getting-started.md)
+and were not tuned for these models. Fitting the two models takes about
+an hour, so the code of this vignette that uses the fitted models was
+run once and its results were saved with the package (see the note at
+the end of this vignette).
 
 | Model | Largest R-hat | Smallest bulk ESS | Smallest tail ESS | Divergent transitions | Times outside the band | P (residuals) |
 |:---|---:|---:|---:|---:|---:|---:|
@@ -219,10 +225,14 @@ Both models converged, with no divergent transitions
 vignette [*Getting started with
 rTFT*](https://eogmartins.github.io/rTFT/articles/getting-started.md),
 with the proportion of fish surviving compared for each ramp at each
-level of oxygen (`check_survival(fit, by = "z_DO")`). The model with the
-interaction described the data better: the proportion observed was
-outside the simulated band at 10 of the 916 observation times, against
-16 under the model with the main effect alone.
+level of oxygen (`check_survival(fit, by = "z_DO")`). The proportion
+observed was outside the simulated band at 10 of the 916 observation
+times under the model with the interaction and at 16 under the model
+with the main effect alone; a difference of that size is no evidence
+that one model describes the data better than the other, and the two
+could be compared by cross-validation as in the vignette [*Comparing and
+averaging
+models*](https://eogmartins.github.io/rTFT/articles/comparing-and-averaging-models.md).
 
 ## The effect of oxygen
 
@@ -266,7 +276,7 @@ hypoxia).
 
 In the model with the interaction, the effect was 0.34 per mg/L
 (0.26–0.42) at the reference temperature (27.1°C) and increased by 0.08
-(0.02–0.15) for each degree, with a posterior probability of 1.00 that
+(0.02–0.15) for each degree, with a posterior probability of 0.997 that
 the interaction is positive. Low oxygen was therefore more harmful at
 higher temperatures, as it is in the model used to simulate the data.
 The estimate of the interaction was about twice the simulated value
@@ -358,17 +368,17 @@ widens with the distance from them, because the interaction makes the
 effect of oxygen a straight line in temperature that is estimated where
 the fish failed and extended from there. In this assay the interaction
 was estimated to be steeper than the simulated one, so the fitted line
-crosses zero between 23.0 and 23.5°C, whereas the simulated line does so
-at 18.5°C. At 20°C the model gave an effect of −0.27 (95% credible
-interval: −0.75 to 0.18), against a simulated 0.06. The interval
-includes the simulated value, and it also includes no effect of oxygen
-and effects of the opposite sign, with a posterior probability of 0.88
-that low oxygen lowers the failure rate at that temperature. These
-estimates come from a single simulated assay. Among many assays
-simulated from the same model, the estimates of the interaction are
-expected to be distributed around the simulated value, and the estimate
-from any one of them departs from it by chance, by an amount that its
-credible interval describes.
+crosses zero between 23.0 and 23.5°C, which the stream reaches during
+its heat wave (see below), whereas the simulated line does so at 18.5°C.
+At 20°C the model gave an effect of −0.27 (95% credible interval: −0.75
+to 0.18), against a simulated 0.06. The interval includes the simulated
+value, and it also includes no effect of oxygen and effects of the
+opposite sign, with a posterior probability of 0.88 that low oxygen
+lowers the failure rate at that temperature. These estimates come from a
+single simulated assay. Among many assays simulated from the same model,
+the estimates of the interaction are expected to be distributed around
+the simulated value, and the estimate from any one of them departs from
+it by chance, by an amount that its credible interval describes.
 
 The model with the main effect alone applies one value to every
 temperature. Its effect of 0.33 is close to the simulated effect at the
@@ -500,8 +510,9 @@ pred_normoxia  <- predict_survival(fit_interaction, stream_record, newdata = fis
                                    levels = c(DO = 10))
 ```
 
-The record and the survival along it are shown in
-[Figure 4](#fig-record). The survival predicted by a model is drawn with
+The record and the survival along it under each of the two models are
+shown in [Figure 4](#fig-record). The survival predicted by a model is
+drawn with
 [`plot_survival()`](https://eogmartins.github.io/rTFT/reference/plot_survival.md),
 as in the previous vignettes (e.g.,
 `plot_survival(pred_following, temperature = TRUE)`).
@@ -509,11 +520,12 @@ as in the previous vignettes (e.g.,
 ![](temperature-and-a-co-stressor_files/figure-html/fig-record-1.png)
 
 Figure 4: Temperature and dissolved oxygen along the stream record, and
-the probability of survival of a 15 g fish along it. The solid line and
-the band are the posterior median and the 95% credible interval
-predicted by the model with the interaction of oxygen with temperature,
-and the dashed line is the survival under the model used to simulate the
-data. The exposure is counted from the start of the record.
+the probability of survival of a 15 g fish along it, predicted by the
+model with the main effect of oxygen alone and by the model with its
+interaction with temperature (lines are posterior medians and bands are
+95% credible intervals). The dashed line is the survival under the model
+used to simulate the data. The exposure is counted from the start of the
+record.
 
 As in the previous vignettes, we also predict the mortality over the
 five days of the heat wave and over its warmest day, with the exposure
@@ -545,7 +557,13 @@ the model with the interaction 68% (36–97) and 73% (40–94). The credible
 intervals of both models include the simulated values, but the two
 models differ in how much of the mortality they attribute to oxygen:
 under the first, falling oxygen more than doubles the mortality over the
-heat wave, and under the second it changes the mortality little.
+heat wave, and under the second it changes the mortality little. In
+terms of the cumulative hazard over the heat wave, falling oxygen
+multiplies it by 2.3 under the model used to simulate the data, by 4.0
+under the model with the main effect alone and by 1.2 under the model
+with the interaction (on the posterior medians), so the first attributes
+more to oxygen than the simulating model does and the second less, while
+predicting a higher mortality in normoxia.
 
 The difference follows from the effect of oxygen that each model gives
 at the temperatures of the stream, which never exceeded 24.1°C
@@ -647,16 +665,17 @@ sensitivity $`b`$ by a proportion.
 
 > **Precomputed results**
 >
-> The models in this vignette were fitted with `rTFT` 0.0.0.9000 on
-> 2026-10-09 by the script `vignettes/_precompute.R` in the package’s
-> repository. The vignette displays the saved summaries, and all other
-> code runs when the vignette is built.
+> The models in this vignette were fitted on 2026-10-09 with the
+> development version of `rTFT` that became 0.1.0 (0.0.0.9000), by the
+> script `vignettes/_precompute.R` in the package’s repository. The
+> vignette displays the saved summaries, and all other code runs when
+> the vignette is built.
 
 ## References
 
-Ern, R., Norin, T., Gamperl, A. K. and Esbaugh, A. J. 2016. Oxygen
-dependence of upper thermal limits in fishes. Journal of Experimental
-Biology 219:3376–3383.
+Ern, R., Norin, T., Gamperl, A. K. and Esbaugh, A. J. (2016). Oxygen
+dependence of upper thermal limits in fishes. *Journal of Experimental
+Biology* 219, 3376–3383.
 [https://doi.org/10.1242/jeb.143495](https://doi.org/10.1242/jeb.143495)
 
 Ørsted, M., Jørgensen, L. B. and Overgaard, J. (2022). Finding the right

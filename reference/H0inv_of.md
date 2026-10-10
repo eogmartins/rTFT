@@ -33,7 +33,7 @@ as in [`H0_of()`](https://eogmartins.github.io/rTFT/reference/H0_of.md):
 
 ## Details
 
-Under the Gompertz shape with a negative rate constant the cumulative
+Under the Gompertz baseline with a negative rate constant the cumulative
 hazard levels off below 1/\|gamma\|, so a target above that level is
 never reached. The time returned there is `NaN`, rather than a large
 number standing in for "never". A target exactly at the level is reached

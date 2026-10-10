@@ -1,8 +1,8 @@
-# The cumulative baseline hazard of a given shape
+# The cumulative baseline hazard of a given baseline function
 
 Returns the function H0(tau) for the chosen baseline. Under the
-memoryless shape it is elapsed exposure itself; the Weibull,
-log-logistic and Gompertz shapes let the hazard rise or fall with how
+memoryless baseline it is elapsed exposure itself; the Weibull,
+log-logistic and Gompertz baselines let the hazard rise or fall with how
 long the individual has already been exposed. Shape and scale arrive as
 per-draw vectors, and elapsed time may be a vector or a matrix whose
 rows are draws.
@@ -35,8 +35,8 @@ hazard. What `shape` and `scale` mean depends on the baseline:
 
 ## Details
 
-For the Gompertz shape the first argument is the rate constant gamma and
-the second is ignored. A negative gamma is a valid value and means a
+For the Gompertz baseline the first argument is the rate constant gamma
+and the second is ignored. A negative gamma is a valid value and means a
 hazard that falls the longer the individual has been exposed. The
 cumulative hazard then levels off: it rises towards 1/\|gamma\| but
 never reaches it, instead of growing without limit. Survival therefore

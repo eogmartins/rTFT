@@ -105,7 +105,7 @@ them directly.
 - [`brms_log_h0`](https://eogmartins.github.io/rTFT/reference/brms_log_h0.md)
   : log h0(tau) for each baseline function, as a brms expression string
 - [`H0_of()`](https://eogmartins.github.io/rTFT/reference/H0_of.md) :
-  The cumulative baseline hazard of a given shape
+  The cumulative baseline hazard of a given baseline function
 - [`H0inv_of()`](https://eogmartins.github.io/rTFT/reference/H0inv_of.md)
   : The inverse of the cumulative baseline hazard
 - [`cloglog_bern_family()`](https://eogmartins.github.io/rTFT/reference/cloglog_bern_family.md)

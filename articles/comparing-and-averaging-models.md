@@ -55,17 +55,21 @@ $`h_0(\tau)`$:
 - the memoryless baseline (`"mem"`), under which the hazard at a given
   temperature does not depend on the time under exposure. With the
   exponential failure rate, this is the exponential model of [Kingsolver
-  and Umbanhowar (2018)](https://doi.org/10.1242/jeb.167858). Under this
-  model, the warmer the temperature at which individuals are held in a
-  static trial, the sooner they fail, with the logarithm of the time to
-  failure decreasing linearly with the temperature of the trial. This is
-  the relationship of the thermal death time model, which is the model
-  most often used in the literature ([Rezende et
-  al. 2014](https://doi.org/10.1111/1365-2435.12268));
+  and Umbanhowar (2018)](https://doi.org/10.1242/jeb.167858);
 - the Weibull baseline (`"weibull"`), under which the hazard rises or
   falls throughout the exposure, as a power of the time under exposure;
 - the log-logistic baseline (`"llogis"`), under which the hazard may
   rise at the start of the exposure and fall later.
+
+Under all three, the logarithm of the time to failure of individuals
+held at a constant temperature decreases linearly with that temperature
+(see the vignette [*Getting started with
+rTFT*](https://eogmartins.github.io/rTFT/articles/getting-started.md)),
+which is the relationship of the thermal death time model, the model
+most often used in the literature ([Rezende et
+al. 2014](https://doi.org/10.1111/1365-2435.12268)); they differ in how
+the hazard changes with the time under exposure, which a static trial of
+a single duration cannot show.
 
 The fourth model has a different failure rate function, the zero-power
 threshold of [Kingsolver and Umbanhowar
@@ -75,9 +79,14 @@ zero below a critical temperature $`T_c`$, which is estimated, and
 increases above it as a power of the temperature in excess of $`T_c`$,
 $`M(T) = a (T - T_c)^b`$.
 
-In each model, $`\log a`$ depends on body mass and varies among trials,
-as in the previous vignettes. The models are fitted in turn and kept in
-a named list, which the functions used below take as their input.
+We chose the three baselines because they differ in what the hazard does
+with the time under exposure (it stays the same, keeps rising, or rises
+and then falls), and the fourth model as a failure rate function of
+another family, with a threshold. The other functions of `M_catalogue`
+and the Gompertz baseline can be fitted and compared in the same way. In
+each model, $`\log a`$ depends on body mass and varies among trials, as
+in the previous vignettes. The models are fitted in turn and kept in a
+named list, which the functions used below take as their input.
 
 ``` r
 
@@ -93,14 +102,17 @@ fits <- lapply(candidates, \(model) fit_hazard(
   baseline      = model[2],
   dpar_formulas = list(loga = ~ 1 + I(mass - 15) + (1 | trial)),
   chains = 4, iter = 2000, warmup = 1000, cores = 4, seed = 20261006,
-  control = list(adapt_delta = 0.95)
+  control = list(adapt_delta = 0.95), backend = "cmdstanr"
 ))
 ```
 
-Fitting and cross-validating the models takes about six hours, so the
-code of this vignette that uses the fitted models was run once and its
-results were saved with the package (see the note at the end of this
-vignette).
+The sampler settings are those chosen in the vignette [*Getting started
+with
+rTFT*](https://eogmartins.github.io/rTFT/articles/getting-started.md)
+and were not tuned for these models. Fitting and cross-validating the
+models takes about six hours, so the code of this vignette that uses the
+fitted models was run once and its results were saved with the package
+(see the note at the end of this vignette).
 
 | Model | Largest R-hat | Smallest bulk ESS | Smallest tail ESS | Divergent transitions |
 |:---|---:|---:|---:|---:|
@@ -225,7 +237,7 @@ and predicting the trial from the refit.
 
 ``` r
 
-cv <- lapply(fits, kfold_hazard, cores = 4)
+cv <- lapply(fits, kfold_hazard, cores = 4, seed = 20261006)
 ```
 
 Each model is refitted 12 times, once without each trial, which is what
@@ -280,8 +292,9 @@ models. By default it uses stacking ([Yao et
 al. 2018](https://doi.org/10.1214/17-BA1091)), which finds the
 combination of models that best predicts the trials left out. Pseudo-BMA
 weights, which follow the elpd of each model with its uncertainty among
-the trials, are the alternative. Their uncertainty is assessed by the
-Bayesian bootstrap, which draws random numbers, so we set a seed before
+the trials, are the alternative. That uncertainty is assessed by the
+Bayesian bootstrap (the weights are then those called pseudo-BMA+ by Yao
+et al. 2018), which draws random numbers, so we set a seed before
 computing them.
 
 ``` r
@@ -314,7 +327,8 @@ the others to predict the trials left out, so a weight of zero should
 not be read as evidence against a model. The pseudo-BMA weights follow
 the elpd of each model instead, and gave the memoryless model a weight
 of 0.14. Under both methods the zero-power threshold model received
-almost no weight.
+almost no weight. Weights computed from 12 trials are themselves
+uncertain, and a different sample of trials could move them.
 
 We use the stacking weights below, and the pseudo-BMA weights where the
 two are compared. With the argument `min_weight`,
@@ -489,11 +503,10 @@ used to simulate the data.
 | Average, pseudo-BMA weights |  |  | 38 | 32 | 0–99 |
 
 Table 8: Probability (%) that a 15 g fish fails by the end of the 30
-days of the stream record, predicted by each model and averaged over the
-models with the stacking weights and with the pseudo-BMA weights with
-the weights of each model. The mean and the median are two summaries of
-the same posterior distribution, whose 95% credible interval (CrI) is
-given once.
+days of the stream record, predicted by each model (with its stacking
+and pseudo-BMA weights) and averaged over the models with each set of
+weights. The mean and the median are two summaries of the same posterior
+distribution, whose 95% credible interval (CrI) is given once.
 
 The four models gave very different predictions for the same record
 ([Figure 3](#fig-survival); [Table 8](#tbl-mortality)). The probability
@@ -517,7 +530,13 @@ baseline, the hazard at a given temperature keeps rising with the time
 under exposure. Under the memoryless baseline, it stays the same. Under
 the log-logistic baseline, it falls after an initial rise, and it is
 under this baseline alone that the heat wave carries almost no risk,
-because it comes after two weeks of exposure. The zero-power threshold
+because it comes after two weeks of exposure. Where that fall begins is
+set by the scale of the log-logistic baseline (its hazard turns down at
+about 245 min on the posterior medians, against a longest exposure of
+561 min in the assay), which the data inform only weakly (see
+[`?h0_catalogue`](https://eogmartins.github.io/rTFT/reference/h0_catalogue.md)),
+so the posterior of that scale rests partly on its prior, and so does
+the prediction of this model for the record. The zero-power threshold
 model predicts few failures for another reason, which is that its
 failure rate is zero below the critical temperature $`T_c`$, estimated
 at 22.0°C (95% credible interval: 21.4–22.4°C; [Table 3](#tbl-params)),
@@ -538,9 +557,10 @@ which predict a mortality of a few percent, and about half from the
 Weibull model (499), nearly all of which predict a mortality above 30%,
 with almost no draws in between. The median of a mixture with two
 separate groups of values lies at the edge of whichever group holds
-slightly more than half of the draws, and a small change in the weights
-moves it from one group to the other. With the pseudo-BMA weights, the
-interval was nearly the same (0–99%) but the median was 32%.
+slightly more than half of the draws, and a small change in the weights,
+or in the number of draws each model happens to contribute, moves it
+from one group to the other. With the pseudo-BMA weights, the interval
+was nearly the same (0–99%) but the median was 32%.
 
 This is a consequence of the disagreement among the models, and not of
 model averaging. Where the models agree, as for the sCTmax above, the
@@ -567,17 +587,18 @@ two differed by at most 4 percentage points.
 
 For the average they differed greatly. The mean was 37% with the
 stacking weights and 38% with the pseudo-BMA weights, against medians of
-5% and 32%, so the mean changed little with the weights. Relying on the
-mean amounts to treating the weights as the degree to which each model
-should be believed for this record. The weights measure how well each
-model predicts within the conditions of the assay, which is not the
-same, and the mean of 37% is a value that neither of the two models with
-the highest weights predicts: it is what is expected on average when the
-mortality is either about 1% or about 78%. Relying on the median amounts
-to reporting the centre of a posterior that has no centre here. Where
-the models agree, the choice is of no consequence: for the warmest day
-of the record (see below), the mean and the median of the average were
-14% and 13%.
+5% and 32%, so the mean changed little with the weights. The mean of the
+pooled draws is the prediction that stacking is built to give, and
+relying on it amounts to treating the weights as the degree to which
+each model should be believed for this record. The weights measure how
+well each model predicts within the conditions of the assay, which is
+not the same, and the mean of 37% is a value that neither of the two
+models with the highest weights predicts: it is what is expected on
+average when the mortality is either about 1% or about 78%. Relying on
+the median amounts to reporting the centre of a posterior that has no
+centre here. Where the models agree, the choice is of no consequence:
+for the warmest day of the record (see below), the mean and the median
+of the average were 14% and 13%.
 
 The weights indicate how well each model predicts failures under the
 conditions of the assay. They do not indicate which model extrapolates
@@ -683,11 +704,11 @@ and its median where they differ, and the coverage reported by
 
 > **Precomputed results**
 >
-> The models in this vignette were fitted and cross-validated with
-> `rTFT` 0.0.0.9000 on 2026-10-08 by the script
-> `vignettes/_precompute.R` in the package’s repository. The vignette
-> displays the saved summaries, and all other code runs when the
-> vignette is built.
+> The models in this vignette were fitted and cross-validated on
+> 2026-10-08 with the development version of `rTFT` that became 0.1.0
+> (0.0.0.9000), by the script `vignettes/_precompute.R` in the package’s
+> repository. The vignette displays the saved summaries, and all other
+> code runs when the vignette is built.
 
 ## References
 

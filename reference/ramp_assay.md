@@ -6,7 +6,7 @@ degrees C, simulated from a known model. The fish were run in 32 trials
 of ten. Four ramp rates (0.025, 0.1, 0.2 and 0.3 degrees C per minute)
 are crossed with two levels of dissolved oxygen (10 and 5 mg/L), four
 trials of each combination. The fish were watched throughout, so each
-time of failure is known exactly.
+failure was observed at a known time.
 
 ## Usage
 

@@ -4,11 +4,13 @@ Derives, from a model fitted with
 [`fit_hazard()`](https://eogmartins.github.io/rTFT/reference/fit_hazard.md),
 the failure-rate parameters on their natural scale, the static critical
 thermal maximum sCTmax, the thermal death time curves and the thermal
-tolerance landscape, each with its posterior median and credible
-interval, at the covariate values in each row of `newdata`. The model's
-settings (failure-rate and baseline functions, reference temperature,
-softening steepness, co-stressors) are read from the fit. Random effects
-are set to zero, so the results are those of a typical group.
+tolerance landscape, each with its posterior median and equal-tailed
+credible interval (the interval between the (1 - `prob`) / 2 and 1 -
+(1 - `prob`) / 2 quantiles of the draws), at the covariate values in
+each row of `newdata`. The model's settings (failure-rate and baseline
+functions, reference temperature, softening steepness, co-stressors) are
+read from the fit. Random effects are set to zero, so the results are
+those of a typical group.
 
 ## Usage
 
@@ -81,7 +83,9 @@ derive_tdt_ttl(
 - n_draws:
 
   An optional single number, the number of posterior draws to use,
-  evenly spaced through the posterior. `NULL` uses them all.
+  evenly spaced through the posterior. Defaults to 1000, which keeps the
+  derivation fast while the limits of a 95% interval still rest on about
+  25 draws in each tail; `NULL` uses them all.
 
 ## Value
 
@@ -163,7 +167,17 @@ stress. *Scientific Reports* 11, 12840.
 
 ``` r
 if (FALSE) { # \dontrun{
-fit <- fit_hazard(long, "exp", dpar_formulas = list(loga = ~ 1 + mass))
+# a model fitted to a small ramping trial: 20 individuals warmed from 20 to 35
+# degrees over 60 minutes and checked every 10, in two trials (see fit_hazard())
+path   <- data.frame(path_id = "A", time = c(0, 60), temp = c(20, 35))
+checks <- data.frame(path_id = "A", time = seq(0, 60, by = 10))
+ind    <- data.frame(id = 1:20, path_id = "A", event = 1, mass = runif(20, 8, 12),
+                     trial = rep(c("a", "b"), each = 10),
+                     t_upper = sample(seq(10, 60, 10), 20, replace = TRUE))
+long   <- build_hazard_data(ind, path, "interval", covariates = c("mass", "trial"),
+                            checks = checks)
+fit    <- fit_hazard(long, "exp", dpar_formulas = list(loga = ~ 1 + mass))
+
 tol <- derive_tdt_ttl(fit, newdata = data.frame(mass = c(8, 12)), p = 0.5,
                       t_ref = 60)
 tol$sctmax

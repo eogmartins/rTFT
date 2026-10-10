@@ -95,10 +95,12 @@ fit_hazard(
 
 A `brmsfit`, carrying in `$rtft` the settings it was fitted with: the
 failure-rate and baseline functions, the observation mode, the reference
-temperature `Tr`, the softening steepness, the co-stressors, the ranges
-of temperature and elapsed exposure time the data cover, and the
-individual each row of `long` belongs to. The reporting functions read
-them from there, so they are never re-entered by hand.
+temperature `Tr` and reference time `tau_ref`, the softening steepness,
+the co-stressors, the ranges of temperature and elapsed exposure time
+the data cover, and, for each row of `long`, the individual and the
+temperature trajectory it belongs to and the elapsed time at which its
+interval ends. The reporting functions and the checks read them from
+there, so they are never re-entered by hand.
 
 ## Details
 
@@ -118,10 +120,11 @@ rather than a cryptic sampler failure.
 
 ``` r
 if (FALSE) { # \dontrun{
-path <- data.frame(path_id = "A", time = c(0, 60), temp = c(20, 35))
-ind  <- data.frame(id = 1:20, path_id = "A", event = 1,
-                   t_upper = sample(seq(10, 60, 10), 20, replace = TRUE))
-long <- build_hazard_data(ind, path, "interval")
-fit  <- fit_hazard(long, "exp", chains = 4, iter = 2000, cores = 4)
+path   <- data.frame(path_id = "A", time = c(0, 60), temp = c(20, 35))
+checks <- data.frame(path_id = "A", time = seq(0, 60, by = 10))
+ind    <- data.frame(id = 1:20, path_id = "A", event = 1,
+                     t_upper = sample(seq(10, 60, 10), 20, replace = TRUE))
+long   <- build_hazard_data(ind, path, "interval", checks = checks)
+fit    <- fit_hazard(long, "exp", chains = 4, iter = 2000, cores = 4)
 } # }
 ```

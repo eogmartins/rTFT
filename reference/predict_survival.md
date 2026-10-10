@@ -171,11 +171,12 @@ mean is the probability of surviving with the uncertainty in the
 parameters taken into account (and, from
 [`average_survival()`](https://eogmartins.github.io/rTFT/reference/average_survival.md),
 the uncertainty about the model, as far as the weights measure it): it
-is the fraction of individuals expected to survive. The median is the
-value that half of the posterior lies below. The two are close when the
-posterior is concentrated, and differ when it is skewed or has two
-separate groups of values, as it can when models that disagree are
-averaged; the credible interval should then be reported with either.
+is the fraction of individuals expected to survive in a typical group
+(random effects at zero). The median is the value that half of the
+posterior lies below. The two are close when the posterior is
+concentrated, and differ when it is skewed or has two separate groups of
+values, as it can when models that disagree are averaged; the credible
+interval should then be reported with either.
 
 ## No recovery
 
@@ -198,11 +199,17 @@ level given in `levels`.
 
 ``` r
 if (FALSE) { # \dontrun{
-# A two-day record read every hour, with a daily cycle.
-hours  <- 0:48
-record <- data.frame(time = hours * 60,
-                     temp = 24 + 3 * sin(2 * pi * (hours - 9) / 24),
-                     day  = pmin(hours %/% 24, 1))
+# a model fitted to a small ramping trial: 20 individuals warmed from 20 to 35
+# degrees over 60 minutes and checked every 10, in two trials (see fit_hazard())
+path   <- data.frame(path_id = "A", time = c(0, 60), temp = c(20, 35))
+checks <- data.frame(path_id = "A", time = seq(0, 60, by = 10))
+ind    <- data.frame(id = 1:20, path_id = "A", event = 1, mass = runif(20, 8, 12),
+                     trial = rep(c("a", "b"), each = 10),
+                     t_upper = sample(seq(10, 60, 10), 20, replace = TRUE))
+long   <- build_hazard_data(ind, path, "interval", covariates = c("mass", "trial"),
+                            checks = checks)
+fit    <- fit_hazard(long, "exp", dpar_formulas = list(loga = ~ 1 + mass))
+
 pred <- predict_survival(fit, record, newdata = data.frame(mass = 10), by = "day")
 pred$mortality
 pred$risk

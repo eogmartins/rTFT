@@ -31,8 +31,8 @@ A tibble with 120 rows, one per fish, and 7 columns:
 
 - path_id:
 
-  Character, the temperature treatment (`"T23"`, `"T25"`, `"T27"`), the
-  key to its temperature trajectory.
+  Character, the temperature group (`"T23"`, `"T25"`, `"T27"`), the key
+  to its temperature trajectory.
 
 - temp:
 
@@ -84,7 +84,7 @@ head(static_assay)
 #> 5     5 S01   T23        23  29.5     1    2400
 #> 6     6 S01   T23        23   9       1    5820
 
-# The temperature trajectory of each treatment, and the checks.
+# The temperature trajectory of each group, and the checks.
 path <- data.frame(path_id = rep(c("T23", "T25", "T27"), each = 2),
                    time = rep(c(0, 7200), 3),
                    temp = rep(c(23, 25, 27), each = 2))

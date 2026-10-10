@@ -228,7 +228,7 @@ fit <- fit_hazard(
   baseline      = "weibull",
   dpar_formulas = formulas,
   chains = 4, iter = 2000, warmup = 1000, cores = 4, seed = 20261006,
-  control = list(adapt_delta = 0.95)
+  control = list(adapt_delta = 0.95), backend = "cmdstanr"
 )
 ```
 
@@ -237,17 +237,20 @@ Any argument that
 does not use itself is passed to
 [`brms::brm()`](https://paulbuerkner.com/brms/reference/brm.html). For
 example, we raised `adapt_delta` from its default of 0.8, which makes
-the sampler take smaller steps. With the default, one of the 4000
-post-warmup transitions was divergent. A single divergent transition is
-not a concern in itself, but divergent transitions are common in models
-with a group-level standard deviation that is poorly informed by the
-data (12 trials here), and a smaller step size usually removes them at
-little cost.
+the sampler take smaller steps, because a trial run at the default gave
+a divergent transition. A single divergent transition is not a concern
+in itself, but divergent transitions are common in models with a
+group-level standard deviation that is poorly informed by the data (12
+trials here), and a smaller step size usually removes them at little
+cost. We kept this setting for every model fitted in these vignettes.
+The models were fitted with the `cmdstanr` backend, which is given in
+the code because the default backend produces different draws for the
+same seed, so the results below are reproduced exactly only with it.
 
 ## Convergence
 
 The estimates should not be interpreted before checking that the sampler
-converged. We use the rank-normalized split-$`\hat{R}`$ and the bulk and
+converged. We use the rank-normalised split-$`\hat{R}`$ and the bulk and
 tail effective sample sizes (ESS) of the `posterior` package, together
 with the number of divergent transitions.
 
@@ -363,11 +366,16 @@ they increase under any model (see
 The function
 [`derive_tdt_ttl()`](https://eogmartins.github.io/rTFT/reference/derive_tdt_ttl.md)
 computes every derived quantity for each posterior draw and summarises
-the draws by their median and credible interval (95% by default). It
-requires the covariate values at which to report (`newdata`) and the
-exposure time to which the critical thermal maximum refers (`t_ref`), in
-the time unit of the data. Group-level effects are set to zero, so the
-results describe a typical trial.
+the draws by their median and equal-tailed credible interval (95% by
+default, i.e., the interval between the 2.5% and 97.5% quantiles of the
+draws). By default it uses 1,000 draws spaced evenly through the
+posterior (the argument `n_draws`), which keeps the derivation, and the
+predictions along a record below, fast; the limits of a 95% interval
+then rest on about 25 draws in each tail. It requires the covariate
+values at which to report (`newdata`) and the exposure time to which the
+critical thermal maximum refers (`t_ref`), in the time unit of the data.
+Group-level effects are set to zero, so the results describe a typical
+trial.
 
 ``` r
 
@@ -453,10 +461,11 @@ reference time. For a 10 g fish, half of the individuals are expected to
 fail within 60 min at 27.2°C (95% credible interval: 26.9–27.5°C).
 sCTmax should not be confused with the CTmax recorded in a ramping
 trial. sCTmax refers to a constant temperature held for a fixed time, so
-it is a property of the organism alone (at the covariate values given).
-The CTmax of a ramping trial is the temperature at which an individual
-fails while the temperature is still rising (the dynamic critical
-thermal maximum, dCTmax; [Jørgensen et
+it does not depend on how a ramp was run (it does depend on the fraction
+$`p`$, on the reference time and on the covariate values given). The
+CTmax of a ramping trial is the temperature at which an individual fails
+while the temperature is still rising (the dynamic critical thermal
+maximum, dCTmax; [Jørgensen et
 al. 2021](https://doi.org/10.1038/s41598-021-92004-6)), and it depends
 on how the trial was run: individuals accrue hazard throughout the ramp,
 so a slower ramp gives them more time to fail before a given temperature
@@ -467,9 +476,10 @@ derived from the same fitted model.
 
 The function
 [`derive_dctmax()`](https://eogmartins.github.io/rTFT/reference/derive_dctmax.md)
-gives the CTmax that a ramping trial would be expected to record
-(dCTmax), for any starting temperature and ramp rate. The rate is in
-degrees per unit of time of the data (here, °C per min). Although the
+gives the temperature at which half of the individuals would have failed
+in a ramping trial (dCTmax; i.e., the median CTmax that such a trial
+would record), for any starting temperature and ramp rate. The rate is
+in degrees per unit of time of the data (here, °C per min). Although the
 model was fitted to a static assay, it can be asked what three ramps
 starting at 14°C would give.
 
@@ -521,7 +531,8 @@ trials.
 The thermal death time (TDT) curves give the time until a fraction $`p`$
 of individuals has failed at each constant temperature
 ([Figure 3](#fig-tdt)). “Thermal death time” is the name of the curve in
-the literature ([Rezende et
+the literature, where it is a century old ([Bigelow
+1921](https://doi.org/10.1093/infdis/29.5.528); [Rezende et
 al. 2014](https://doi.org/10.1111/1365-2435.12268)), and we keep it
 whatever the endpoint of the assay (here, loss of equilibrium).
 
@@ -652,11 +663,11 @@ in survival occurring during the heat wave ([Figure 6](#fig-survival)).
 The table gives both the median and the mean of the posterior draws of
 that probability. The mean (59% here) is the probability that a fish
 fails with the uncertainty in the parameters taken into account, and
-therefore the fraction of fish expected to fail, whereas the median is
-the value below which half of the posterior lies. The two are close when
-the posterior is concentrated around one value, as it is here, and may
-differ greatly when several models that disagree are averaged (see the
-vignette [*Comparing and averaging
+therefore the fraction of fish expected to fail in a typical trial,
+whereas the median is the value below which half of the posterior lies.
+The two are close when the posterior is concentrated around one value,
+as it is here, and may differ greatly when several models that disagree
+are averaged (see the vignette [*Comparing and averaging
 models*](https://eogmartins.github.io/rTFT/articles/comparing-and-averaging-models.md)).
 The table `risk` shows where along the record the risk was concentrated
 ([Figure 7](#fig-risk)).
@@ -725,7 +736,13 @@ prints a message with both shares whenever part of the record lies
 outside the temperatures at which failures were observed. An assay
 intended to support predictions for the field should therefore include
 temperatures as low as those that are expected to cause failures in the
-field, which is why the coolest temperature of this assay was 23°C.
+field, which is why the coolest temperature of this assay was 23°C. The
+table classifies the record by temperature alone. The record exceeded
+23°C in 20 of its 721 hours, in afternoon pulses of one to three hours,
+whereas the information of the assay at 23°C comes from five days of
+constant exposure, so the table says where the temperatures of the
+record fall relative to those of the assay and not that the assay
+included exposures like those of the record.
 
 Second, a baseline other than the memoryless one makes the hazard depend
 on how long an individual has been exposed, and in a field record there
@@ -912,12 +929,17 @@ co-stressor*](https://eogmartins.github.io/rTFT/articles/temperature-and-a-co-st
 
 > **Precomputed results**
 >
-> The model in this vignette was fitted with `rTFT` 0.0.0.9000 on
-> 2026-10-08 by the script `vignettes/_precompute.R` in the package’s
-> repository. The vignette displays the saved summaries, and all other
-> code runs when the vignette is built.
+> The model in this vignette was fitted on 2026-10-08 with the
+> development version of `rTFT` that became 0.1.0 (0.0.0.9000), by the
+> script `vignettes/_precompute.R` in the package’s repository. The
+> vignette displays the saved summaries, and all other code runs when
+> the vignette is built.
 
 ## References
+
+Bigelow, W. D. (1921). The logarithmic nature of thermal death time
+curves. *The Journal of Infectious Diseases* 29, 528–536.
+[https://doi.org/10.1093/infdis/29.5.528](https://doi.org/10.1093/infdis/29.5.528)
 
 Bürkner, P.-C. (2017). brms: An R package for Bayesian multilevel models
 using Stan. *Journal of Statistical Software* 80(1), 1–28.

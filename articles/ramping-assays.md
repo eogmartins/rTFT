@@ -2,12 +2,13 @@
 
 In a ramping assay, individuals are warmed at a constant rate until they
 fail, and the temperature at which each individual fails is recorded as
-its critical thermal maximum (CTmax, or dCTmax *sensu* Jorgensen et
-al. 2021). The mean CTmax of a group of individuals is the most widely
-reported measure of thermal tolerance. However, it depends on the
-temperature at which the ramp started and on the ramp rate, because
-individuals accrue hazard throughout the ramp ([Kingsolver and
-Umbanhowar 2018](https://doi.org/10.1242/jeb.167858); [Jørgensen et
+its critical thermal maximum (CTmax, or dCTmax *sensu* [Jørgensen et
+al. 2021](https://doi.org/10.1038/s41598-021-92004-6)). The mean CTmax
+of a group of individuals is the most widely reported measure of thermal
+tolerance. However, it depends on the temperature at which the ramp
+started and on the ramp rate, because individuals accrue hazard
+throughout the ramp ([Kingsolver and Umbanhowar
+2018](https://doi.org/10.1242/jeb.167858); [Jørgensen et
 al. 2021](https://doi.org/10.1038/s41598-021-92004-6)). `rTFT` therefore
 treats a ramping assay as it treats a static one: it fits a model of the
 failure rate to the times of failure, given the temperature each
@@ -207,9 +208,9 @@ the temperatures the simulated fish were exposed to.
 
 The model is fitted to a table with one row for every interval during
 which a fish was at risk of failing. For a static assay with periodic
-checks, the intervals are those between consecutive checks. When the
-times of failure are known (`observation = "continuous"`), there are no
-checks, and
+checks, the intervals are those between consecutive checks. When each
+failure was observed at a known time (a known-time failure;
+`observation = "continuous"`), there are no checks, and
 [`build_hazard_data()`](https://eogmartins.github.io/rTFT/reference/build_hazard_data.md)
 divides the exposure of each fish into intervals itself.
 
@@ -231,15 +232,18 @@ long <- build_hazard_data(
 The message printed by the function refers to how closely the ramp is
 followed. The model takes the hazard as constant within each interval,
 at the temperature of the midpoint of the interval. This approximation
-is accurate when the temperature changes little within an interval, but
-in a ramp the temperature changes continuously and the failure rate
-increases steeply with it. With a thermal sensitivity of 1.7 per °C, the
-failure rate at the end of an interval over which the water warms by
-0.5°C is exp(1.7 × 0.5) = 2.3 times the failure rate at its start, and a
-model fitted to such intervals underestimates the thermal sensitivity.
-The function therefore divides the exposure so that the temperature
-changes by at most 0.1°C within an interval (the argument `grid_dT`),
-which gave 17,243 rows for the 120 fish.
+is accurate when the temperature changes little within an interval. In a
+ramp the temperature changes continuously and the failure rate increases
+steeply with it: with a thermal sensitivity of 1.7 per °C, the failure
+rate at the end of an interval over which the water warms by 0.5°C is
+exp(1.7 × 0.5) = 2.3 times the failure rate at its start. The hazard
+accrued over such an interval, taken at its midpoint, is understated by
+about (1.7 × 0.5)² / 24 = 3% (the error grows with the square of the
+change in temperature within the interval), which biases the estimates
+slightly. The function therefore divides the exposure so that the
+temperature changes by at most 0.1°C within an interval (the argument
+`grid_dT`), where that error is below 0.1%, which gave 17,243 rows for
+the 120 fish.
 
 ``` r
 
@@ -263,7 +267,12 @@ interval (about a hundredth of a minute here) that ends at its time of
 failure. A failure at a known time contributes to the model through the
 hazard at the moment it happened, and without that row the hazard would
 be taken at the midpoint of a longer interval, when the water was
-cooler.
+cooler. This is the larger of the two errors: in a simulation of eight
+assays of 3,000 fish warmed at 0.1–0.3°C per min and followed in
+intervals of 1 min without the closing row, the thermal sensitivity was
+underestimated by about 4% (1.63 against 1.70); with the closing row and
+the default grid, it was recovered (1.71 ± 0.01) whatever the length of
+the intervals.
 
 We recommend leaving `grid_dT` at its default. A finer grid makes the
 table longer and the model slower to fit, but a coarser one biases the
@@ -300,12 +309,16 @@ fit <- fit_hazard(
   baseline      = "weibull",
   dpar_formulas = formulas,
   chains = 4, iter = 2000, warmup = 1000, cores = 4, seed = 20261006,
-  control = list(adapt_delta = 0.95)
+  control = list(adapt_delta = 0.95), backend = "cmdstanr"
 )
 ```
 
-The code above was run once and its results were saved with the package
-(see the note at the end of this vignette).
+The sampler settings, including `adapt_delta`, are those chosen in the
+vignette [*Getting started with
+rTFT*](https://eogmartins.github.io/rTFT/articles/getting-started.md)
+and were not tuned for this model. The code above was run once and its
+results were saved with the package (see the note at the end of this
+vignette).
 
 ## Convergence
 
@@ -709,7 +722,13 @@ Table 3: Values used in the simulation and their estimates for a fish of
 15 g (posterior median and 95% credible interval).
 
 The 95% credible intervals include the data generating values of all 8
-quantities ([Table 3](#tbl-truth)).
+quantities ([Table 3](#tbl-truth)). One assay says little about how
+often the intervals include those values. In 40 assays of 120 fish
+simulated from the same model and warmed at rates between 0.1 and 0.3°C
+per min (not shown), the 95% credible intervals of $`b`$, $`k`$, sCTmax
+and dCTmax included the data generating values in 92.5–100% of the
+assays, and the biases of the posterior medians were within their Monte
+Carlo errors.
 
 ## The choice of ramp rates
 
@@ -751,8 +770,9 @@ parameters of their model, and recommend a broad span of rates.
 The trials at 0.025°C per min allow us to compare two assays that differ
 only in the span of their rates. Replacing the four trials at 0.2°C per
 min with the four trials at 0.025°C per min gives an assay of the same
-size (120 fish in 12 trials) whose rates span 12-fold instead of 3-fold.
-The same model is fitted to it with the same code.
+size (120 fish in 12 trials, eight of them shared with the first assay)
+whose rates span 12-fold instead of 3-fold. The same model is fitted to
+it with the same code.
 
 ``` r
 
@@ -768,7 +788,7 @@ fit_wide   <- fit_hazard(
   baseline      = "weibull",
   dpar_formulas = formulas,
   chains = 4, iter = 2000, warmup = 1000, cores = 4, seed = 20261006,
-  control = list(adapt_delta = 0.95)
+  control = list(adapt_delta = 0.95), backend = "cmdstanr"
 )
 ```
 
@@ -902,11 +922,12 @@ of their rates. Solid lines are posterior medians and bands are 95%
 credible intervals. Dashed lines show survival under the model used to
 simulate the data.
 
-This comparison rests on one pair of assays, and part of the difference
-between them may be due to chance. The direction of the difference is
-nevertheless the one expected from the argument above: a wider span
-informs $`k`$ better, and predictions for long exposures depend on
-$`k`$.
+This comparison rests on one pair of assays that share eight of their
+twelve trials, so the difference between them comes from the four trials
+that were replaced, and part of it may be due to chance. The direction
+of the difference is nevertheless the one expected from the argument
+above: a wider span informs $`k`$ better, and predictions for long
+exposures depend on $`k`$.
 
 A wide span has a cost when it is obtained with a slow ramp. At 0.025°C
 per min from 14°C, half of the fish fail after 8.5 h (against 0.8 h at
@@ -1032,13 +1053,14 @@ analysed in a single model, with the fish of both in one table (see
 
 > **Precomputed results**
 >
-> The model in this vignette was fitted with `rTFT` 0.0.0.9000 on
-> 2026-10-08 by the script `vignettes/_precompute.R` in the package’s
-> repository. The vignette displays the saved summaries, and all other
-> code runs when the vignette is built. The values for the static assay
-> are those saved for the vignette [*Getting started with
+> The models in this vignette were fitted on 2026-10-08 with the
+> development version of `rTFT` that became 0.1.0 (0.0.0.9000), by the
+> script `vignettes/_precompute.R` in the package’s repository. The
+> vignette displays the saved summaries, and all other code runs when
+> the vignette is built. The values for the static assay are those saved
+> for the vignette [*Getting started with
 > rTFT*](https://eogmartins.github.io/rTFT/articles/getting-started.md)
-> (fitted with `rTFT` 0.0.0.9000 on 2026-10-08).
+> (fitted on 2026-10-08 with version 0.0.0.9000).
 
 ## References
 

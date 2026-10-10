@@ -4,8 +4,8 @@ Draws the thermal death time curves from
 [`derive_tdt_ttl()`](https://eogmartins.github.io/rTFT/reference/derive_tdt_ttl.md):
 the time until a fraction `p` of individuals has failed, against
 constant temperature, as the posterior median with its credible
-interval. The result is a ggplot object, which be refined by the user
-with further ggplot2 layers, scales, labels and themes.
+interval. The result is a ggplot object, which can be refined by the
+user with further ggplot2 layers, scales, labels and themes.
 
 ## Usage
 
@@ -80,6 +80,17 @@ median itself is never reached the line stops.
 
 ``` r
 if (FALSE) { # \dontrun{
+# a model fitted to a small ramping trial: 20 individuals warmed from 20 to 35
+# degrees over 60 minutes and checked every 10, in two trials (see fit_hazard())
+path   <- data.frame(path_id = "A", time = c(0, 60), temp = c(20, 35))
+checks <- data.frame(path_id = "A", time = seq(0, 60, by = 10))
+ind    <- data.frame(id = 1:20, path_id = "A", event = 1, mass = runif(20, 8, 12),
+                     trial = rep(c("a", "b"), each = 10),
+                     t_upper = sample(seq(10, 60, 10), 20, replace = TRUE))
+long   <- build_hazard_data(ind, path, "interval", covariates = c("mass", "trial"),
+                            checks = checks)
+fit    <- fit_hazard(long, "exp", dpar_formulas = list(loga = ~ 1 + mass))
+
 tol <- derive_tdt_ttl(fit, newdata = data.frame(mass = c(8, 12)), t_ref = 60)
 plot_tdt(tol, time_unit = "min")
 

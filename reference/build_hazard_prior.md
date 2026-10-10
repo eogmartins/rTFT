@@ -2,16 +2,16 @@
 
 Supplies a sensible starting prior for the model
 [build_hazard_spec](https://eogmartins.github.io/rTFT/reference/build_hazard_spec.md)
-assembles, keyed to each parameter's intercept and robust to whatever
-covariates the `dpar_formulas` add. For every parameter the chosen
-functions need, it sets a weakly-informative prior on the intercept (the
-parameter's value at the reference temperature and start of exposure), a
-generic Normal(0, 1) on any covariate slopes, and an Exponential(2) on
-the standard deviation of any random effect. The slope and random-effect
-priors are added only when the parameter actually has those terms, so
-brms raises no "no parameter" warning. Override the centre of any
-parameter through `intercept_priors`, or the shared slope and
-random-effect standard-deviation priors through `slope_prior` and
+assembles, keyed to each parameter's intercept and unaffected by
+whatever covariates the `dpar_formulas` add. For every parameter the
+chosen functions need, it sets a weakly-informative prior on the
+intercept (the parameter's value at the reference temperature and start
+of exposure), a generic Normal(0, 1) on any covariate slopes, and an
+Exponential(2) on the standard deviation of any random effect. The slope
+and random-effect priors are added only when the parameter actually has
+those terms, so brms raises no "no parameter" warning. Override the
+centre of any parameter through `intercept_priors`, or the shared slope
+and random-effect standard-deviation priors through `slope_prior` and
 `sd_prior`; or replace the whole set with your own `prior` when fitting
 with
 [`fit_hazard()`](https://eogmartins.github.io/rTFT/reference/fit_hazard.md).
@@ -50,7 +50,9 @@ build_hazard_prior(
   A named list of one-sided formulas, one per parameter, as in
   [build_hazard_spec](https://eogmartins.github.io/rTFT/reference/build_hazard_spec.md).
   A parameter's fixed and random terms decide which slope and
-  standard-deviation priors are added.
+  standard-deviation priors are added. A formula without an intercept
+  (`~ 0 + acclim`) gives the parameter one coefficient per level in
+  place of the intercept, and each of them takes the intercept's prior.
 
 - intercept_priors:
 
@@ -134,6 +136,21 @@ random-effect standard deviation. Each co-stressor in `costressors` adds
 a `normal(0, 1)` on its main effect `c<name>` and a tighter
 `normal(0, 0.5)` on its temperature interaction `dT<name>`, both
 overridable through `intercept_priors`.
+
+The constants in these priors (the centre of exp(-1) and the standard
+deviation of 2 for the amplitude, the centre of -0.7 for log b, the rate
+of 2 for the group standard deviations, the 0.5 for an interaction) are
+judgements of what is plausible for a thermal failure assay, not values
+estimated from data, and the centres that are read from `long` make the
+prior depend on the data in a weak way, as a standard deviation of 2 on
+the log scale is wide. The prior on a covariate slope is per unit of the
+covariate, so a covariate measured in large units (body mass in grams,
+say) should be centred and scaled, or the slope prior widened, before
+`normal(0, 1)` is taken as weak. With few groups, the prior on a group
+standard deviation can matter for predictions of new groups (which
+cross-validation by group scores, see
+[`kfold_hazard()`](https://eogmartins.github.io/rTFT/reference/kfold_hazard.md));
+a sensitivity check against `exponential(1)` is cheap insurance.
 
 ## The prior on a when the reference is far from the failures
 

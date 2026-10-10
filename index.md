@@ -19,7 +19,7 @@ fitted model, each with its posterior uncertainty.
 
 With the package, one can:
 
-- fit failure times that are exact, interval-censored or both, from
+- fit failure times that are known-time, interval-censored or both, from
   static assays, ramping assays or both, with any of several functions
   for the failure rate and for the baseline;
 - let the failure rate depend on covariates (e.g., body mass), on
@@ -35,22 +35,30 @@ With the package, one can:
 
 ## Installation
 
-`rTFT` is installed from GitHub.
+`rTFT` is installed from GitHub. With `dependencies = TRUE` the packages
+that build the vignettes (`quarto`, `knitr` and `plotly`) are installed
+too.
 
 ``` r
 
 # install.packages("remotes")
-remotes::install_github("eogmartins/rTFT", build_vignettes = TRUE)
+remotes::install_github("eogmartins/rTFT", dependencies = TRUE, build_vignettes = TRUE)
 ```
 
 Fitting a model requires a working installation of Stan, through either
 `cmdstanr` or `rstan` (see the [installation notes of
 brms](https://github.com/paul-buerkner/brms#how-do-i-install-brms)).
 `cmdstanr` is recommended and was used to fit the models of the
-vignettes. It can be asked for with `backend = "cmdstanr"` in
-[`fit_hazard()`](https://eogmartins.github.io/rTFT/reference/fit_hazard.md).
+vignettes; it is not on CRAN and is installed with
+`install.packages("cmdstanr", repos = c("https://stan-dev.r-universe.dev", getOption("repos")))`
+followed by `cmdstanr::install_cmdstan()`. It is asked for with
+`backend = "cmdstanr"` in
+[`fit_hazard()`](https://eogmartins.github.io/rTFT/reference/fit_hazard.md),
+as in the example below; without it, leave that argument out and brms
+uses `rstan`.
 
-Building the vignettes requires [Quarto](https://quarto.org).
+Building the vignettes requires the [Quarto](https://quarto.org) command
+line tool as well as the `quarto` R package.
 
 ## Example
 
@@ -70,8 +78,8 @@ detail.
 
 library(rTFT)
 
-# 1. The table of intervals at risk, built from the temperature of each treatment
-#    through time and the times of the checks.
+# 1. The table of intervals at risk, built from the temperature of each group of
+#    fish through time and the times of the checks.
 path   <- data.frame(path_id = rep(c("T23", "T25", "T27"), each = 2),
                      time    = rep(c(0, 7200), times = 3),
                      temp    = rep(c(23, 25, 27), each = 2))
@@ -123,8 +131,16 @@ package](https://eogmartins.github.io/rTFT/).
 
 ## Getting help
 
-Problems and suggestions can be reported at
-<https://github.com/eogmartins/rTFT/issues>.
+Problems and bugs (an error, a result that looks wrong, a help page that
+does not match what a function does) should be reported on the issues
+page, <https://github.com/eogmartins/rTFT/issues>, with the code that
+shows the problem and the output of
+[`sessionInfo()`](https://rdrr.io/r/utils/sessionInfo.html).
+
+For questions about using the package (e.g., which model or design suits
+a study, how to read a result) and suggestions for new features, please
+use the discussions page,
+<https://github.com/eogmartins/rTFT/discussions>.
 
 ## Citation
 

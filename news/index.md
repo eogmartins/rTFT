@@ -8,8 +8,8 @@ First release.
 
 - [`build_hazard_data()`](https://eogmartins.github.io/rTFT/reference/build_hazard_data.md)
   builds the table of intervals at risk from failure times that are
-  exact, interval-censored or a mixture of both, under any temperature
-  trajectory.
+  known-time, interval-censored or a mixture of both, under any
+  temperature trajectory.
   [`ramp_path()`](https://eogmartins.github.io/rTFT/reference/ramp_path.md)
   builds the trajectory of a linear ramp, and
   [`assess_ramp_linearity()`](https://eogmartins.github.io/rTFT/reference/assess_ramp_linearity.md)
