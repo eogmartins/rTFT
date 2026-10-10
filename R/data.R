@@ -47,13 +47,12 @@
 
 #' A simulated ramping assay of thermal tolerance, with two levels of oxygen
 #'
-#' Times to loss of equilibrium of 280 juvenile salmonids warmed from 14 degrees C
+#' Times to loss of equilibrium of 320 juvenile salmonids warmed from 14 degrees C
 #' at a constant rate until they failed or the water reached 29.5 degrees C,
-#' simulated from a known model. The fish were run in 28 trials of ten. Three ramp
-#' rates (0.1, 0.2 and 0.3 degrees C per minute) are crossed with two levels of
-#' dissolved oxygen, four trials of each combination, and a fourth, much slower
-#' rate (0.025 degrees C per minute) was run in normoxia only, in four trials. The
-#' fish were watched throughout, so each time of failure is known exactly.
+#' simulated from a known model. The fish were run in 32 trials of ten. Four ramp
+#' rates (0.025, 0.1, 0.2 and 0.3 degrees C per minute) are crossed with two levels
+#' of dissolved oxygen (10 and 5 mg/L), four trials of each combination. The fish
+#' were watched throughout, so each time of failure is known exactly.
 #'
 #' The slow rate allows the same data to show what the choice of ramp rates lets a
 #' model estimate: the three faster rates span 3-fold, and the rates of 0.025, 0.1
@@ -68,15 +67,21 @@
 #' h0(tau) = (k / s) (tau / s)^(k - 1), with times in minutes. The values, stored as
 #' `attr(ramp_assay, "truth")`, are b = 1.7 per degree C, k = 1.5, s = 60 minutes,
 #' and log a = -2.13 at 26 degrees C for a 15 g fish in normoxia. log a varies among
-#' trials with a standard deviation of 0.3, rises by 0.03 per gram of body mass and
-#' by 0.3 per mg/L of dissolved oxygen below 10. At a constant temperature half the
-#' fish then fail in about 1 hour at 27 degrees C, 10 hours at 25 and 4 days at 23.
-#' [static_assay] was simulated from the same model.
+#' trials with a standard deviation of 0.3 and rises by 0.03 per gram of body mass.
+#' At a constant temperature half the fish then fail in about 1 hour at 27 degrees C,
+#' 10 hours at 25 and 4 days at 23. [static_assay] was simulated from the same model.
 #'
-#' @format A tibble with 280 rows, one per fish, and 8 columns:
+#' Low dissolved oxygen raises the failure rate, and the more so the warmer the
+#' water: each mg/L of oxygen below 10 adds 0.3 + 0.04 (T - 26) to log M(T). The
+#' effect is 0.3 per mg/L at 26 degrees C and changes by 0.04 for each degree (0.38
+#' at 28 degrees C, 0.22 at 24), which is the form that the interaction of a
+#' co-stressor with temperature fits (see [costressor()]). The two values are stored
+#' as `b_do` and `d_do`.
+#'
+#' @format A tibble with 320 rows, one per fish, and 8 columns:
 #' \describe{
 #'   \item{id}{Integer, the fish.}
-#'   \item{trial}{Character, the trial the fish was in (`"R01"` to `"R28"`).}
+#'   \item{trial}{Character, the trial the fish was in (`"R01"` to `"R32"`).}
 #'   \item{path_id}{Character, the ramp (`"r0.025"`, `"r0.1"`, `"r0.2"`, `"r0.3"`),
 #'     the key to its temperature trajectory.}
 #'   \item{rate}{Numeric, the ramp rate, degrees C per minute.}
