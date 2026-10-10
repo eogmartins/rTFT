@@ -15,6 +15,7 @@ Useful links:
 \itemize{
   \item \url{https://eogmartins.github.io/rTFT/}
   \item \url{https://github.com/eogmartins/rTFT}
+  \item \url{https://github.com/eogmartins/rTFT/discussions}
   \item Report bugs at \url{https://github.com/eogmartins/rTFT/issues}
 }
 

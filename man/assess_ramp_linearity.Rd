@@ -46,8 +46,9 @@ baseline, where k = 1, and differ by the factor k under a Weibull one. Judge the
 deviations against \code{log(10) / b}, not against a reported z.
 }
 \examples{
-# A logged temperature series close to a 0.3 degree/min ramp, with a small mid-run
-wobble. path <- data.frame(path_id = "r1", time = 0:20,
+# A logged temperature series close to a 0.3 degree/min ramp, with a small
+# mid-run wobble.
+path <- data.frame(path_id = "r1", time = 0:20,
                    temp = 20 + 0.3 * (0:20) + c(rep(0, 8), 0.4, 0.5, 0.3, rep(0, 10)))
 assess_ramp_linearity(path)
 

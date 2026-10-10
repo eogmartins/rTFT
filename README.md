@@ -38,20 +38,26 @@ With the package, one can:
 
 ## Installation
 
-`rTFT` is installed from GitHub.
+`rTFT` is installed from GitHub. With `dependencies = TRUE` the packages that
+build the vignettes (`quarto`, `knitr` and `plotly`) are installed too.
 
 ```r
 # install.packages("remotes")
-remotes::install_github("eogmartins/rTFT", build_vignettes = TRUE)
+remotes::install_github("eogmartins/rTFT", dependencies = TRUE, build_vignettes = TRUE)
 ```
 
 Fitting a model requires a working installation of Stan, through either
 `cmdstanr` or `rstan` (see the [installation notes of
 brms](https://github.com/paul-buerkner/brms#how-do-i-install-brms)). `cmdstanr`
-is recommended and was used to fit the models of the vignettes. It can be asked
-for with `backend = "cmdstanr"` in `fit_hazard()`.
+is recommended and was used to fit the models of the vignettes; it is not on
+CRAN and is installed with
+`install.packages("cmdstanr", repos = c("https://stan-dev.r-universe.dev", getOption("repos")))`
+followed by `cmdstanr::install_cmdstan()`. It is asked for with
+`backend = "cmdstanr"` in `fit_hazard()`, as in the example below; without it,
+leave that argument out and brms uses `rstan`.
 
-Building the vignettes requires [Quarto](https://quarto.org).
+Building the vignettes requires the [Quarto](https://quarto.org) command line
+tool as well as the `quarto` R package.
 
 ## Example
 
@@ -117,8 +123,14 @@ package](https://eogmartins.github.io/rTFT/).
 
 ## Getting help
 
-Problems and suggestions can be reported at
-<https://github.com/eogmartins/rTFT/issues>.
+Problems and bugs (an error, a result that looks wrong, a help page that does
+not match what a function does) should be reported on the issues page,
+<https://github.com/eogmartins/rTFT/issues>, with the code that shows the
+problem and the output of `sessionInfo()`.
+
+For questions about using the package (e.g., which model or design suits a
+study, how to read a result) and suggestions for new features, please use the
+discussions page, <https://github.com/eogmartins/rTFT/discussions>.
 
 ## Citation
 

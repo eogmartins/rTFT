@@ -1051,9 +1051,9 @@ costressor <- function(name, column, ref, scale, direction,
 #'                     t_upper = c(30, NA), t_event = c(NA, 42))
 #' build_hazard_data(ind_m, path, "mixed", checks = checks)
 #'
-#' # A covariate carried through to every row, and a shared reference Tr. ind$mass <-
-#' c(12.1, 9.8) build_hazard_data(ind, path, "interval", covariates = "mass", Tr = 15,
-#' checks = checks)
+#' # A covariate carried through to every row, and a shared reference Tr.
+#' ind$mass <- c(12.1, 9.8)
+#' build_hazard_data(ind, path, "interval", covariates = "mass", Tr = 15, checks = checks)
 #' @export
 build_hazard_data <- function(ind, path, observation = c("interval", "continuous", "mixed"),
                               covariates = character(0), Tr = NULL, tau_ref = NULL,
@@ -2095,8 +2095,9 @@ ramp_path <- function(path_id, T_start, rate, t_max, by = NULL) {
 #'   `max_dev_hot` (the worst absolute deviation in the hot quartile); plus
 #'   `rate_nominal` and `rate_bias` when `nominal` is supplied.
 #' @examples
-#' # A logged temperature series close to a 0.3 degree/min ramp, with a small mid-run
-#' wobble. path <- data.frame(path_id = "r1", time = 0:20,
+#' # A logged temperature series close to a 0.3 degree/min ramp, with a small
+#' # mid-run wobble.
+#' path <- data.frame(path_id = "r1", time = 0:20,
 #'                    temp = 20 + 0.3 * (0:20) + c(rep(0, 8), 0.4, 0.5, 0.3, rep(0, 10)))
 #' assess_ramp_linearity(path)
 #'

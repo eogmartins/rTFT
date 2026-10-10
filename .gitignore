@@ -1,0 +1,40 @@
+# R session state
+.Rproj.user
+.Rhistory
+.RData
+.Ruserdata
+*.Rproj
+
+# macOS
+.DS_Store
+
+# Compiled objects
+*.o
+*.so
+*.dll
+
+# Build products of R CMD build and R CMD check
+*.tar.gz
+*.Rcheck/
+
+# R's default plot device output, regenerable from the script that made it.
+Rplots.pdf
+
+# Vignettes as R CMD build leaves them: build/vignette.rds and inst/doc/ are
+# written from the sources in vignettes/ and the saved results beside them, which
+# are tracked. A generated file under version control is a second record of
+# something the sources already fix, and a second record drifts.
+build/
+inst/doc/
+/doc/
+/Meta/
+
+# Fitted model objects and knitr caches, if a working session leaves any behind.
+# The results-*.rds files in vignettes/ are a different thing and are tracked:
+# they hold what each vignette displays, written by vignettes/_precompute.R, so
+# the vignettes build without refitting any model.
+*_cache/
+/.quarto/
+
+# The site as pkgdown builds it locally; the published copy is built on GitHub.
+docs/

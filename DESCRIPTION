@@ -1,6 +1,6 @@
 Package: rTFT
 Title: Hazard Models for Thermal Failure Time Data
-Version: 0.0.0.9000
+Version: 0.1.0
 Authors@R:
     person(c("Eduardo", "G."), "Martins", , "eduardo.martins@unbc.ca", role = c("aut", "cre"),
            comment = c(ORCID = "0000-0003-3500-9331"))
@@ -20,9 +20,11 @@ Description: Fits discrete-time survival models to the times at which individual
     and of any co-stressors recorded with it.
 License: MIT + file LICENSE
 Encoding: UTF-8
+Language: en-GB
 LazyData: true
 Roxygen: list(markdown = TRUE)
-URL: https://eogmartins.github.io/rTFT/, https://github.com/eogmartins/rTFT
+URL: https://eogmartins.github.io/rTFT/, https://github.com/eogmartins/rTFT,
+    https://github.com/eogmartins/rTFT/discussions
 BugReports: https://github.com/eogmartins/rTFT/issues
 Depends:
     R (>= 4.1.0)

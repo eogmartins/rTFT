@@ -185,7 +185,7 @@ ind_m <- data.frame(id = 1:2, path_id = "A", event = 1,
                     t_upper = c(30, NA), t_event = c(NA, 42))
 build_hazard_data(ind_m, path, "mixed", checks = checks)
 
-# A covariate carried through to every row, and a shared reference Tr. ind$mass <-
-c(12.1, 9.8) build_hazard_data(ind, path, "interval", covariates = "mass", Tr = 15,
-checks = checks)
+# A covariate carried through to every row, and a shared reference Tr.
+ind$mass <- c(12.1, 9.8)
+build_hazard_data(ind, path, "interval", covariates = "mass", Tr = 15, checks = checks)
 }
