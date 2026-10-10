@@ -17,11 +17,11 @@ Useful links:
 
 }
 \author{
-\strong{Maintainer}: Eduardo Martins \email{eduardo.martins@unbc.ca} (\href{https://orcid.org/0000-0003-3500-9331}{ORCID})
+\strong{Maintainer}: Eduardo G. Martins \email{eduardo.martins@unbc.ca} (\href{https://orcid.org/0000-0003-3500-9331}{ORCID})
 
 Authors:
 \itemize{
-  \item Eduardo Martins \email{eduardo.martins@unbc.ca} (\href{https://orcid.org/0000-0003-3500-9331}{ORCID})
+  \item Eduardo G. Martins \email{eduardo.martins@unbc.ca} (\href{https://orcid.org/0000-0003-3500-9331}{ORCID})
 }
 
 }
