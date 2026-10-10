@@ -24,7 +24,9 @@ build_hazard_prior(
 
 \item{dpar_formulas}{A named list of one-sided formulas, one per parameter, as in
 \link{build_hazard_spec}. A parameter's fixed and random terms decide which slope and
-standard-deviation priors are added.}
+standard-deviation priors are added. A formula without an intercept
+(\code{~ 0 + acclim}) gives the parameter one coefficient per level in place of the
+intercept, and each of them takes the intercept's prior.}
 
 \item{intercept_priors}{A named list of prior strings, one per parameter, that
 replace the default intercept (centre) for those parameters, e.g.

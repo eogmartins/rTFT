@@ -93,7 +93,10 @@ log_lik_cloglog_bern <- function(i, prep) {
   mu  <- brms::get_dpar(prep, "mu", i = i)
   y   <- prep$data$Y[i]
   lam <- exp(mu)
-  y * log(-expm1(-lam)) + (1 - y) * (-lam)
+  # One branch per outcome, as in Stan: a survived row is -lam even where lam
+  # underflows to zero, where the failed branch's log(0) would make a weighted sum
+  # of the two NaN.
+  if (y == 1) log(-expm1(-lam)) else -lam
 }
 
 ## posterior_predict_cloglog_bern() -------------------------------------------
@@ -998,9 +1001,12 @@ costressor <- function(name, column, ref, scale, direction,
 #' @param checks An optional data frame with `path_id`, `time` giving the
 #'   failure-check schedule per path (i.e., the times at which each individual was
 #'   inspected for failure). Defaults to the distinct `path` times (logger reading =
-#'   check). As noted above, these times double as the integration nodes for the
-#'   cumulative hazard, so their spacing sets the midpoint-rule resolution. For a
-#'   known-time failure, a regular grid can be used instead (see `grid_dt`).
+#'   check). Time 0, the start of the exposure, is added to every schedule when it
+#'   is not listed. An interval-censored `t_upper` must be one of its path's checks:
+#'   a time between two checks, or past the last one, is refused. As noted above,
+#'   these times double as the integration nodes for the cumulative hazard, so
+#'   their spacing sets the midpoint-rule resolution. For a known-time failure, a
+#'   regular grid can be used instead (see `grid_dt`).
 #' @param grid_dt An optional numeric giving a fixed time step (in the units of
 #'   `path$time`). If set, a known-time failure is followed on a regular grid of
 #'   this step, from `t = 0` to the failure time, instead of on `checks`. Defaults to
@@ -1092,6 +1098,48 @@ build_hazard_data <- function(ind, path, observation = c("interval", "continuous
       cli::cli_abort(
         "{.arg ind} column {.field {timing}} is not finite for {sum(!is.finite(ind[[timing]]))} of {nrow(ind)} individual{?s}.",
         class = "rTFT_nonfinite_timing")
+    if (any(ind[[timing]] <= 0))
+      cli::cli_abort(c(
+        "{.arg ind} column {.field {timing}} is zero or negative for {sum(ind[[timing]] <= 0)} of {nrow(ind)} individual{?s}.",
+        "i" = "Every individual is at risk from time 0 of its path, so its time of failure or of last observation must come after it."
+      ), class = "rTFT_nonpositive_timing")
+  }
+
+  # Every individual appears once: the covariates are joined back onto the rows by
+  # `id`, and a repeated identifier would copy every interval row once per repeat.
+  if (anyDuplicated(ind$id))
+    cli::cli_abort(c(
+      "{.arg ind} must have one row per individual, with a distinct {.field id}.",
+      "x" = "Repeated: {.val {unique(ind$id[duplicated(ind$id)])}}."
+    ), class = "rTFT_duplicate_id")
+
+  # The event indicator is 1 for a failure and 0 for a survivor, nothing else.
+  if (!all(ind$event %in% c(0, 1)))
+    cli::cli_abort(c(
+      "{.arg ind} column {.field event} must be 1 (failed) or 0 (survived) for every individual.",
+      "x" = "Other values: {.val {unique(ind$event[!ind$event %in% c(0, 1)])}}."
+    ), class = "rTFT_bad_event")
+
+  # Every individual's path has a trajectory, and, when a check schedule is given,
+  # a schedule.
+  no_path <- setdiff(unique(as.character(ind$path_id)), unique(as.character(path$path_id)))
+  if (length(no_path))
+    cli::cli_abort(c(
+      "{.arg path} has no trajectory for {.field path_id} {.val {no_path}}.",
+      "i" = "Every {.field path_id} of {.arg ind} needs rows in {.arg path}."
+    ), class = "rTFT_missing_path")
+  # When a check schedule is given, the paths of interval-censored individuals must
+  # be in it; a path of known-time individuals falls back on the readings of `path`.
+  at_checks <- if (observation == "mixed") as.character(ind$obs_type) == "interval"
+               else rep(observation == "interval", nrow(ind))
+  if (!is.null(checks)) {
+    no_checks <- setdiff(unique(as.character(ind$path_id[at_checks])),
+                         unique(as.character(checks$path_id)))
+    if (length(no_checks))
+      cli::cli_abort(c(
+        "{.arg checks} has no schedule for {.field path_id} {.val {no_checks}}, whose individuals are interval-censored.",
+        "i" = "Give the checks of every such path, or none and the readings of {.arg path} stand in."
+      ), class = "rTFT_missing_checks")
   }
 
   # In mixed mode, each individual has its own scheme in `obs_type`. Guard the
@@ -1129,14 +1177,39 @@ build_hazard_data <- function(ind, path, observation = c("interval", "continuous
         cli::cli_abort(
           "{.field obs_type} == {.val {lv}} reads {.field {col}}, but it is not finite for {sum(!is.finite(have))} of {length(have)} such individual{?s}.",
           class = "rTFT_nonfinite_timing")
+      if (any(have <= 0))
+        cli::cli_abort(
+          "{.field obs_type} == {.val {lv}} reads {.field {col}}, but it is zero or negative for {sum(have <= 0)} of {length(have)} such individual{?s}.",
+          class = "rTFT_nonpositive_timing")
     }
   }
 
   interp_of <- split(path, path$path_id) |>
     purrr::map(\(d) stats::approxfun(d$time, d$temp, rule = 2))
-  chk_src   <- if (is.null(checks)) path else checks
-  checks_of <- split(chk_src, chk_src$path_id) |>
-    purrr::map(\(d) sort(unique(d$time)))
+  # The checks of each path: the schedule given, or the readings of `path` for a
+  # path without one. Every individual is at risk from time 0 of its path, so the
+  # schedule starts there whether or not it lists the start.
+  given_of  <- if (is.null(checks)) list() else
+    purrr::map(split(checks, checks$path_id), \(d) d$time)
+  checks_of <- purrr::map(split(path, path$path_id), \(d) {
+    pid <- as.character(d$path_id[1])
+    sort(unique(c(0, if (!is.null(given_of[[pid]])) given_of[[pid]] else d$time)))
+  })
+
+  # An interval-censored time is a check of its path: the check at which the
+  # failure was found, or the last check at which a survivor was seen. A time
+  # between two checks, or past the last one, would be moved to the next check or
+  # fall off the schedule, so it is refused.
+  if (any(at_checks)) {
+    off <- vapply(which(at_checks), \(i) {
+      !any(abs(checks_of[[as.character(ind$path_id[i])]] - ind$t_upper[i]) < 1e-8)
+    }, logical(1))
+    if (any(off))
+      cli::cli_abort(c(
+        "{.field t_upper} is not a check of its path for {sum(off)} individual{?s} ({.val {ind$id[which(at_checks)[off]]}}).",
+        "i" = "For an interval-censored individual {.field t_upper} is the check at which it was found to have failed, or the last check at which a survivor was seen; it must be one of the times in {.arg checks} (or, with no {.arg checks}, in {.arg path}) for its {.field path_id}."
+      ), class = "rTFT_t_upper_not_check")
+  }
 
   knots_of  <- split(path, path$path_id) |>
     purrr::map(\(d) sort(unique(d$time)))
@@ -1232,7 +1305,7 @@ build_hazard_data <- function(ind, path, observation = c("interval", "continuous
 
   cov_tbl <- dplyr::select(ind, id, dplyr::all_of(covariates))
   out <- long |>
-    dplyr::left_join(cov_tbl, by = "id") |>
+    dplyr::left_join(cov_tbl, by = "id", relationship = "many-to-one") |>
     dplyr::mutate(Tr = Tr, log_tau = log(tau), tau_ref = tau_ref,
                   log_exposure = log(exposure))
 
@@ -1452,6 +1525,19 @@ build_hazard_spec <- function(m_form, baseline = "mem", dpar_formulas = list(),
   any(!vapply(fixed, is.numeric, logical(1)))
 }
 
+# Checks if the formula keeps its intercept. `~ 0 + x` and `~ x - 1` drop it, and
+# brms then estimates one coefficient per level of x in its place, with no
+# `Intercept` coefficient for a prior to attach to.
+.has_intercept <- function(f) {
+  if (is.null(f)) return(TRUE)
+  terms <- .rhs_terms(f)
+  drops <- any(vapply(terms, \(t) is.numeric(t) && t == 0, logical(1)))
+  minus_one <- any(vapply(terms, \(t)
+    is.call(t) && identical(t[[1]], quote(`-`)) && length(t) == 3L &&
+      is.numeric(t[[3]]) && t[[3]] == 1, logical(1)))
+  !(drops || minus_one)
+}
+
 
 # .loga_prior() ----------------------------------------------------------------
 
@@ -1577,7 +1663,9 @@ build_hazard_spec <- function(m_form, baseline = "mem", dpar_formulas = list(),
 #'   (default), `"weibull"`, `"llogis"` or `"gompertz"`.
 #' @param dpar_formulas A named list of one-sided formulas, one per parameter, as in
 #'   [build_hazard_spec]. A parameter's fixed and random terms decide which slope and
-#'   standard-deviation priors are added.
+#'   standard-deviation priors are added. A formula without an intercept
+#'   (`~ 0 + acclim`) gives the parameter one coefficient per level in place of the
+#'   intercept, and each of them takes the intercept's prior.
 #' @param intercept_priors A named list of prior strings, one per parameter, that
 #'   replace the default intercept (centre) for those parameters, e.g.
 #'   `list(Tc = "normal(26, 4)")`. A parameter left out keeps its default; a name
@@ -1690,10 +1778,17 @@ build_hazard_prior <- function(m_form, baseline = "mem", dpar_formulas = list(),
   # overridable through slope_prior / sd_prior).
   plist <- list()
   for (dp in needed) {
-    plist <- c(plist, list(brms::set_prior(icpt[[dp]], class = "b",
-                                           coef = "Intercept", nlpar = dp)))
-    if (.has_slopes(dpar_formulas[[dp]]))
-      plist <- c(plist, list(brms::set_prior(slope_prior, class = "b", nlpar = dp)))
+    if (.has_intercept(dpar_formulas[[dp]])) {
+      plist <- c(plist, list(brms::set_prior(icpt[[dp]], class = "b",
+                                             coef = "Intercept", nlpar = dp)))
+      if (.has_slopes(dpar_formulas[[dp]]))
+        plist <- c(plist, list(brms::set_prior(slope_prior, class = "b", nlpar = dp)))
+    } else {
+      # Without an intercept, every population-level coefficient of the parameter
+      # is a level's own value (`~ 0 + acclim` gives one per acclimation group), so
+      # each takes the centre prior and there is no slope to give the slope prior to.
+      plist <- c(plist, list(brms::set_prior(icpt[[dp]], class = "b", nlpar = dp)))
+    }
     if (.has_re(dpar_formulas[[dp]]))
       plist <- c(plist, list(brms::set_prior(sd_prior, class = "sd", nlpar = dp)))
   }
@@ -1901,11 +1996,12 @@ build_hazard_prior <- function(m_form, baseline = "mem", dpar_formulas = list(),
 #'   re-entered by hand.
 #' @examples
 #' \dontrun{
-#' path <- data.frame(path_id = "A", time = c(0, 60), temp = c(20, 35))
-#' ind  <- data.frame(id = 1:20, path_id = "A", event = 1,
-#'                    t_upper = sample(seq(10, 60, 10), 20, replace = TRUE))
-#' long <- build_hazard_data(ind, path, "interval")
-#' fit  <- fit_hazard(long, "exp", chains = 4, iter = 2000, cores = 4)
+#' path   <- data.frame(path_id = "A", time = c(0, 60), temp = c(20, 35))
+#' checks <- data.frame(path_id = "A", time = seq(0, 60, by = 10))
+#' ind    <- data.frame(id = 1:20, path_id = "A", event = 1,
+#'                      t_upper = sample(seq(10, 60, 10), 20, replace = TRUE))
+#' long   <- build_hazard_data(ind, path, "interval", checks = checks)
+#' fit    <- fit_hazard(long, "exp", chains = 4, iter = 2000, cores = 4)
 #' }
 #' @export
 fit_hazard <- function(long, m_form, baseline = "mem", dpar_formulas = list(),

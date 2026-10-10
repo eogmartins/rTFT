@@ -593,9 +593,21 @@ H0inv_of <- function(baseline) {
 #'   columns of `newdata`, `.draw` (the draw's number in the fit, so draws from
 #'   different calls can be matched), `Ta` and the failure rate `M`.
 #' @examples
-#' \dontrun{ fit <- fit_hazard(long, "exp", dpar_formulas = list(loga = ~ 1 + mass))
-#' rate <- M_draws(fit, Ta = seq(25, 40, by = 0.5), newdata = data.frame(mass = c(8,
-#' 12))) }
+#' \dontrun{
+#' # a model fitted to a small ramping trial: 20 individuals warmed from 20 to 35
+#' # degrees over 60 minutes and checked every 10, in two trials (see fit_hazard())
+#' path   <- data.frame(path_id = "A", time = c(0, 60), temp = c(20, 35))
+#' checks <- data.frame(path_id = "A", time = seq(0, 60, by = 10))
+#' ind    <- data.frame(id = 1:20, path_id = "A", event = 1, mass = runif(20, 8, 12),
+#'                      trial = rep(c("a", "b"), each = 10),
+#'                      t_upper = sample(seq(10, 60, 10), 20, replace = TRUE))
+#' long   <- build_hazard_data(ind, path, "interval", covariates = c("mass", "trial"),
+#'                             checks = checks)
+#' fit    <- fit_hazard(long, "exp", dpar_formulas = list(loga = ~ 1 + mass))
+#'
+#' rate <- M_draws(fit, Ta = seq(25, 40, by = 0.5),
+#'                 newdata = data.frame(mass = c(8, 12)))
+#' }
 #' @export
 M_draws <- function(fit, Ta, newdata = NULL, levels = NULL, n_draws = NULL) {
   st   <- .fit_settings(fit)
@@ -952,7 +964,17 @@ M_draws <- function(fit, Ta, newdata = NULL, levels = NULL, n_draws = NULL) {
 #' Reports* 11, 12840.
 #' @examples
 #' \dontrun{
-#' fit <- fit_hazard(long, "exp", dpar_formulas = list(loga = ~ 1 + mass))
+#' # a model fitted to a small ramping trial: 20 individuals warmed from 20 to 35
+#' # degrees over 60 minutes and checked every 10, in two trials (see fit_hazard())
+#' path   <- data.frame(path_id = "A", time = c(0, 60), temp = c(20, 35))
+#' checks <- data.frame(path_id = "A", time = seq(0, 60, by = 10))
+#' ind    <- data.frame(id = 1:20, path_id = "A", event = 1, mass = runif(20, 8, 12),
+#'                      trial = rep(c("a", "b"), each = 10),
+#'                      t_upper = sample(seq(10, 60, 10), 20, replace = TRUE))
+#' long   <- build_hazard_data(ind, path, "interval", covariates = c("mass", "trial"),
+#'                             checks = checks)
+#' fit    <- fit_hazard(long, "exp", dpar_formulas = list(loga = ~ 1 + mass))
+#'
 #' tol <- derive_tdt_ttl(fit, newdata = data.frame(mass = c(8, 12)), p = 0.5,
 #'                       t_ref = 60)
 #' tol$sctmax
@@ -998,7 +1020,9 @@ derive_tdt_ttl <- function(fit, newdata = NULL, p = c(0.1, 0.5, 0.9), t_ref,
                     tau_end   = (edges[-1] - T_start) / rate,
                     Ta        = (edges[-n] + edges[-1]) / 2)
   accrued <- .record_hazard(st, d, intervals, levels)
-  running <- t(apply(accrued, 1, cumsum))
+  # The running total along the ramp, a row per draw; a ramp of a single step is
+  # its own total (apply() would drop the matrix to a vector).
+  running <- if (ncol(accrued) > 1L) t(apply(accrued, 1, cumsum)) else accrued
   nd      <- nrow(running)
   out <- vapply(-log1p(-p), \(target) {
     # the step in which the running total first reaches the target
@@ -1154,6 +1178,17 @@ derive_tdt_ttl <- function(fit, newdata = NULL, p = c(0.1, 0.5, 0.9), t_ref,
 #'   [average_dctmax()] to average dCTmax over several models.
 #' @examples
 #' \dontrun{
+#' # a model fitted to a small ramping trial: 20 individuals warmed from 20 to 35
+#' # degrees over 60 minutes and checked every 10, in two trials (see fit_hazard())
+#' path   <- data.frame(path_id = "A", time = c(0, 60), temp = c(20, 35))
+#' checks <- data.frame(path_id = "A", time = seq(0, 60, by = 10))
+#' ind    <- data.frame(id = 1:20, path_id = "A", event = 1, mass = runif(20, 8, 12),
+#'                      trial = rep(c("a", "b"), each = 10),
+#'                      t_upper = sample(seq(10, 60, 10), 20, replace = TRUE))
+#' long   <- build_hazard_data(ind, path, "interval", covariates = c("mass", "trial"),
+#'                             checks = checks)
+#' fit    <- fit_hazard(long, "exp", dpar_formulas = list(loga = ~ 1 + mass))
+#'
 #' # the CTmax expected under three ramps from 14 degrees
 #' derive_dctmax(fit, rate = c(0.1, 0.2, 0.3), T_start = 14,
 #'               newdata = data.frame(mass = 15))

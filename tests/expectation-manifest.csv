@@ -1,9 +1,9 @@
 file,expectations
-test-discrete-time-hazard-brms.R,476
-test-derive-tdt-ttl.R,236
+test-discrete-time-hazard-brms.R,506
+test-derive-tdt-ttl.R,238
 test-plot-tdt-ttl.R,154
-test-loo-hazard.R,100
-test-average-tdt-ttl.R,105
+test-loo-hazard.R,103
+test-average-tdt-ttl.R,106
 test-predict-survival.R,141
 test-plot-survival.R,84
 test-check-hazard.R,66

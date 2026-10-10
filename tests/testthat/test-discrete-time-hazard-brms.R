@@ -83,6 +83,14 @@ test_that("log_lik_cloglog_bern reproduces the Stan log-mass and is never positi
 })
 
 
+test_that("log_lik_cloglog_bern stays finite for a survived row whose hazard underflows", {
+  # exp(-800) is 0 in double precision; a survived row's log-likelihood is -lam = 0,
+  # not the NaN of 0 * log(0)
+  prep <- stub_prep(matrix(-800, nrow = 3, ncol = 2), c(1, 0))
+  expect_equal(log_lik_cloglog_bern(2, prep), rep(0, 3))
+})
+
+
 test_that("posterior_epred_cloglog_bern returns the interval failure probability", {
   set.seed(2)
   mu <- matrix(rnorm(50 * 4), nrow = 50)     # 50 draws, 4 observations
@@ -714,6 +722,103 @@ test_that("build_hazard_data errors loudly, with cli condition classes, on malfo
 })
 
 
+test_that("a repeated id, an event other than 0 or 1, and a time of zero or less are refused", {
+  # two rows for one individual would copy every interval row once per repeat
+  dup <- data.frame(id = c(1, 1), path_id = "A", event = c(1, 0), t_upper = c(30, 60),
+                    mass = c(5, 9))
+  expect_error(build_hazard_data(dup, ramp_traj, "interval", covariates = "mass",
+                                 checks = ramp_checks, grid_dT = Inf),
+               class = "rTFT_duplicate_id")
+  # an event of 2, or NA, is neither a failure nor a survivor
+  for (ev in list(2, NA)) {
+    bad_event <- data.frame(id = 1, path_id = "A", event = ev, t_upper = 30)
+    expect_error(build_hazard_data(bad_event, ramp_traj, "interval", checks = ramp_checks,
+                                   grid_dT = Inf),
+                 class = "rTFT_bad_event")
+  }
+  # a failure at time zero, a known time of zero (which would drop the individual
+  # without a word) and a negative one
+  expect_error(build_hazard_data(data.frame(id = 1, path_id = "A", event = 1, t_upper = 0),
+                                 ramp_traj, "interval", checks = ramp_checks, grid_dT = Inf),
+               class = "rTFT_nonpositive_timing")
+  for (t in c(0, -5))
+    expect_error(build_hazard_data(data.frame(id = 1, path_id = "A", event = 1, t_event = t),
+                                   ramp_traj, "continuous", grid_dT = Inf),
+                 class = "rTFT_nonpositive_timing")
+  mixed_zero <- data.frame(id = 1:2, path_id = "A", event = 1,
+                           obs_type = c("interval", "continuous"),
+                           t_upper = c(30, NA), t_event = c(NA, 0))
+  expect_error(build_hazard_data(mixed_zero, ramp_traj, "mixed", checks = ramp_checks,
+                                 grid_dT = Inf),
+               class = "rTFT_nonpositive_timing")
+})
+
+
+test_that("an interval-censored time must be a check of its path", {
+  # between two checks, and past the last one, instead of being moved to the next
+  # check or falling off the schedule
+  for (t in c(32, 65)) {
+    off <- data.frame(id = 1, path_id = "A", event = 1, t_upper = t)
+    expect_error(build_hazard_data(off, ramp_traj, "interval", checks = ramp_checks,
+                                   grid_dT = Inf),
+                 class = "rTFT_t_upper_not_check")
+  }
+  # a survivor last seen between two checks, likewise
+  expect_error(build_hazard_data(data.frame(id = 1, path_id = "A", event = 0, t_upper = 35),
+                                 ramp_traj, "interval", checks = ramp_checks, grid_dT = Inf),
+               class = "rTFT_t_upper_not_check")
+  # in mixed mode the rule applies to the interval-censored individuals only
+  mixed <- data.frame(id = 1:2, path_id = "A", event = 1,
+                      obs_type = c("interval", "continuous"),
+                      t_upper = c(32, NA), t_event = c(NA, 42))
+  expect_error(build_hazard_data(mixed, ramp_traj, "mixed", checks = ramp_checks,
+                                 grid_dT = Inf),
+               class = "rTFT_t_upper_not_check")
+  mixed$t_upper[1] <- 30
+  expect_no_error(build_hazard_data(mixed, ramp_traj, "mixed", checks = ramp_checks,
+                                    grid_dT = Inf))
+})
+
+
+test_that("exposure is counted from time zero whether or not the checks list it", {
+  ind <- data.frame(id = 1, path_id = "A", event = 1, t_upper = 30)
+  # a schedule of inspections only, the first at 10 min
+  inspections <- data.frame(path_id = "A", time = seq(10, 60, by = 10))
+  out <- build_hazard_data(ind, ramp_traj, "interval", checks = inspections, grid_dT = Inf)
+  expect_equal(out$tau, c(5, 15, 25))
+  # the same as the continuous branch gives for the same schedule
+  cont <- build_hazard_data(data.frame(id = 1, path_id = "A", event = 1, t_event = 30),
+                            ramp_traj, "continuous", checks = inspections, grid_dT = Inf)
+  expect_equal(cont$tau, out$tau)
+  # a path whose first reading comes after time zero: the first interval starts at
+  # zero, with the temperature held flat at the first reading
+  late_path <- data.frame(path_id = "A", time = c(5, 60), temp = ramp_temp(c(5, 60)))
+  out2 <- build_hazard_data(ind, late_path, "interval", checks = ramp_checks, grid_dT = Inf)
+  expect_equal(out2$tau, c(5, 15, 25))
+  expect_equal(out2$Ta[1], ramp_temp(5))
+})
+
+
+test_that("a path without a trajectory, or an interval-censored path without checks, is refused", {
+  two_paths <- data.frame(id = 1:2, path_id = c("A", "B"), event = 1, t_upper = 30)
+  expect_error(build_hazard_data(two_paths, ramp_traj, "interval", checks = ramp_checks,
+                                 grid_dT = Inf),
+               class = "rTFT_missing_path")
+  path_b <- rbind(ramp_traj, data.frame(path_id = "B", time = c(0, 60), temp = c(22, 37)))
+  # checks for A only, while B's individual is interval-censored
+  expect_error(build_hazard_data(two_paths, path_b, "interval", checks = ramp_checks,
+                                 grid_dT = Inf),
+               class = "rTFT_missing_checks")
+  # with B's individual at a known time, B falls back on the readings of its path
+  mixed <- data.frame(id = 1:2, path_id = c("A", "B"), event = 1,
+                      obs_type = c("interval", "continuous"),
+                      t_upper = c(30, NA), t_event = c(NA, 42))
+  expect_no_error(out <- build_hazard_data(mixed, path_b, "mixed", checks = ramp_checks,
+                                           grid_dT = Inf))
+  expect_equal(max(out$tau[out$id == 2] + out$exposure[out$id == 2] / 2), 42)
+})
+
+
 test_that("mixed mode guards obs_type and its per-level timing columns", {
   # obs_type missing entirely
   m1 <- data.frame(id = 1, path_id = "A", event = 1, t_upper = 30)
@@ -1024,6 +1129,26 @@ test_that("slope and sd priors are added only when the parameter has those terms
   # with neither, there are no slope or sd rows at all (only intercepts)
   p0 <- build_hazard_prior("exp", "mem", long = prior_long())
   expect_equal(nrow(p0[p0$coef == "" & p0$class %in% c("b", "sd"), ]), 0L)
+})
+
+
+test_that("a sub-formula without an intercept gives every coefficient the centre prior", {
+  expect_true(.has_intercept(NULL))
+  expect_true(.has_intercept(~ 1 + acclim))
+  expect_false(.has_intercept(~ 0 + acclim))
+  expect_false(.has_intercept(~ acclim - 1))
+  with_icpt <- build_hazard_prior("exp", "mem", long = prior_long())
+  p <- build_hazard_prior("exp", "mem", dpar_formulas = list(loga = ~ 0 + acclim),
+                          long = prior_long())
+  rows <- p[p$nlpar == "loga", ]
+  # one row, on class b without a coefficient name: the level means, not an
+  # intercept that the model does not have
+  expect_equal(nrow(rows), 1L)
+  expect_equal(rows$class, "b")
+  expect_equal(rows$coef, "")
+  expect_equal(rows$prior, icpt_of(with_icpt, "loga"))
+  # the other parameter keeps its intercept prior
+  expect_equal(icpt_of(p, "logb"), icpt_of(with_icpt, "logb"))
 })
 
 

@@ -75,7 +75,24 @@ not say which model extrapolates better below it, which the data cannot tell.
 }
 \examples{
 \dontrun{
-fits <- list("exp" = fit_exp, "zeroexp" = fit_zeroexp)
+# a model fitted to a small ramping trial: 20 individuals warmed from 20 to 35
+# degrees over 60 minutes and checked every 10, in two trials (see fit_hazard())
+path   <- data.frame(path_id = "A", time = c(0, 60), temp = c(20, 35))
+checks <- data.frame(path_id = "A", time = seq(0, 60, by = 10))
+ind    <- data.frame(id = 1:20, path_id = "A", event = 1, mass = runif(20, 8, 12),
+                     trial = rep(c("a", "b"), each = 10),
+                     t_upper = sample(seq(10, 60, 10), 20, replace = TRUE))
+long   <- build_hazard_data(ind, path, "interval", covariates = c("mass", "trial"),
+                            checks = checks)
+fit_mem     <- fit_hazard(long, "exp", dpar_formulas = list(loga = ~ 1 + mass))
+fit_weibull <- fit_hazard(long, "exp", baseline = "weibull",
+                          dpar_formulas = list(loga = ~ 1 + mass))
+fits        <- list(memoryless = fit_mem, weibull = fit_weibull)
+# a two-day record read every hour, with a daily cycle
+hours  <- 0:48
+record <- data.frame(time = hours * 60, day = pmin(hours \%/\% 24, 1),
+                     temp = 24 + 3 * sin(2 * pi * (hours - 9) / 24))
+
 w    <- hazard_weights(lapply(fits, loo_hazard))
 average_survival(fits, w, record, newdata = data.frame(mass = 10))$mortality
 }

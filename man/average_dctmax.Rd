@@ -72,7 +72,20 @@ and baseline functions are extrapolated.
 }
 \examples{
 \dontrun{
-fits <- list("exp" = fit_exp, "zeroexp" = fit_zeroexp)
+# a model fitted to a small ramping trial: 20 individuals warmed from 20 to 35
+# degrees over 60 minutes and checked every 10, in two trials (see fit_hazard())
+path   <- data.frame(path_id = "A", time = c(0, 60), temp = c(20, 35))
+checks <- data.frame(path_id = "A", time = seq(0, 60, by = 10))
+ind    <- data.frame(id = 1:20, path_id = "A", event = 1, mass = runif(20, 8, 12),
+                     trial = rep(c("a", "b"), each = 10),
+                     t_upper = sample(seq(10, 60, 10), 20, replace = TRUE))
+long   <- build_hazard_data(ind, path, "interval", covariates = c("mass", "trial"),
+                            checks = checks)
+fit_mem     <- fit_hazard(long, "exp", dpar_formulas = list(loga = ~ 1 + mass))
+fit_weibull <- fit_hazard(long, "exp", baseline = "weibull",
+                          dpar_formulas = list(loga = ~ 1 + mass))
+fits        <- list(memoryless = fit_mem, weibull = fit_weibull)
+
 w    <- hazard_weights(lapply(fits, loo_hazard))
 average_dctmax(fits, w, rate = c(0.1, 0.3), T_start = 14,
                newdata = data.frame(mass = 10))$dctmax

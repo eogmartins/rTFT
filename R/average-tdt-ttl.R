@@ -87,7 +87,20 @@
 #' average Bayesian predictive distributions. *Bayesian Analysis* 13, 917-1007.
 #' @examples
 #' \dontrun{
-#' fits <- list("exp" = fit_exp, "zeroexp" = fit_zeroexp)
+#' # a model fitted to a small ramping trial: 20 individuals warmed from 20 to 35
+#' # degrees over 60 minutes and checked every 10, in two trials (see fit_hazard())
+#' path   <- data.frame(path_id = "A", time = c(0, 60), temp = c(20, 35))
+#' checks <- data.frame(path_id = "A", time = seq(0, 60, by = 10))
+#' ind    <- data.frame(id = 1:20, path_id = "A", event = 1, mass = runif(20, 8, 12),
+#'                      trial = rep(c("a", "b"), each = 10),
+#'                      t_upper = sample(seq(10, 60, 10), 20, replace = TRUE))
+#' long   <- build_hazard_data(ind, path, "interval", covariates = c("mass", "trial"),
+#'                             checks = checks)
+#' fit_mem     <- fit_hazard(long, "exp", dpar_formulas = list(loga = ~ 1 + mass))
+#' fit_weibull <- fit_hazard(long, "exp", baseline = "weibull",
+#'                           dpar_formulas = list(loga = ~ 1 + mass))
+#' fits        <- list(memoryless = fit_mem, weibull = fit_weibull)
+#'
 #' cv   <- lapply(fits, loo_hazard)
 #' hazard_weights(cv)
 #' hazard_weights(cv, min_weight = 0.95)
@@ -126,8 +139,13 @@ hazard_weights <- function(cv, method = c("stacking", "pseudobma"), min_weight =
       "i" = "Cross-validate every model with the same {.arg unit}, on fits of the same data."
     ), class = "rTFT_cv_mismatch")
 
-  lpd <- vapply(elpd, \(e) e[names(elpd[[1]])], numeric(length(elpd[[1]])))
-  n_units <- nrow(lpd)
+  n_units <- length(elpd[[1]])
+  if (n_units < 2L)
+    cli::cli_abort(c(
+      "The cross-validation results hold a single unit left out, which cannot weight models.",
+      "i" = "Stacking and pseudo-BMA weights need the predictions of at least two units."
+    ), class = "rTFT_too_few_units")
+  lpd <- vapply(elpd, \(e) e[names(elpd[[1]])], numeric(n_units))
 
   weight_all <- .cv_weights(lpd, method)
   ranked <- order(weight_all, decreasing = TRUE)
@@ -303,7 +321,20 @@ hazard_weights <- function(cv, method = c("stacking", "pseudobma"), min_weight =
 #'   draws each model contributed.
 #' @examples
 #' \dontrun{
-#' fits <- list("exp" = fit_exp, "zeroexp" = fit_zeroexp)
+#' # a model fitted to a small ramping trial: 20 individuals warmed from 20 to 35
+#' # degrees over 60 minutes and checked every 10, in two trials (see fit_hazard())
+#' path   <- data.frame(path_id = "A", time = c(0, 60), temp = c(20, 35))
+#' checks <- data.frame(path_id = "A", time = seq(0, 60, by = 10))
+#' ind    <- data.frame(id = 1:20, path_id = "A", event = 1, mass = runif(20, 8, 12),
+#'                      trial = rep(c("a", "b"), each = 10),
+#'                      t_upper = sample(seq(10, 60, 10), 20, replace = TRUE))
+#' long   <- build_hazard_data(ind, path, "interval", covariates = c("mass", "trial"),
+#'                             checks = checks)
+#' fit_mem     <- fit_hazard(long, "exp", dpar_formulas = list(loga = ~ 1 + mass))
+#' fit_weibull <- fit_hazard(long, "exp", baseline = "weibull",
+#'                           dpar_formulas = list(loga = ~ 1 + mass))
+#' fits        <- list(memoryless = fit_mem, weibull = fit_weibull)
+#'
 #' w    <- hazard_weights(lapply(fits, loo_hazard))
 #' avg  <- average_tdt_ttl(fits, w, newdata = data.frame(mass = 10), t_ref = 60)
 #' plot_tdt(avg)
@@ -354,7 +385,20 @@ average_tdt_ttl <- function(fits, weights, newdata = NULL, p = c(0.1, 0.5, 0.9),
 #'   model contributed.
 #' @examples
 #' \dontrun{
-#' fits <- list("exp" = fit_exp, "zeroexp" = fit_zeroexp)
+#' # a model fitted to a small ramping trial: 20 individuals warmed from 20 to 35
+#' # degrees over 60 minutes and checked every 10, in two trials (see fit_hazard())
+#' path   <- data.frame(path_id = "A", time = c(0, 60), temp = c(20, 35))
+#' checks <- data.frame(path_id = "A", time = seq(0, 60, by = 10))
+#' ind    <- data.frame(id = 1:20, path_id = "A", event = 1, mass = runif(20, 8, 12),
+#'                      trial = rep(c("a", "b"), each = 10),
+#'                      t_upper = sample(seq(10, 60, 10), 20, replace = TRUE))
+#' long   <- build_hazard_data(ind, path, "interval", covariates = c("mass", "trial"),
+#'                             checks = checks)
+#' fit_mem     <- fit_hazard(long, "exp", dpar_formulas = list(loga = ~ 1 + mass))
+#' fit_weibull <- fit_hazard(long, "exp", baseline = "weibull",
+#'                           dpar_formulas = list(loga = ~ 1 + mass))
+#' fits        <- list(memoryless = fit_mem, weibull = fit_weibull)
+#'
 #' w    <- hazard_weights(lapply(fits, loo_hazard))
 #' average_dctmax(fits, w, rate = c(0.1, 0.3), T_start = 14,
 #'                newdata = data.frame(mass = 10))$dctmax

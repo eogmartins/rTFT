@@ -86,9 +86,12 @@ baseline. Like \code{Tr}, set it to a common value across datasets when comparin
 \item{checks}{An optional data frame with \code{path_id}, \code{time} giving the
 failure-check schedule per path (i.e., the times at which each individual was
 inspected for failure). Defaults to the distinct \code{path} times (logger reading =
-check). As noted above, these times double as the integration nodes for the
-cumulative hazard, so their spacing sets the midpoint-rule resolution. For a
-known-time failure, a regular grid can be used instead (see \code{grid_dt}).}
+check). Time 0, the start of the exposure, is added to every schedule when it
+is not listed. An interval-censored \code{t_upper} must be one of its path's checks:
+a time between two checks, or past the last one, is refused. As noted above,
+these times double as the integration nodes for the cumulative hazard, so
+their spacing sets the midpoint-rule resolution. For a known-time failure, a
+regular grid can be used instead (see \code{grid_dt}).}
 
 \item{grid_dt}{An optional numeric giving a fixed time step (in the units of
 \code{path$time}). If set, a known-time failure is followed on a regular grid of

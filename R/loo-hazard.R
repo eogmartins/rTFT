@@ -171,8 +171,13 @@
 # a whole trial, can change the posterior too much for reweighting the draws of one
 # fit to stand in for refitting without it.
 .loo_units <- function(ll_unit, chain_id, unit_name, unit_label = unit_name) {
-  r_eff <- loo::relative_eff(exp(ll_unit), chain_id = chain_id)
-  out   <- suppressWarnings(loo::loo(ll_unit, r_eff = r_eff))
+  # The relative efficiency is that of the likelihood, exp(ll). A whole unit's
+  # log-likelihood can lie below about -745, where exp() is zero in double
+  # precision, so each unit's values are centred on their largest first: the
+  # efficiency is a ratio, which a constant factor per unit leaves unchanged.
+  centred <- sweep(ll_unit, 2, apply(ll_unit, 2, max))
+  r_eff   <- loo::relative_eff(exp(centred), chain_id = chain_id)
+  out     <- suppressWarnings(loo::loo(ll_unit, r_eff = r_eff))
   limit <- .k_threshold(nrow(ll_unit))
   high  <- sum(out$diagnostics$pareto_k > limit)
   if (high)
@@ -263,6 +268,16 @@
 #' 1-58.
 #' @examples
 #' \dontrun{
+#' # a model fitted to a small ramping trial: 20 individuals warmed from 20 to 35
+#' # degrees over 60 minutes and checked every 10, in two trials (see fit_hazard())
+#' path   <- data.frame(path_id = "A", time = c(0, 60), temp = c(20, 35))
+#' checks <- data.frame(path_id = "A", time = seq(0, 60, by = 10))
+#' ind    <- data.frame(id = 1:20, path_id = "A", event = 1, mass = runif(20, 8, 12),
+#'                      trial = rep(c("a", "b"), each = 10),
+#'                      t_upper = sample(seq(10, 60, 10), 20, replace = TRUE))
+#' long   <- build_hazard_data(ind, path, "interval", covariates = c("mass", "trial"),
+#'                             checks = checks)
+#'
 #' fit <- fit_hazard(long, "exp", dpar_formulas = list(loga = ~ 1 + (1 | trial)))
 #' loo_hazard(fit)                 # leaves out one trial at a time
 #' }
@@ -372,6 +387,16 @@ loo_hazard <- function(fit, unit = NULL) {
 #'   name), `K`, and `folds` (the fold of each unit).
 #' @examples
 #' \dontrun{
+#' # a model fitted to a small ramping trial: 20 individuals warmed from 20 to 35
+#' # degrees over 60 minutes and checked every 10, in two trials (see fit_hazard())
+#' path   <- data.frame(path_id = "A", time = c(0, 60), temp = c(20, 35))
+#' checks <- data.frame(path_id = "A", time = seq(0, 60, by = 10))
+#' ind    <- data.frame(id = 1:20, path_id = "A", event = 1, mass = runif(20, 8, 12),
+#'                      trial = rep(c("a", "b"), each = 10),
+#'                      t_upper = sample(seq(10, 60, 10), 20, replace = TRUE))
+#' long   <- build_hazard_data(ind, path, "interval", covariates = c("mass", "trial"),
+#'                             checks = checks)
+#'
 #' fit <- fit_hazard(long, "exp", dpar_formulas = list(loga = ~ 1 + (1 | trial)))
 #' cv  <- kfold_hazard(fit, cores = 4)       # one refit per trial
 #' }

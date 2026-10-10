@@ -114,6 +114,9 @@ test_that("hazard_weights refuses what cannot be weighted", {
   expect_error(hazard_weights(other_unit), class = "rTFT_cv_mismatch")
   fewer <- cv3; fewer$good <- make_cv(cv3$good$pointwise[-1, 1])
   expect_error(hazard_weights(fewer), class = "rTFT_cv_mismatch")
+  # a single unit left out cannot weight models
+  one_unit <- lapply(cv3, \(x) make_cv(stats::setNames(x$pointwise[1, 1], rownames(x$pointwise)[1])))
+  expect_error(hazard_weights(one_unit), class = "rTFT_too_few_units")
 })
 
 
@@ -206,8 +209,8 @@ test_that("a model with all the weight gives back its own results", {
 
 
 test_that("the average is the summary of the models' draws pooled by weight", {
-  avg <- average_tdt_ttl(fits, w_fits, newdata = nd[1, , drop = FALSE], p = 0.5, t_ref = 60,
-                         n_draws = 400)
+  avg <- quietly(average_tdt_ttl(fits, w_fits, newdata = nd[1, , drop = FALSE], p = 0.5,
+                                 t_ref = 60, n_draws = 400))
   grid <- .fit_settings(fits$exp)
   Ta  <- seq(grid$Ta_range[1], grid$Ta_range[2], length.out = 50)
   tau <- exp(seq(log(grid$tau_range[1]), log(grid$tau_range[2]), length.out = 50))
@@ -324,9 +327,10 @@ test_that("the averaged dCTmax is the summary of the models' draws pooled by wei
 
 
 test_that("average_dctmax refuses what derive_dctmax and the averaging refuse", {
-  expect_error(average_dctmax(fits, w_fits, rate = -0.1, T_start = 20, newdata = nd),
+  expect_error(quietly(average_dctmax(fits, w_fits, rate = -0.1, T_start = 20, newdata = nd)),
                class = "rTFT_bad_rate")
-  expect_error(average_dctmax(fits, w_fits, rate = 0.1, T_start = c(18, 20, 22), newdata = nd),
+  expect_error(quietly(average_dctmax(fits, w_fits, rate = 0.1, T_start = c(18, 20, 22),
+                                      newdata = nd)),
                class = "rTFT_bad_T_start")
   expect_error(average_dctmax(unname(fits), w_fits, rate = 0.1, T_start = 20, newdata = nd),
                class = "rTFT_bad_fits")

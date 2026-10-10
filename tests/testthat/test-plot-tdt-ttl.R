@@ -327,6 +327,7 @@ test_that("the plots build from what derive_tdt_ttl() returns for a fitted model
 surfaces <- function(g) plotly::plotly_build(g)$x$data
 
 test_that("plot_ttl_3d draws the median survival as a surface over time and temperature", {
+  skip_if_not_installed("plotly")
   tbl <- ttl_tbl(tau = c(1, 10, 100), Ta = c(25, 30))
   g <- plot_ttl_3d(list(ttl_surface = tbl), time_unit = "min")
   expect_s3_class(g, "plotly")
@@ -397,6 +398,7 @@ test_that("plot_ttl_3d can draw a grid of lines that follow the surface", {
 
 
 test_that("the 3D time axis is not on a log scale when the times include zero", {
+  skip_if_not_installed("plotly")
   g <- plot_ttl_3d(list(ttl_surface = ttl_tbl(tau = c(0, 10, 20))))
   expect_equal(plotly::plotly_build(g)$x$layout$scene$xaxis$type, "linear")
 })

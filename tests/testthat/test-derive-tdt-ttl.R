@@ -861,6 +861,10 @@ test_that(".dctmax_draws gives Inf where the ramp ends first, and handles the ze
   expect_equal(from_cold, from_ref, tolerance = 1e-3)
   expect_error(.dctmax_draws(ramp_settings("power"), ramp_draws, 0.25, 15, 0.5, NULL, 45),
                class = "rTFT_below_Tr")
+  # a ramp followed over a single step still gives one value per draw
+  one_step <- .dctmax_draws(ramp_settings(), ramp_draws, 0.25, 20, 0.5, NULL, T_max = 20.005)
+  expect_equal(dim(one_step), c(2L, 1L))
+  expect_equal(one_step[, 1], c(Inf, Inf))
 })
 
 

@@ -154,6 +154,23 @@ test_that(".loo_units warns when PSIS cannot be trusted for some units", {
 })
 
 
+test_that(".loo_units keeps its relative efficiency where a unit's likelihood underflows", {
+  set.seed(1)
+  steady  <- matrix(stats::rnorm(600 * 4, -2, 0.05), ncol = 4)
+  chain   <- rep(1:2, each = 300)
+  # one unit's log-likelihood shifted below -745, where exp() is zero
+  shifted <- steady
+  shifted[, 2] <- shifted[, 2] - 800
+  expect_true(all(exp(shifted[, 2]) == 0))
+  a <- .loo_units(steady, chain, "trial")
+  b <- .loo_units(shifted, chain, "trial")
+  # a constant shift of one unit changes its log predictive density by that constant
+  # and nothing else: the Pareto k of every unit is the same
+  expect_equal(b$diagnostics$pareto_k, a$diagnostics$pareto_k)
+  expect_equal(b$pointwise[, "elpd_loo"] + c(0, 800, 0, 0), a$pointwise[, "elpd_loo"])
+})
+
+
 # ===========================================================================
 # 2. Leave-one-unit-out for a fitted model (loo_hazard)
 # ===========================================================================
