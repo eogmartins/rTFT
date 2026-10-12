@@ -61,15 +61,19 @@ $`h_0(\tau)`$:
 - the log-logistic baseline (`"llogis"`), under which the hazard may
   rise at the start of the exposure and fall later.
 
-Under all three, the logarithm of the time to failure of individuals
+Under the first two, the logarithm of the time to failure of individuals
 held at a constant temperature decreases linearly with that temperature
 (see the vignette [*Getting started with
 rTFT*](https://eogmartins.github.io/rTFT/articles/getting-started.md)),
 which is the relationship of the thermal death time model, the model
 most often used in the literature ([Rezende et
-al. 2014](https://doi.org/10.1111/1365-2435.12268)); they differ in how
-the hazard changes with the time under exposure, which a static trial of
-a single duration cannot show.
+al. 2014](https://doi.org/10.1111/1365-2435.12268)). The two differ in
+how the hazard changes with the time under exposure, and therefore in
+how the times to failure of the individuals held at one temperature are
+spread around that line. Under the log-logistic baseline the
+relationship is close to the same line for exposures much shorter than
+the scale of the baseline and bends away from it for longer ones, so no
+single $`z`$ describes it.
 
 The fourth model has a different failure rate function, the zero-power
 threshold of [Kingsolver and Umbanhowar
@@ -181,7 +185,8 @@ params <- lapply(fits, \(fit) {
 
 Table 3: Parameters of the four models for a fish of 15 g (posterior
 medians and 95% credible intervals). The amplitude $`a`$ and the
-exponent $`b`$ are different quantities in models with different
+exponent $`b`$ are on their natural scale (the models estimate their
+logarithms); they are different quantities in models with different
 functions and are not comparable among them. The shape and the scale are
 those of the baseline, and the critical temperature $`T_c`$ belongs to
 the zero-power threshold model only.
@@ -678,7 +683,7 @@ last about as long as its trials (e.g., a hot afternoon or a hot day),
 for which the choice of baseline matters little. These predictions count
 the exposure from the start of the event, and so assume that the days
 before it left no effect on the fish. As above, they also assume no
-recovery during the event, which matters more the more nights it
+recovery during the event, which matters more the more cool nights it
 includes.
 
 For longer periods, the predictions of the models with the highest

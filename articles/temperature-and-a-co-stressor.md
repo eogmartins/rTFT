@@ -35,7 +35,7 @@ We use the 240 fish of `ramp_assay` that were warmed at 0.025, 0.1 or
 0.3°C per min, which are the rates with the wider span in the vignette
 [*Ramping
 assays*](https://eogmartins.github.io/rTFT/articles/ramping-assays.md).
-Each rate was run in four trials of ten fish in normoxia (10 mg/L of
+Each rate was run in four trials of 10 fish in normoxia (10 mg/L of
 dissolved oxygen) and four in hypoxia (5 mg/L), so the rates and the
 levels of oxygen are fully crossed. The oxygen of each trial is in the
 column `do`.
@@ -259,10 +259,12 @@ tol$params
 
 Table 2: Parameters of the two models for a fish of 15 g in normoxia
 (posterior medians and 95% credible intervals), with the values of the
-model used to simulate the data. The main effect of oxygen is per mg/L
-of oxygen deficit, and its interaction with temperature per mg/L and per
-°C. For the main effect, the simulated value is the effect of oxygen at
-the reference temperature of the fitted models.
+model used to simulate the data. The amplitude $`a`$ and the thermal
+sensitivity $`b`$ are on their natural scale (the models estimate their
+logarithms). The main effect of oxygen is per mg/L of oxygen deficit,
+and its interaction with temperature per mg/L and per °C. For the main
+effect, the simulated value is the effect of oxygen at the reference
+temperature of the fitted models.
 
 In the model with the main effect alone, the effect of oxygen was 0.33
 per mg/L (95% credible interval: 0.25–0.41), which is on the scale of
@@ -575,7 +577,11 @@ zero or negative, with a wide credible band. The model with the
 interaction also predicted a higher mortality with oxygen at 10 mg/L,
 because its thermal sensitivity $`b`$ was lower (1.65 against 1.81 per
 °C; [Table 2](#tbl-params)) and a lower $`b`$ gives a higher failure
-rate at temperatures below the reference temperature.
+rate at temperatures below the reference temperature. The two models
+give similar failure rates at the reference temperature, around which
+the fish failed, and at a temperature $`\Delta T`$ degrees below it the
+failure rate is $`a \exp(-b \, \Delta T)`$, which falls less steeply
+with a lower $`b`$.
 
 Both predictions extend the effect of oxygen to temperatures below those
 at which fish failed in hypoxia in the assay (24.3°C or above), where
@@ -606,8 +612,8 @@ al. 2022](https://doi.org/10.1242/jeb.244514)). The model used to
 simulate the data has the form of the fitted models at every temperature
 and exposure time and makes the same assumption, so the agreement of a
 prediction with the simulated value says nothing about whether the
-extrapolations or the assumption hold for real fish (see the vignettes
-[*Ramping
+extrapolations or the assumption hold for real organisms (see the
+vignettes [*Ramping
 assays*](https://eogmartins.github.io/rTFT/articles/ramping-assays.md)
 and [*Comparing and averaging
 models*](https://eogmartins.github.io/rTFT/articles/comparing-and-averaging-models.md)).
@@ -660,8 +666,22 @@ The help page of
 [`costressor()`](https://eogmartins.github.io/rTFT/reference/costressor.md)
 describes the further options: a co-stressor that is harmful in both
 directions from an optimum (e.g., pH), a treatment with categories in
-place of a measured level, and an interaction that changes the thermal
-sensitivity $`b`$ by a proportion.
+place of a measured level, and an interaction of a different kind, in
+which each unit of the co-stressor multiplies the thermal sensitivity
+$`b`$ by a constant factor (obtained by adding the column of the
+co-stressor to the formula of `logb` in `dpar_formulas`), whereas the
+interaction of this vignette adds a constant amount to $`b`$.
+
+The two kinds of interaction are nearly equivalent when the co-stressor
+changes $`b`$ little. The interaction of this vignette has the form of
+an interaction in a regression and applies to every failure rate
+function. The proportional kind keeps $`b`$ positive at every level of
+the co-stressor, which may matter when the additive kind would make
+$`b`$ zero or negative at a level for which predictions are needed, and
+it is the kind that applies to a treatment with categories. Both models
+can be fitted and compared by cross-validation (see the vignette
+[*Comparing and averaging
+models*](https://eogmartins.github.io/rTFT/articles/comparing-and-averaging-models.md)).
 
 > **Precomputed results**
 >

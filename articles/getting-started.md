@@ -32,8 +32,8 @@ library(ggplot2)
 
 The mock dataset `static_assay` holds the times to loss of equilibrium
 of 120 juvenile salmonids held at 23, 25 or 27°C. Each temperature was
-run in four trials of ten fish. The fish were checked every hour for
-five days, so the time of each failure is known only to lie between two
+run in four trials of 10 fish. The fish were checked every hour for five
+days, so the time of each failure is known only to lie between two
 consecutive checks (i.e., it is interval-censored). Fish that had not
 failed by the end of the fifth day were recorded as survivors.
 
@@ -200,9 +200,20 @@ fits the model using Bayesian inference in [Stan](https://mc-stan.org)
 ([Carpenter et al. 2017](https://doi.org/10.18637/jss.v076.i01)),
 through the [`brms`](https://paulbuerkner.com/brms/) package ([Bürkner
 2017](https://doi.org/10.18637/jss.v080.i01)). It builds
-weakly-informative default priors from the data (see
-[`?build_hazard_prior`](https://eogmartins.github.io/rTFT/reference/build_hazard_prior.md)),
-which can be inspected before fitting.
+weakly-informative default priors, which can be inspected before fitting
+(see
+[`?build_hazard_prior`](https://eogmartins.github.io/rTFT/reference/build_hazard_prior.md)).
+These priors take three values from the data (the reference time, the
+reference temperature and the median temperature at which failures were
+observed), which place them at the conditions of the assay. They are
+placed in this way because a prior that is centred far from those
+conditions can bias the estimates (e.g., when the amplitude refers to a
+temperature well below those at which individuals failed). The data
+therefore set where the priors of the amplitude are centred, and not
+those of the thermal sensitivity or of the shape of the baseline, and
+the priors are wide (e.g., a standard deviation of 2 on the logarithm of
+the amplitude). Priors based on what is already known about a species
+can be given in their place.
 
 ``` r
 
@@ -251,8 +262,10 @@ same seed, so the results below are reproduced exactly only with it.
 
 The estimates should not be interpreted before checking that the sampler
 converged. We use the rank-normalised split-$`\hat{R}`$ and the bulk and
-tail effective sample sizes (ESS) of the `posterior` package, together
-with the number of divergent transitions.
+tail effective sample sizes (ESS) of the `posterior` package ([Vehtari
+et al. 2021](https://doi.org/10.1214/20-BA1221); [Bürkner et
+al. 2025](https://mc-stan.org/posterior/)), together with the number of
+divergent transitions.
 
 ``` r
 
@@ -424,19 +437,23 @@ knitr::kable(data.frame(
 | z         | 1.95 (1.73–2.17) | 1.95 (1.73–2.17) |
 
 Table 1: Posterior medians (95% credible intervals) of the parameters
-for fish of 10 and 20 g.
+for fish of 10 and 20 g. The amplitude $`a`$ and the thermal sensitivity
+$`b`$ are on their natural scale (the model estimates their logarithms).
 
 The amplitude $`a`$ is the cumulative hazard reached over the reference
 time (6 h) at the reference temperature (25°C), and it is higher for the
 heavier fish ([Table 1](#tbl-params)). The thermal sensitivity $`b`$ and
 the shape $`k`$ do not depend on mass in this model, so their estimates
-are the same in both columns. The posterior probability that $`k`$ is
-greater than 1 is 0.999, which provides strong support for a hazard that
-increased with exposure time. The quantity $`z`$ is the increase in
-temperature that shortens the time to failure tenfold. It is reported
-only for models in which it is a single number (i.e., an exponential
-failure rate with a memoryless or Weibull baseline), where
-$`z = k \ln(10) / b`$.
+are the same in both columns. In the failure rate,
+$`M(T) = a \exp\{b (T - T_r)\}`$, $`b`$ multiplies the temperature
+inside the exponential, so each degree of warming multiplies the failure
+rate by $`\exp(b)`$ (here $`\exp(1.62)`$ = 5.0). The posterior
+probability that $`k`$ is greater than 1 is 0.999, which provides strong
+support for a hazard that increased with exposure time. The quantity
+$`z`$ is the increase in temperature that shortens the time to failure
+tenfold. It is reported only for models in which it is a single number
+(i.e., an exponential failure rate with a memoryless or Weibull
+baseline), where $`z = k \ln(10) / b`$.
 
 ### Static critical thermal maximum
 
@@ -500,9 +517,10 @@ knitr::kable(dct[c("rate", "T_start", "p", "median", "lower", "upper")], digits 
 |  0.2 |      14 | 0.5 |  28.67 | 28.31 | 29.13 |
 |  0.3 |      14 | 0.5 |  29.01 | 28.62 | 29.50 |
 
-Table 2: Dynamic critical thermal maximum (the temperature at which half
-of the fish of 15 g have failed) under three ramps starting at 14°C.
-Values are posterior medians and 95% credible intervals.
+Table 2: Predicted dynamic critical thermal maximum (the temperature at
+which half of the fish of 15 g are expected to have failed) under three
+ramps starting at 14°C. Values are posterior medians and 95% credible
+intervals.
 
 The expected CTmax increased with the ramp rate, from 28.1°C at 0.1°C
 per min to 29.0°C at 0.3°C per min ([Table 2](#tbl-dctmax)). All three
@@ -645,8 +663,10 @@ plot_survival(pred, temperature = TRUE) +
 ![](getting-started_files/figure-html/fig-survival-1.png)
 
 Figure 6: Stream temperature (top) and the probability of survival of a
-15 g fish predicted along it (bottom; the line is the posterior median
-and the band is the 95% credible interval).
+15 g fish predicted along it (bottom; the solid line is the posterior
+median and the band is the 95% credible interval). The dashed line is
+the survival under the model used to simulate the data, which is added
+here for comparison.
 
 ``` r
 
@@ -945,6 +965,10 @@ Bürkner, P.-C. (2017). brms: An R package for Bayesian multilevel models
 using Stan. *Journal of Statistical Software* 80(1), 1–28.
 [https://doi.org/10.18637/jss.v080.i01](https://doi.org/10.18637/jss.v080.i01)
 
+Bürkner, P.-C., Gabry, J., Kay, M. and Vehtari, A. (2025). posterior:
+Tools for working with posterior distributions. R package version 1.6.1.
+[https://mc-stan.org/posterior/](https://mc-stan.org/posterior/)
+
 Carpenter, B., Gelman, A., Hoffman, M. D., Lee, D., Goodrich, B.,
 Betancourt, M., Brubaker, M., Guo, J., Li, P. and Riddell, A. (2017).
 Stan: A probabilistic programming language. *Journal of Statistical
@@ -979,3 +1003,9 @@ landscapes in thermal ecology. *Functional Ecology* 28, 799–809.
 Sievert, C. (2020). *Interactive web-based data visualization with R,
 plotly, and shiny*. Chapman and Hall/CRC.
 [https://doi.org/10.1201/9780429447273](https://doi.org/10.1201/9780429447273)
+
+Vehtari, A., Gelman, A., Simpson, D., Carpenter, B. and Bürkner, P.-C.
+(2021). Rank-normalization, folding, and localization: an improved
+$`\hat{R}`$ for assessing convergence of MCMC (with discussion).
+*Bayesian Analysis* 16, 667–718.
+[https://doi.org/10.1214/20-BA1221](https://doi.org/10.1214/20-BA1221)

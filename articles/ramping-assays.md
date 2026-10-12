@@ -153,21 +153,21 @@ path
 
 ### Logged temperatures
 
-When the temperature of the water was logged during a trial, the log
-itself can be given as the table of temperatures (with one row per
-reading), and
+When the temperature was logged during a trial, the logged record itself
+can be given as the table of temperatures (with one row per reading),
+and
 [`build_hazard_data()`](https://eogmartins.github.io/rTFT/reference/build_hazard_data.md)
-interpolates between the readings. A log should be preferred to the
-nominal ramp whenever the two differ, because the failure rate increases
-steeply with temperature and a small error in temperature therefore
-results in a large error in the failure rate.
+interpolates between the readings. A logged record should be preferred
+to the nominal ramp whenever the two differ, because the failure rate
+increases steeply with temperature and a small error in temperature
+therefore results in a large error in the failure rate.
 
 The function
 [`assess_ramp_linearity()`](https://eogmartins.github.io/rTFT/reference/assess_ramp_linearity.md)
-compares a log with a straight line. As an example, we simulate the log
-of a trial set to 0.3°C per min, in which the water warmed slightly
-slower than intended and the temperature was read every 30 s with a
-small error.
+compares a logged record with a straight line. As an example, we
+simulate the logged record of a trial set to 0.3°C per min, in which the
+water warmed slightly slower than intended and the temperature was read
+every 30 s with a small error.
 
 ``` r
 
@@ -182,16 +182,16 @@ as.data.frame(linearity)
 #> 1          0.3 -0.0101336
 ```
 
-The log was very close to a straight line ($`R^2`$ = 0.9999; largest
-deviation of 0.12°C), but the rate of that line was 0.290°C per min, and
-not the 0.3°C per min that was set. The difference appears small, but
-after 50 min the water was 0.5°C cooler than the nominal ramp indicates.
-With a thermal sensitivity of 1.7 per °C (the value used to simulate the
-data of this vignette), the failure rate at the nominal temperature is
-exp(1.7 × 0.5) = 2.3 times the failure rate at the temperature the fish
-were actually exposed to. In a case like this one, the nominal ramp
-should not be used. The model can be fitted with the logged record
-itself, or with a straight ramp built by
+The logged record was very close to a straight line ($`R^2`$ = 0.9999;
+largest deviation of 0.12°C), but the rate of that line was 0.290°C per
+min, and not the 0.3°C per min that was set. The difference appears
+small, but after 50 min the water was 0.5°C cooler than the nominal ramp
+indicates. With a thermal sensitivity of 1.7 per °C (the value used to
+simulate the data of this vignette), the failure rate at the nominal
+temperature is exp(1.7 × 0.5) = 2.3 times the failure rate at the
+temperature the fish were actually exposed to. In a case like this one,
+the nominal ramp should not be used. The model can be fitted with the
+logged record itself, or with a straight ramp built by
 [`ramp_path()`](https://eogmartins.github.io/rTFT/reference/ramp_path.md)
 from the starting temperature and the rate that were realised (the
 columns `T_start` and `rate` above). The straight ramp follows a linear
@@ -440,13 +440,16 @@ knitr::kable(tol$params[c("quantity", "median", "lower", "upper")], digits = 2)
 | z        |   2.42 |  1.56 |  3.34 |
 
 Table 1: Posterior medians and 95% credible intervals of the parameters
-for a fish of 15 g.
+for a fish of 15 g. The amplitude $`a`$ and the thermal sensitivity
+$`b`$ are on their natural scale (the model estimates their logarithms).
 
 The amplitude $`a`$ is the cumulative hazard reached over the reference
 time (73.6 min) at the reference temperature (28.3°C)
 ([Table 1](#tbl-params)). The thermal sensitivity $`b`$ was 1.66 per °C
 (95% credible interval: 1.43–1.93), which corresponds to a failure rate
-that increases 5.3-fold per degree.
+that increases 5.3-fold per degree (i.e., $`\exp(1.66)`$ = 5.3, because
+$`b`$ multiplies the temperature inside the exponential of
+$`M(T) = a \exp\{b (T - T_r)\}`$).
 
 The shape $`k`$ of the baseline was estimated with less precision than
 $`b`$ (95% credible interval: 1.15–2.48; the posterior probability that
@@ -475,9 +478,10 @@ The function
 [`derive_dctmax()`](https://eogmartins.github.io/rTFT/reference/derive_dctmax.md)
 gives the CTmax expected under a ramp (dCTmax; [Jørgensen et
 al. 2021](https://doi.org/10.1038/s41598-021-92004-6)), which is the
-temperature at which half of the individuals have failed. We first
-derive it for the three ramps of the assay and compare it with the
-median CTmax that was observed.
+temperature at which a given fraction of the individuals have failed. By
+default that fraction is half (the argument `p`), which corresponds to
+the median CTmax of a trial. We first derive it for the three ramps of
+the assay and compare it with the median CTmax that was observed.
 
 ``` r
 
@@ -554,32 +558,32 @@ starting at 14°C, against the ramp rate. The line is the posterior
 median and the band is the 95% credible interval. Points are the CTmax
 of the fish that failed in the three ramps of the assay.
 
-The dCTmax increased from 25.4°C (95% credible interval: 24.4–26.4°C) at
-0.01°C per min to 30.1°C (29.5–30.7°C) at 1°C per min
-([Figure 3](#fig-dctmax)). The credible interval was narrowest near the
-rates of the assay (0.4°C wide at 0.18°C per min) and widened towards
-the slower and the faster ramps, which the assay did not include (2.0°C
-wide at 0.01°C per min). At the fastest ramps the dCTmax was above
-29.5°C, the warmest temperature of the assay, and
+The curve rises steeply among the slow ramps and flattens among the fast
+ones, but it does not approach a maximum ([Figure 3](#fig-dctmax)). The
+dCTmax rises by a similar amount each time the rate is doubled (0.7°C
+from 0.05 to 0.1°C per min, 0.7°C from 0.25 to 0.5°C per min and 0.7°C
+from 0.5 to 1°C per min), so under the fitted model it keeps increasing
+with the rate, more and more slowly. A curve of this kind shows how much
+two values of CTmax may differ because of the ramp rate alone (i.e.,
+with no change in the thermal tolerance of the individuals). Under the
+fitted model, the same fish have a CTmax 1.1°C higher at 0.3°C per min
+than at 0.1°C per min.
+
+In this example, the dCTmax is predicted to increase from 25.4°C (95%
+credible interval: 24.4–26.4°C) at 0.01°C per min to 30.1°C
+(29.5–30.7°C) at 1°C per min. The credible interval was narrowest near
+the rates of the assay (0.4°C wide at 0.18°C per min) and widened
+towards the slower and the faster ramps, which the assay did not include
+(2.0°C wide at 0.01°C per min). At the fastest ramps the dCTmax was
+above 29.5°C, the warmest temperature of the assay, and
 [`derive_dctmax()`](https://eogmartins.github.io/rTFT/reference/derive_dctmax.md)
 prints a message when that is the case.
 
-The curve rises steeply among the slow ramps and flattens among the fast
-ones, but it does not approach a maximum. The dCTmax rises by a similar
-amount each time the rate is doubled (0.7°C from 0.05 to 0.1°C per min,
-0.7°C from 0.25 to 0.5°C per min and 0.7°C from 0.5 to 1°C per min), so
-under the fitted model it keeps increasing with the rate, more and more
-slowly.
-
-A curve of this kind shows how much two values of CTmax may differ
-because of the ramp rate alone (i.e., with no change in the thermal
-tolerance of the individuals). Under the fitted model, the same fish
-have a CTmax 1.1°C higher at 0.3°C per min than at 0.1°C per min. The
-curve also provides an expectation against which the CTmax observed at
-other rates can be compared. In a slow ramp, a CTmax lower than expected
-is consistent with stress accumulated over the long exposure, and a
-CTmax higher than expected with acclimation during it ([Kingsolver and
-Umbanhowar 2018](https://doi.org/10.1242/jeb.167858)). However, a
+The curve also provides an expectation against which the CTmax observed
+at other rates can be compared. In a slow ramp, a CTmax lower than
+expected is consistent with stress accumulated over the long exposure,
+and a CTmax higher than expected with acclimation during it ([Kingsolver
+and Umbanhowar 2018](https://doi.org/10.1242/jeb.167858)). However, a
 departure may also result from a failure rate function or a baseline of
 the wrong form, so it should not be taken as a measure of stress or of
 acclimation without evidence that excludes those alternatives.
@@ -1047,8 +1051,8 @@ exposure is estimated; and (ii) adding static trials at the temperatures
 and durations that the intended predictions refer to, because a ramping
 assay alone leaves predictions for long exposures at lower temperatures
 imprecise even with a wide span. Static and ramping trials can be
-analysed in a single model, with the fish of both in one table (see
-`observation = "mixed"` in
+analysed in a single model, with the individuals of both in one table
+(see `observation = "mixed"` in
 [`?build_hazard_data`](https://eogmartins.github.io/rTFT/reference/build_hazard_data.md)).
 
 > **Precomputed results**
