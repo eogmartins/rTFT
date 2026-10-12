@@ -336,7 +336,12 @@ if (3 %in% vignettes) {
     kfold_hazard(fit, cores = 4, seed = seed, refresh = 0)))
   stopifnot("a trial was not left out on its own" =
               all(vapply(cv_3, \(x) x$K == 12 && all(table(x$folds) == 1), logical(1))))
-  compare_3 <- loo::loo_compare(cv_3)
+  # The comparison as a table with the models in a `model` column, which is where
+  # loo has them from version 2.10.0; before it they were the row names of a matrix.
+  compare_3 <- as.data.frame(loo::loo_compare(cv_3))
+  if (is.null(compare_3$model)) {
+    compare_3 <- data.frame(model = rownames(compare_3), compare_3, row.names = NULL)
+  }
 
   weights_3 <- suppressMessages(hazard_weights(cv_3))
   set.seed(seed)
@@ -400,7 +405,7 @@ if (3 %in% vignettes) {
       se    = vapply(cv_3, \(x) x$estimates["elpd_kfold", "SE"], numeric(1)),
       row.names = NULL),
     folds       = cv_3[[1]]$folds,
-    compare     = as.data.frame(compare_3),
+    compare     = compare_3,
     weights     = weights_3,
     weights_pseudobma  = weights_pbma,
     each_tolerance     = each_tolerance,

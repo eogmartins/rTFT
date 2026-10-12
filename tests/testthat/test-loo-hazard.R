@@ -336,6 +336,9 @@ test_that("two kfold_hazard results can be compared with loo_compare", {
   b$pointwise[, "elpd_kfold"] <- b$pointwise[, "elpd_kfold"] - 0.5
   b$estimates["elpd_kfold", "Estimate"] <- sum(b$pointwise[, "elpd_kfold"])
   comparison <- loo::loo_compare(list(a = a, b = b))
-  expect_equal(rownames(comparison), c("a", "b"))
-  expect_equal(unname(comparison["b", "elpd_diff"]), -4)
+  # The models are in a `model` column from loo 2.10.0 and in the row names of a
+  # matrix before it.
+  models <- if ("model" %in% colnames(comparison)) comparison$model else rownames(comparison)
+  expect_equal(models, c("a", "b"))
+  expect_equal(as.numeric(comparison[models == "b", "elpd_diff"]), -4)
 })

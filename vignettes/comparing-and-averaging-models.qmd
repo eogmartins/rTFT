@@ -236,10 +236,12 @@ loo::loo_compare(cv)
 #| tbl-cap: "Comparison of the four models by cross-validation that leaves out one trial at a time, by refitting. The difference in elpd and its standard error are relative to the model with the highest elpd."
 compare <- results$compare
 kfold   <- results$kfold
+# The models are in a `model` column from loo 2.10.0 and in the row names before it.
+compared <- if (is.null(compare$model)) rownames(compare) else compare$model
 knitr::kable(data.frame(
-  Model = rownames(compare),
-  elpd  = kfold$elpd[match(rownames(compare), kfold$model)],
-  SE    = kfold$se[match(rownames(compare), kfold$model)],
+  Model = compared,
+  elpd  = kfold$elpd[match(compared, kfold$model)],
+  SE    = kfold$se[match(compared, kfold$model)],
   `Difference in elpd` = compare$elpd_diff,
   `SE of the difference` = compare$se_diff,
   check.names = FALSE
@@ -249,7 +251,7 @@ knitr::kable(data.frame(
 ```{r}
 #| label: compare-text
 #| include: false
-exponential <- grepl("^Exponential", rownames(compare))
+exponential <- grepl("^Exponential", compared)
 threshold   <- compare[!exponential, ]
 # The elpd of the threshold model by importance sampling and by refitting.
 threshold_psis  <- psis$elpd[!grepl("^Exponential", psis$model)]
