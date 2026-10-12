@@ -13,6 +13,7 @@
   "keywords": [
     "thermal tolerance",
     "critical thermal maximum",
+    "CTmax",
     "thermal death time",
     "thermal tolerance landscape",
     "survival analysis",
@@ -20,7 +21,10 @@
     "Bayesian inference",
     "R package",
     "brms",
-    "Stan"
+    "Stan",
+    "time-to-event analysis",
+    "thermal ecology",
+    "thermal biology"
   ],
   "related_identifiers": [
     {
