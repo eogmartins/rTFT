@@ -26,12 +26,14 @@ With the package, one can:
   group-level effects (e.g., trials) and on other stressors (e.g.,
   dissolved oxygen);
 - check the fit of a model against the data;
-- derive static and dynamic critical thermal maxima, thermal death time
-  curves and thermal tolerance landscapes;
 - compare models by cross-validation that leaves out whole individuals
-  or trials, and average them;
+  or trials;
+- derive static and dynamic critical thermal maxima, thermal death time
+  curves and thermal tolerance landscapes, from one model or averaged
+  over several;
 - predict survival along a record of temperature (e.g., a stream during
-  a heat wave), and of any co-stressors recorded with it.
+  a heat wave), and of any co-stressors recorded with it, also from one
+  model or averaged over several.
 
 ## Installation
 
