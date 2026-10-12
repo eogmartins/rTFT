@@ -1,0 +1,54 @@
+# Checks the package on Linux, macOS and Windows with the released version of R.
+#
+# Runs on each push to main and on pull requests, and can be started by hand from
+# the Actions tab. No model is fitted: the tests read stored fits and the vignettes
+# read the results stored beside them. On Linux, the suite is also counted against
+# tests/expectation-manifest.csv, so that a test that stops running, or is skipped,
+# fails the check.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+name: R-CMD-check
+
+permissions: read-all
+
+jobs:
+  R-CMD-check:
+    runs-on: ${{ matrix.os }}
+    name: ${{ matrix.os }} (R release)
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    env:
+      GITHUB_PAT: ${{ secrets.GITHUB_TOKEN }}
+      R_KEEP_PKG_SOURCE: yes
+      NOT_CRAN: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: r-lib/actions/setup-pandoc@v2
+
+      - uses: quarto-dev/quarto-actions/setup@v2
+
+      - uses: r-lib/actions/setup-r@v2
+        with:
+          r-version: release
+          use-public-rspm: true
+
+      - uses: r-lib/actions/setup-r-dependencies@v2
+        with:
+          extra-packages: any::rcmdcheck, any::pkgload
+          needs: check
+
+      - uses: r-lib/actions/check-r-package@v2
+        with:
+          upload-snapshots: true
+          build_args: 'c("--no-manual")'
+
+      - name: Count the expectations against the manifest
+        if: runner.os == 'Linux'
+        run: Rscript tools/check-expectation-counts.R
