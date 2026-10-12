@@ -4,9 +4,10 @@ bibentry(
   author  = person(c("Eduardo", "G."), "Martins"),
   year    = "2026",
   note    = paste("R package version", meta$Version),
-  url     = "https://github.com/eogmartins/rTFT",
+  doi     = "10.5281/zenodo.23319254",
+  url     = "https://eogmartins.github.io/rTFT/",
   textVersion = paste0(
     "Martins, E. G. (2026). rTFT: hazard models for thermal failure time data. ",
-    "R package version ", meta$Version, ". https://github.com/eogmartins/rTFT"
+    "R package version ", meta$Version, ". https://doi.org/10.5281/zenodo.23319254"
   )
 )
