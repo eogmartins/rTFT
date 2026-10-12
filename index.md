@@ -147,9 +147,12 @@ use the discussions page,
 If you use the package, please cite it as:
 
 > Martins, E. G. (2026). rTFT: hazard models for thermal failure time
-> data. R package version 0.1.0. <https://github.com/eogmartins/rTFT>
+> data. R package version 0.1.0.
+> <https://doi.org/10.5281/zenodo.23319254>
 
-The same reference is given by `citation("rTFT")`.
+The same reference is given by `citation("rTFT")`. The DOI stands for
+every version of the package and leads to the most recent one; each
+version is archived with a DOI of its own on the same page.
 
 ## Use of generative AI
 
