@@ -162,9 +162,9 @@ followed closely.
 
 \examples{
 # A single linear ramp encoded as two points: 20 -> 35 degrees over 60 minutes,
-# with failure checked for every 10 minutes.
+# with failure checked for every minute.
 path   <- data.frame(path_id = "A", time = c(0, 60), temp = c(20, 35))
-checks <- data.frame(path_id = "A", time = seq(0, 60, by = 10))
+checks <- data.frame(path_id = "A", time = seq(0, 60, by = 1))
 
 # Interval-censored: one failure found at the 30-minute check, one survivor.
 ind <- data.frame(id = 1:2, path_id = "A", event = c(1, 0), t_upper = c(30, 60))
@@ -174,7 +174,7 @@ build_hazard_data(ind, path, "interval", checks = checks)
 ind_c <- data.frame(id = 1, path_id = "A", event = 1, t_event = 42)
 build_hazard_data(ind_c, path, "continuous", checks = checks)
 
-# A finer, regular integration grid instead of the checks (known-time only);
+# A regular integration grid instead of the checks (known-time only);
 # the last interval still closes exactly on the failure time.
 build_hazard_data(ind_c, path, "continuous", grid_dt = 5)
 

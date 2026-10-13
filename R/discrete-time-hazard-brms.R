@@ -1028,9 +1028,9 @@ costressor <- function(name, column, ref, scale, direction,
 #'   observation, the integer `exact` flag the family branches on.
 #' @examples
 #' # A single linear ramp encoded as two points: 20 -> 35 degrees over 60 minutes,
-#' # with failure checked for every 10 minutes.
+#' # with failure checked for every minute.
 #' path   <- data.frame(path_id = "A", time = c(0, 60), temp = c(20, 35))
-#' checks <- data.frame(path_id = "A", time = seq(0, 60, by = 10))
+#' checks <- data.frame(path_id = "A", time = seq(0, 60, by = 1))
 #'
 #' # Interval-censored: one failure found at the 30-minute check, one survivor.
 #' ind <- data.frame(id = 1:2, path_id = "A", event = c(1, 0), t_upper = c(30, 60))
@@ -1040,7 +1040,7 @@ costressor <- function(name, column, ref, scale, direction,
 #' ind_c <- data.frame(id = 1, path_id = "A", event = 1, t_event = 42)
 #' build_hazard_data(ind_c, path, "continuous", checks = checks)
 #'
-#' # A finer, regular integration grid instead of the checks (known-time only);
+#' # A regular integration grid instead of the checks (known-time only);
 #' # the last interval still closes exactly on the failure time.
 #' build_hazard_data(ind_c, path, "continuous", grid_dt = 5)
 #'
@@ -1687,7 +1687,7 @@ build_hazard_spec <- function(m_form, baseline = "mem", dpar_formulas = list(),
 #' @examples
 #' # A ramp from 20 to 35 degrees over 60 minutes, with two failures.
 #' path   <- ramp_path("A", T_start = 20, rate = 0.25, t_max = 60)
-#' checks <- data.frame(path_id = "A", time = seq(0, 60, by = 10))
+#' checks <- data.frame(path_id = "A", time = seq(0, 60, by = 1))
 #' ind    <- data.frame(id = 1:3, path_id = "A", event = c(1, 1, 0),
 #'                      t_upper = c(30, 40, 60), acclim = c(10, 15, 15))
 #' long   <- build_hazard_data(ind, path, "interval", covariates = "acclim",
@@ -1997,7 +1997,7 @@ build_hazard_prior <- function(m_form, baseline = "mem", dpar_formulas = list(),
 #' @examples
 #' \dontrun{
 #' path   <- data.frame(path_id = "A", time = c(0, 60), temp = c(20, 35))
-#' checks <- data.frame(path_id = "A", time = seq(0, 60, by = 10))
+#' checks <- data.frame(path_id = "A", time = seq(0, 60, by = 1))
 #' ind    <- data.frame(id = 1:20, path_id = "A", event = 1,
 #'                      t_upper = sample(seq(10, 60, 10), 20, replace = TRUE))
 #' long   <- build_hazard_data(ind, path, "interval", checks = checks)

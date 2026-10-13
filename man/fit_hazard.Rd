@@ -81,7 +81,7 @@ that is stopped with a clear error rather than a cryptic sampler failure.
 \examples{
 \dontrun{
 path   <- data.frame(path_id = "A", time = c(0, 60), temp = c(20, 35))
-checks <- data.frame(path_id = "A", time = seq(0, 60, by = 10))
+checks <- data.frame(path_id = "A", time = seq(0, 60, by = 1))
 ind    <- data.frame(id = 1:20, path_id = "A", event = 1,
                      t_upper = sample(seq(10, 60, 10), 20, replace = TRUE))
 long   <- build_hazard_data(ind, path, "interval", checks = checks)

@@ -61,9 +61,9 @@ line stops.
 \examples{
 \dontrun{
 # a model fitted to a small ramping trial: 20 individuals warmed from 20 to 35
-# degrees over 60 minutes and checked every 10, in two trials (see fit_hazard())
+# degrees over 60 minutes and checked every minute, in two trials (see fit_hazard())
 path   <- data.frame(path_id = "A", time = c(0, 60), temp = c(20, 35))
-checks <- data.frame(path_id = "A", time = seq(0, 60, by = 10))
+checks <- data.frame(path_id = "A", time = seq(0, 60, by = 1))
 ind    <- data.frame(id = 1:20, path_id = "A", event = 1, mass = runif(20, 8, 12),
                      trial = rep(c("a", "b"), each = 10),
                      t_upper = sample(seq(10, 60, 10), 20, replace = TRUE))
