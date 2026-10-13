@@ -342,3 +342,28 @@ test_that("two kfold_hazard results can be compared with loo_compare", {
   expect_equal(models, c("a", "b"))
   expect_equal(as.numeric(comparison[models == "b", "elpd_diff"]), -4)
 })
+
+
+# ===========================================================================
+# 4. A fitted model of static and ramping trials together
+# ===========================================================================
+
+# A small fitted model saved as a fixture (made by fixtures/make-hazard-fit-mixed.R):
+# three static trials and two ramps of ten individuals each, with no group-level
+# term, so the unit is the individual.
+fit_mixed <- readRDS(test_path("fixtures", "hazard-fit-mixed.rds"))
+
+test_that("loo_hazard leaves out whole individuals of either kind of assay", {
+  expect_no_message(out <- loo_hazard(fit_mixed), class = "rTFT_loo_unit")
+  expect_s3_class(out, "psis_loo")
+  expect_equal(out$unit, "id")
+  expect_equal(nrow(out$pointwise), 50)
+  expect_true(all(is.finite(out$pointwise[, "elpd_loo"])))
+  # an individual's log-likelihood is the sum of its rows, whether they end in a
+  # failure between two checks, in a failure at a known time or in neither
+  ll <- brms::log_lik(fit_mixed)
+  id <- fit_mixed$rtft$id
+  by_hand <- vapply(unique(id), \(i) rowSums(ll[, id == i, drop = FALSE]),
+                    numeric(nrow(ll)))
+  expect_equal(unname(.sum_by_unit(ll, id)), unname(by_hand))
+})

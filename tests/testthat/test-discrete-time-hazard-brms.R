@@ -1675,3 +1675,64 @@ test_that("one table holds a static trial checked at intervals and a ramp watche
   expect_length(unique(long$Tr), 1)
   expect_length(unique(long$tau_ref), 1)
 })
+
+
+# ===========================================================================
+# 9. A fitted model of static and ramping trials together
+# ===========================================================================
+
+# A small fitted model saved as a fixture (made by fixtures/make-hazard-fit-mixed.R):
+# three static trials checked every 5 minutes and two ramps watched throughout, ten
+# individuals in each, with the exponential failure rate and the memoryless baseline,
+# fitted with observation = "mixed". 600 draws.
+fit_mixed <- readRDS(test_path("fixtures", "hazard-fit-mixed.rds"))
+
+test_that("a fit of static and ramping trials records both kinds of observation", {
+  st <- .fit_settings(fit_mixed)
+  d  <- fit_mixed$data
+  expect_equal(st[c("m_form", "baseline", "observation", "Tr")],
+               list(m_form = "exp", baseline = "mem", observation = "mixed", Tr = 20))
+  expect_length(st$id, nrow(d))
+  expect_equal(length(unique(st$id)), 50)
+  expect_setequal(st$path_id, c("T23", "T25", "T27", "r0.25", "r0.1"))
+  # the rows of the static trials are those of failures found between two checks,
+  # and the rows of the ramps those of failures at known times
+  of_static <- grepl("^T", st$path_id)
+  expect_true(all(d$exact[of_static] == 0))
+  expect_true(all(d$exact[!of_static] == 1))
+  # the three kinds of row are all in the fitted table: intervals survived, failures
+  # between two checks and failures at known times
+  expect_gt(sum(d$failed == 0), 0)
+  expect_gt(sum(d$failed == 1 & d$exact == 0), 0)
+  expect_gt(sum(d$failed == 1 & d$exact == 1), 0)
+  # an individual fails once at most, and one that survived its trial is in the table
+  failures <- tapply(d$failed, st$id, sum)
+  expect_true(all(failures <= 1))
+  expect_true(any(failures == 0))
+})
+
+
+test_that("each row of the fit gets the log-likelihood of its own kind of observation", {
+  # With the exponential rate and the memoryless baseline the linear predictor of a
+  # row is loga + b (Ta - Tr) + log(exposure). It is rebuilt here from the fit's own
+  # coefficients, and the log-likelihood from it by the formula of each kind of row.
+  cf <- as.data.frame(posterior::as_draws_df(fit_mixed))
+  d  <- fit_mixed$data
+  loga <- cf$b_loga_Intercept
+  b    <- exp(cf$b_logb_Intercept)
+  mu <- vapply(seq_len(nrow(d)),
+               \(i) loga + b * (d$Ta[i] - d$Tr[i]) + d$log_exposure[i],
+               numeric(nrow(cf)))
+  by_hand <- vapply(seq_len(nrow(d)),
+                    \(i) ref_loglik_mixed(mu[, i], d$failed[i], d$exact[i]),
+                    numeric(nrow(cf)))
+  ll <- unname(brms::log_lik(fit_mixed))
+  expect_equal(dim(ll), c(600L, nrow(d)))
+  expect_true(all(is.finite(ll)))
+  survived <- d$failed == 0
+  between  <- d$failed == 1 & d$exact == 0
+  known    <- d$failed == 1 & d$exact == 1
+  expect_equal(ll[, survived], by_hand[, survived])
+  expect_equal(ll[, between],  by_hand[, between])
+  expect_equal(ll[, known],    by_hand[, known])
+})
