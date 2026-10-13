@@ -86,5 +86,20 @@ ind    <- data.frame(id = 1:20, path_id = "A", event = 1,
                      t_upper = sample(seq(10, 60, 10), 20, replace = TRUE))
 long   <- build_hazard_data(ind, path, "interval", checks = checks)
 fit    <- fit_hazard(long, "exp", chains = 4, iter = 2000, cores = 4)
+
+# Static and ramping trials in one model: a static trial at 27 degrees checked
+# every 10 minutes for two hours, with the ramp above watched throughout, so the
+# failures of the first are known to an interval and those of the second to a time.
+path_m   <- rbind(path, data.frame(path_id = "S", time = c(0, 120), temp = 27))
+checks_m <- data.frame(path_id = "S", time = seq(0, 120, by = 10))
+ind_m    <- rbind(
+  data.frame(id = 1:10, path_id = "S", event = 1, obs_type = "interval",
+             t_upper = sample(seq(10, 120, 10), 10, replace = TRUE), t_event = NA),
+  data.frame(id = 11:20, path_id = "A", event = 1, obs_type = "continuous",
+             t_upper = NA, t_event = runif(10, 20, 60))
+)
+long_m   <- build_hazard_data(ind_m, path_m, "mixed", checks = checks_m)
+fit_m    <- fit_hazard(long_m, "exp", observation = "mixed", chains = 4, iter = 2000,
+                       cores = 4)
 }
 }
