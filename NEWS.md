@@ -1,3 +1,13 @@
+# rTFT (development version)
+
+## Bug fixes
+
+* A failure-rate function or a baseline given as a factor was read by its
+  position among the factor's levels, not by its text, so another function of
+  the catalogue could be fitted without an error. `fit_hazard()` and the other
+  functions that take `m_form` or `baseline` now refuse anything but a single
+  character string.
+
 # rTFT 0.1.0
 
 First release.

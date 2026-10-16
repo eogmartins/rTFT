@@ -83,6 +83,7 @@ test_that("a matrix time argument keeps its dimensions", {
 test_that("an unknown baseline errors with the shared condition class", {
   expect_error(H0_of("nope"), class = "rTFT_unknown_baseline")
   expect_error(H0inv_of("nope"), class = "rTFT_unknown_baseline")
+  expect_error(H0_of(factor("weibull")), class = "rTFT_bad_baseline")
 })
 
 

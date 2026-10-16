@@ -489,8 +489,17 @@ brms_log_h0 <- list(
   )
 }
 
-# The M_catalogue entry for a failure-rate function, or a cli error naming the keys.
+# The M_catalogue entry for the failure-rate function `m_form`, or a cli error naming
+# the keys. The name must be a single character string: a factor would be read by
+# its position among its levels, not by its text, and give another entry of the
+# catalogue without an error.
 .m_form_spec <- function(m_form) {
+  if (!is.character(m_form) || length(m_form) != 1L || is.na(m_form))
+    cli::cli_abort(c(
+      "{.arg m_form} must be a single character string, the name of a function in {.code M_catalogue}.",
+      "x" = "You supplied an object of class {.cls {class(m_form)}} and length {length(m_form)}.",
+      "i" = if (is.factor(m_form)) "Convert a factor with {.fn as.character} first."
+    ), class = "rTFT_bad_m_form")
   spec <- M_catalogue[[m_form]]
   if (is.null(spec))
     cli::cli_abort(c(
@@ -500,8 +509,15 @@ brms_log_h0 <- list(
   spec
 }
 
-# The h0_catalogue entry for a baseline function, or a cli error naming the keys.
+# The h0_catalogue entry for the baseline `baseline`, or a cli error naming the keys.
+# The name must be a single character string, for the reason given above.
 .baseline_spec <- function(baseline) {
+  if (!is.character(baseline) || length(baseline) != 1L || is.na(baseline))
+    cli::cli_abort(c(
+      "{.arg baseline} must be a single character string, the name of a baseline in {.code h0_catalogue}.",
+      "x" = "You supplied an object of class {.cls {class(baseline)}} and length {length(baseline)}.",
+      "i" = if (is.factor(baseline)) "Convert a factor with {.fn as.character} first."
+    ), class = "rTFT_bad_baseline")
   spec <- h0_catalogue[[baseline]]
   if (is.null(spec))
     cli::cli_abort(c(

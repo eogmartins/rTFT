@@ -958,6 +958,25 @@ test_that("unknown m_form, baseline, or observation error with their condition c
 })
 
 
+test_that("a function and a baseline are named by a single character string, never a factor", {
+  # A factor is read by its position among its levels: "zeroexp", the second level
+  # here, would otherwise be taken as the second function of the catalogue.
+  two_levels <- factor(c("exp", "zeroexp"))
+  expect_error(build_hazard_spec(two_levels[2]), class = "rTFT_bad_m_form")
+  expect_error(build_hazard_spec(2), class = "rTFT_bad_m_form")
+  expect_error(build_hazard_spec(c("exp", "zeroexp")), class = "rTFT_bad_m_form")
+  expect_error(build_hazard_spec(NA_character_), class = "rTFT_bad_m_form")
+  expect_error(build_hazard_spec("exp", baseline = factor("weibull")),
+               class = "rTFT_bad_baseline")
+  expect_error(build_hazard_spec("exp", baseline = c("mem", "weibull")),
+               class = "rTFT_bad_baseline")
+  expect_error(build_hazard_prior(two_levels[2], long = prior_long()),
+               class = "rTFT_bad_m_form")
+  # the same names as text are accepted
+  expect_no_error(build_hazard_spec(as.character(two_levels[2]), baseline = "weibull"))
+})
+
+
 test_that("build_hazard_spec returns the formula, family, and observation", {
   f <- build_hazard_spec("exp")
   expect_named(f, c("formula", "family", "observation"))
