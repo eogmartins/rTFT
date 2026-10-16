@@ -37,14 +37,28 @@ With the package, one can:
 
 ## Installation
 
-`rTFT` is installed from GitHub. With `dependencies = TRUE` the packages
+`rTFT` can be installed in either of two ways, both of which give the
+latest release.
+
+From GitHub, where the package is built, vignettes included, on the
+computer it is installed on. With `dependencies = TRUE` the packages
 that build the vignettes (`quarto`, `knitr` and `plotly`) are installed
-too.
+too; the [Quarto](https://quarto.org) command line tool is also needed,
+and without it `build_vignettes = TRUE` is left out and the vignettes
+are read on the website.
 
 ``` r
 
 # install.packages("remotes")
-remotes::install_github("eogmartins/rTFT", dependencies = TRUE, build_vignettes = TRUE)
+remotes::install_github("eogmartins/rTFT@*release", dependencies = TRUE, build_vignettes = TRUE)
+```
+
+From R-universe, where the package is already built, vignettes included,
+so that neither `remotes` nor Quarto is needed.
+
+``` r
+
+install.packages("rTFT", repos = c("https://eogmartins.r-universe.dev", "https://cloud.r-project.org"))
 ```
 
 Fitting a model requires a working installation of Stan, through either
@@ -58,9 +72,6 @@ followed by `cmdstanr::install_cmdstan()`. It is asked for with
 [`fit_hazard()`](https://eogmartins.github.io/rTFT/reference/fit_hazard.md),
 as in the example below; without it, leave that argument out and brms
 uses `rstan`.
-
-Building the vignettes requires the [Quarto](https://quarto.org) command
-line tool as well as the `quarto` R package.
 
 ## Example
 
@@ -149,7 +160,7 @@ use the discussions page,
 If you use the package, please cite it as:
 
 > Martins, E. G. (2026). rTFT: hazard models for thermal failure time
-> data. R package version 0.1.0.
+> data. R package version 0.1.1.
 > <https://doi.org/10.5281/zenodo.23319254>
 
 The same reference is given by `citation("rTFT")`. The DOI stands for

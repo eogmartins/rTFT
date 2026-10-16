@@ -29,7 +29,7 @@
 
     <a class="navbar-brand me-2" href="index.html">rTFT</a>
 
-    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.1.0</small>
+    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.1.1</small>
 
 
     <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbar" aria-controls="navbar" aria-expanded="false" aria-label="Toggle navigation">
@@ -83,19 +83,22 @@
 <div class="section level2">
 <h2 id="installation">Installation<a class="anchor" aria-label="anchor" href="#installation"></a>
 </h2>
-<p><code>rTFT</code> is installed from GitHub. With <code>dependencies = TRUE</code> the packages that build the vignettes (<code>quarto</code>, <code>knitr</code> and <code>plotly</code>) are installed too.</p>
+<p><code>rTFT</code> can be installed in either of two ways, both of which give the latest release.</p>
+<p>From GitHub, where the package is built, vignettes included, on the computer it is installed on. With <code>dependencies = TRUE</code> the packages that build the vignettes (<code>quarto</code>, <code>knitr</code> and <code>plotly</code>) are installed too; the <a href="https://quarto.org" class="external-link">Quarto</a> command line tool is also needed, and without it <code>build_vignettes = TRUE</code> is left out and the vignettes are read on the website.</p>
 <div class="sourceCode" id="cb1"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="co"># install.packages("remotes")</span></span>
-<span><span class="fu">remotes</span><span class="fu">::</span><span class="fu">install_github</span><span class="op">(</span><span class="st">"eogmartins/rTFT"</span>, dependencies <span class="op">=</span> <span class="cn">TRUE</span>, build_vignettes <span class="op">=</span> <span class="cn">TRUE</span><span class="op">)</span></span></code></pre></div>
+<span><span class="fu">remotes</span><span class="fu">::</span><span class="fu">install_github</span><span class="op">(</span><span class="st">"eogmartins/rTFT@*release"</span>, dependencies <span class="op">=</span> <span class="cn">TRUE</span>, build_vignettes <span class="op">=</span> <span class="cn">TRUE</span><span class="op">)</span></span></code></pre></div>
+<p>From R-universe, where the package is already built, vignettes included, so that neither <code>remotes</code> nor Quarto is needed.</p>
+<div class="sourceCode" id="cb2"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="fu"><a href="https://rdrr.io/r/utils/install.packages.html" class="external-link">install.packages</a></span><span class="op">(</span><span class="st">"rTFT"</span>, repos <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"https://eogmartins.r-universe.dev"</span>, <span class="st">"https://cloud.r-project.org"</span><span class="op">)</span><span class="op">)</span></span></code></pre></div>
 <p>Fitting a model requires a working installation of Stan, through either <code>cmdstanr</code> or <code>rstan</code> (see the <a href="https://github.com/paul-buerkner/brms#how-do-i-install-brms" class="external-link">installation notes of brms</a>). <code>cmdstanr</code> is recommended and was used to fit the models of the vignettes; it is not on CRAN and is installed with <code>install.packages("cmdstanr", repos = c("https://stan-dev.r-universe.dev", getOption("repos")))</code> followed by <code>cmdstanr::install_cmdstan()</code>. It is asked for with <code>backend = "cmdstanr"</code> in <code><a href="reference/fit_hazard.html">fit_hazard()</a></code>, as in the example below; without it, leave that argument out and brms uses <code>rstan</code>.</p>
-<p>Building the vignettes requires the <a href="https://quarto.org" class="external-link">Quarto</a> command line tool as well as the <code>quarto</code> R package.</p>
 </div>
 <div class="section level2">
 <h2 id="example">Example<a class="anchor" aria-label="anchor" href="#example"></a>
 </h2>
 <p>Three simulated datasets are included with the package: a static assay (<code>static_assay</code>), a ramping assay run at two levels of dissolved oxygen (<code>ramp_assay</code>) and a record of stream temperature (<code>stream_record</code>). They were simulated from a known model, so that what a model estimates can be compared with the values used in the simulation.</p>
 <p>The example below uses <code>static_assay</code>, which contains the times to loss of equilibrium of 120 juvenile salmonids held at 23, 25 or 27°C and checked every hour for five days. It shows the four steps of an analysis, which the vignette <em>Getting started with rTFT</em> describes in detail.</p>
-<div class="sourceCode" id="cb2"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb3"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="kw"><a href="https://rdrr.io/r/base/library.html" class="external-link">library</a></span><span class="op">(</span><span class="va"><a href="https://eogmartins.github.io/rTFT/">rTFT</a></span><span class="op">)</span></span>
 <span></span>
 <span><span class="co"># 1. The table of intervals at risk, built from the temperature of each group of</span></span>
@@ -149,7 +152,7 @@
 </h2>
 <p>If you use the package, please cite it as:</p>
 <blockquote>
-<p>Martins, E. G. (2026). rTFT: hazard models for thermal failure time data. R package version 0.1.0. <a href="https://doi.org/10.5281/zenodo.23319254" class="external-link uri">https://doi.org/10.5281/zenodo.23319254</a></p>
+<p>Martins, E. G. (2026). rTFT: hazard models for thermal failure time data. R package version 0.1.1. <a href="https://doi.org/10.5281/zenodo.23319254" class="external-link uri">https://doi.org/10.5281/zenodo.23319254</a></p>
 </blockquote>
 <p>The same reference is given by <code>citation("rTFT")</code>. The DOI stands for every version of the package and leads to the most recent one; each version is archived with a DOI of its own on the same page.</p>
 </div>

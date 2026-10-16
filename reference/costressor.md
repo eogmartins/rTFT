@@ -357,7 +357,7 @@ costressor("Sal", column = "sal", ref = 15, scale = 5, direction = 1,
 #> $transform
 #> function (u) 
 #> u^2
-#> <environment: 0x5600e6002828>
+#> <environment: 0x556d92462738>
 #> 
 #> attr(,"class")
 #> [1] "rTFT_costressor"
