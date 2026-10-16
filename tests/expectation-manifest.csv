@@ -2,7 +2,7 @@ file,expectations
 test-discrete-time-hazard-brms.R,522
 test-derive-tdt-ttl.R,247
 test-plot-tdt-ttl.R,154
-test-loo-hazard.R,109
+test-loo-hazard.R,120
 test-average-tdt-ttl.R,106
 test-predict-survival.R,147
 test-plot-survival.R,84

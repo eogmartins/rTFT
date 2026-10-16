@@ -299,6 +299,7 @@ loo_hazard <- function(fit, unit = NULL) {
 # ===========================================================================
 
 # .log_mean_exp() / .assign_folds() / .refit_fold() / .kfold_result() ----------
+# .check_K() / .kfold_setup() / .kfold_refits()
 
 # log(mean(exp(x))) for each column of a matrix, the log of a unit's predictive
 # density averaged over the draws. The column's largest value is taken out first, so
@@ -352,6 +353,74 @@ loo_hazard <- function(fit, unit = NULL) {
   out
 }
 
+# The number of folds for `n` units: one per unit unless given, and otherwise a whole
+# number from 2 to `n`.
+.check_K <- function(K, n) {
+  if (is.null(K)) return(n)
+  if (!is.numeric(K) || length(K) != 1L || !is.finite(K) || K != round(K) ||
+      K < 2 || K > n)
+    cli::cli_abort(c(
+      "{.arg K} must be a whole number of folds from 2 to the number of units, {n}.",
+      "x" = "You supplied {.val {K}}."
+    ), class = "rTFT_bad_K")
+  K
+}
+
+# Settle what the refits of a model need, before any is made, and return it: the
+# fitted data, the unit left out with its value on each row, the units, the number
+# of folds and the fold of each unit. The folds are assigned here unless `folds`
+# gives them, as it does when several models are to be cross-validated with the same
+# folds; the number of folds is then theirs, and `K` is not read.
+.kfold_setup <- function(fit, unit = NULL, K = NULL, folds = NULL) {
+  st   <- .fit_settings(fit)
+  data <- fit$data
+  .check_fit_rows(st, data)
+  u <- .choose_unit(data, st$id, .grouping_terms(fit), unit)
+
+  units <- unique(as.character(u$values))
+  n <- length(units)
+  if (!is.null(folds)) {
+    if (!setequal(names(folds), units))
+      cli::cli_abort(c(
+        "The folds given are not those of this model's units.",
+        "i" = "Models that share their folds must be fitted to the same table and leave out the same unit."
+      ), class = "rTFT_bad_folds")
+    # The refits run through the folds by number, from 1 to their count. A fold
+    # whose number is skipped would be refitted with nothing left out, and the units
+    # of a fold beyond the count would never be scored.
+    if (!is.numeric(folds) || anyNA(folds) || !setequal(folds, seq_len(max(folds))))
+      cli::cli_abort(
+        "The folds given must be numbered from 1, with no number skipped.",
+        class = "rTFT_bad_folds")
+    return(list(data = data, unit = u, units = units, K = length(unique(folds)),
+                folds = folds[units]))
+  }
+  K <- .check_K(K, n)
+  list(data = data, unit = u, units = units, K = K, folds = .assign_folds(units, K))
+}
+
+# Refit the model once per fold of `setup`, each time without the units of the fold,
+# and assemble the result. The first fold is refitted from the fit given and each
+# later one from the refit before it.
+.kfold_refits <- function(fit, setup, ...) {
+  u <- setup$unit
+  n <- length(setup$units)
+  row_fold <- unname(setup$folds[as.character(u$values)])   # the fold of each row
+  # A unit has no score until a refit gives it one, so its slot starts as missing:
+  # a unit left unscored then makes the total missing, and cannot pass for a result.
+  elpd <- stats::setNames(rep(NA_real_, n), setup$units)
+  base <- fit                                     # refitted from, fold by fold
+  for (k in seq_len(setup$K)) {
+    cli::cli_inform(
+      "Refitting without fold {k} of {setup$K}: {sum(setup$folds == k)} of the {n} units left out, one {u$label} each.",
+      class = "rTFT_kfold_progress")
+    fold <- .refit_fold(base, setup$data, row_fold != k, u$values, ...)
+    elpd[names(fold$elpd)] <- fold$elpd
+    base <- fold$fit
+  }
+  .kfold_result(elpd, u$name, setup$K, setup$folds)
+}
+
 # kfold_hazard() ---------------------------------------------------------------
 
 #' Cross-validation by refitting, leaving out whole individuals or groups
@@ -402,33 +471,5 @@ loo_hazard <- function(fit, unit = NULL) {
 #' }
 #' @export
 kfold_hazard <- function(fit, unit = NULL, K = NULL, ...) {
-  st   <- .fit_settings(fit)
-  data <- fit$data
-  .check_fit_rows(st, data)
-  u <- .choose_unit(data, st$id, .grouping_terms(fit), unit)
-
-  units <- unique(as.character(u$values))
-  n <- length(units)
-  if (is.null(K)) K <- n
-  if (!is.numeric(K) || length(K) != 1L || !is.finite(K) || K != round(K) ||
-      K < 2 || K > n)
-    cli::cli_abort(c(
-      "{.arg K} must be a whole number of folds from 2 to the number of units, {n}.",
-      "x" = "You supplied {.val {K}}."
-    ), class = "rTFT_bad_K")
-
-  folds <- .assign_folds(units, K)
-  row_fold <- unname(folds[as.character(u$values)])     # the fold of each row
-  elpd <- stats::setNames(numeric(n), units)
-  base <- fit                                            # refitted from, fold by fold
-  for (k in seq_len(K)) {
-    cli::cli_inform(
-      "Refitting without fold {k} of {K}: {sum(folds == k)} of the {n} units left out, one {u$label} each.",
-      class = "rTFT_kfold_progress")
-    fold <- .refit_fold(base, data, row_fold != k, u$values, ...)
-    elpd[names(fold$elpd)] <- fold$elpd
-    base <- fold$fit
-  }
-  .kfold_result(elpd, u$name, K, folds)
+  .kfold_refits(fit, .kfold_setup(fit, unit, K), ...)
 }
-
