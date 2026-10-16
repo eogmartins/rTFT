@@ -42,7 +42,10 @@ the trial is predicted as a new trial would be.
 
 The refits take time: one model fit per fold. With \code{K} smaller than the number
 of units, the units are assigned to folds at random; call \code{\link[=set.seed]{set.seed()}} first to
-get the same folds again.
+get the same folds again. Models that are to be compared must be refitted with
+the same folds: with fewer folds than units, call \code{\link[=set.seed]{set.seed()}} with the same seed
+before each call, or use \code{\link[=fit_hazard_models]{fit_hazard_models()}}, which assigns the folds once for
+all the models.
 }
 \examples{
 \dontrun{

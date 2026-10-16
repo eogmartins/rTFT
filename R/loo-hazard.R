@@ -441,7 +441,10 @@ loo_hazard <- function(fit, unit = NULL) {
 #'
 #' The refits take time: one model fit per fold. With `K` smaller than the number
 #' of units, the units are assigned to folds at random; call [set.seed()] first to
-#' get the same folds again.
+#' get the same folds again. Models that are to be compared must be refitted with
+#' the same folds: with fewer folds than units, call [set.seed()] with the same seed
+#' before each call, or use [fit_hazard_models()], which assigns the folds once for
+#' all the models.
 #'
 #' @param fit A `brmsfit`, a model fitted with [fit_hazard()].
 #' @param unit An optional character string, the unit to leave out, as in

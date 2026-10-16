@@ -1,5 +1,18 @@
 # rTFT (development version)
 
+## Comparing and averaging models
+
+* `build_hazard_models()` builds a table of models to compare, one row for each
+  failure-rate function with a baseline and the formulas of its parameters. A
+  formula is given to the models that have its parameter, and a name that is
+  misspelt is reported before anything is fitted.
+* `fit_hazard_models()` fits every model of the table to the same data, checks
+  each fit for convergence by one rule, and cross-validates each with the same
+  unit left out, by importance sampling and, when asked, by refitting with the
+  same folds for every model. A model that fails does not stop the others. It
+  returns the fits and the cross-validation results as `hazard_weights()` and
+  the `average_*()` functions read them, with a summary of one row per model.
+
 ## Bug fixes
 
 * A failure-rate function or a baseline given as a factor was read by its

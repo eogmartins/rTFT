@@ -57,6 +57,8 @@ reference:
   - M_draws
 - title: Comparing and averaging models
   contents:
+  - build_hazard_models
+  - fit_hazard_models
   - loo_hazard
   - kfold_hazard
   - hazard_weights
