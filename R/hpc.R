@@ -111,6 +111,26 @@
 }
 
 
+# .write_lines_lf() / .write_csv_lf() ------------------------------------------
+
+# Write the lines `text` to the file `path` with line feeds alone, whatever the
+# system. Written on Windows in the usual way, each line would also end with a
+# carriage return, which bash on the cluster reads as part of the line.
+.write_lines_lf <- function(text, path) {
+  con <- file(path, open = "wb")
+  on.exit(close(con))
+  writeLines(text, con, sep = "\n")
+}
+
+# Write the data frame `x` to the file `path` as a table of comma-separated values
+# without row names, with line feeds alone, whatever the system.
+.write_csv_lf <- function(x, path) {
+  con <- file(path, open = "wb")
+  on.exit(close(con))
+  utils::write.csv(x, con, row.names = FALSE)
+}
+
+
 # .bundle_files() / .bundle_checksums() ----------------------------------------
 
 # The files of the folder `bundle/` of the bundle in `dir` that are checked for
@@ -360,16 +380,14 @@ write_hpc_bundle <- function(models, long, dir, account,
   saveRDS(long, file.path(dir, "bundle", "data.rds"))
   saveRDS(models, file.path(dir, "bundle", "models.rds"))
   saveRDS(settings, file.path(dir, "bundle", "settings.rds"))
-  utils::write.csv(tasks_fit, file.path(dir, "bundle", "tasks-fit.csv"),
-                   row.names = FALSE)
+  .write_csv_lf(tasks_fit, file.path(dir, "bundle", "tasks-fit.csv"))
   if (kfold)
-    utils::write.csv(tasks_kfold, file.path(dir, "bundle", "tasks-kfold.csv"),
-                     row.names = FALSE)
+    .write_csv_lf(tasks_kfold, file.path(dir, "bundle", "tasks-kfold.csv"))
   sums <- .bundle_checksums(dir)
-  writeLines(paste(sums, names(sums), sep = "  "),
-             file.path(dir, "bundle", "checksums.txt"))
+  .write_lines_lf(paste(sums, names(sums), sep = "  "),
+                  file.path(dir, "bundle", "checksums.txt"))
 
-  for (file in .script_files) writeLines(scripts[[file]], file.path(dir, file))
+  for (file in .script_files) .write_lines_lf(scripts[[file]], file.path(dir, file))
 
   refits <- if (kfold)
     paste(" and", nrow(tasks_kfold), "refits for cross-validation") else ""

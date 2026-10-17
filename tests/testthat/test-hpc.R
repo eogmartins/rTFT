@@ -35,6 +35,18 @@ scripts <- c("settings.sh", "install.sh", "install.R", "check.sh", "README.txt")
 # The files a bundle holds, below its folder.
 bundle_files <- function(dir) sort(list.files(dir, recursive = TRUE))
 
+# Whether this machine's bash can read the files R writes. The bash that Windows
+# offers through its Linux subsystem, for one, cannot read Windows paths; the
+# scripts are tested where their users run them, on Linux, and on macOS.
+bash_reads_files <- function() {
+  if (!nzchar(Sys.which("bash"))) return(FALSE)
+  probe <- withr::local_tempfile(fileext = ".sh")
+  writeLines("true", probe)
+  status <- suppressWarnings(system2("bash", c("-n", shQuote(probe)),
+                                     stdout = FALSE, stderr = FALSE))
+  identical(status, 0L)
+}
+
 # The cluster's software, as check_hpc_bundle() finds it, made present for the tests
 # that are not about it: these machines need not have CmdStan.
 with_cmdstan <- function(env = parent.frame()) {
@@ -151,18 +163,29 @@ test_that("the scripts are filled in from the template, with nothing left to fil
 })
 
 
+test_that("every text file of a bundle has line feeds alone, on every system", {
+  dir <- write_quietly(kfold = TRUE)
+  text_files <- c(scripts, "bundle/checksums.txt", "bundle/tasks-fit.csv",
+                  "bundle/tasks-kfold.csv")
+  for (file in text_files) {
+    bytes <- readBin(file.path(dir, file), "raw", file.size(file.path(dir, file)))
+    expect_false(any(bytes == as.raw(13)), label = file)       # no carriage return
+  }
+})
+
+
 test_that("the scripts are valid shell scripts, and the R script valid R", {
   dir <- write_quietly()
   expect_no_error(parse(file.path(dir, "install.R")))
-  skip_if(!nzchar(Sys.which("bash")), "bash is not on this machine")
+  skip_if(!bash_reads_files(), "this machine's bash cannot read the files R writes")
   for (file in c("settings.sh", "install.sh", "check.sh"))
     expect_equal(system2("bash", c("-n", shQuote(file.path(dir, file)))), 0L)
 })
 
 
 test_that("the install job stops at once when it cannot reach the internet", {
-  skip_if(!nzchar(Sys.which("bash")) || !nzchar(Sys.which("curl")),
-          "bash or curl is not on this machine")
+  skip_if(!bash_reads_files() || !nzchar(Sys.which("curl")),
+          "this machine's bash cannot read the files R writes, or it has no curl")
   dir <- write_quietly()
   # run as Slurm would run the job, with an address that cannot be reached
   out <- withr::with_envvar(
