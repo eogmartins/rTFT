@@ -253,7 +253,7 @@ build_hazard_models <- function(m_form, baseline = "mem", dpar_formulas = list()
 }
 
 
-# .models_unit() / .models_plan() / .fit_one_model() / .model_row() -------------
+# .models_unit() / .say_again() / .models_plan() / .fit_one_model() / .model_row()
 
 # The name of the unit to leave out in cross-validation, settled for all the models
 # of `models` before any is fitted: from the groupings in their formulas and the
@@ -285,9 +285,18 @@ build_hazard_models <- function(m_form, baseline = "mem", dpar_formulas = list()
     ), class = "rTFT_units_differ")
   # each distinct message or warning once, passed on as cli made it
   said <- vapply(held, conditionMessage, character(1))
-  purrr::walk(held[!duplicated(said)],
-              \(cnd) if (inherits(cnd, "message")) message(cnd) else warning(cnd))
+  purrr::walk(held[!duplicated(said)], .say_again)
   chosen[1]
+}
+
+# Pass on `cnd`, a message or a warning that cli made and that was held back, as it
+# was, and return nothing. rlang ends a message with a line ending when it prints it
+# itself, but base message() prints a message's text as it is, so the line ending is
+# added here; otherwise whatever is printed next would run on from the same line.
+.say_again <- function(cnd) {
+  if (!inherits(cnd, "message")) return(invisible(warning(cnd)))
+  if (!endsWith(cnd$message, "\n")) cnd$message <- paste0(cnd$message, "\n")
+  message(cnd)
 }
 
 # Check the arguments of a run of the models of `models` on the table `long`, settle

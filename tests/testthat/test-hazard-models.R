@@ -404,6 +404,10 @@ test_that("the unit left out is settled once, for all the models, before any is 
     by_id <- fit_hazard_models(trial_models, long_trials, unit = "id", chains = 2),
     "rTFT_loo_leak"), 1)
   expect_equal(nrow(by_id$loo$exp_mem$pointwise), 48)
+  # a message passed on ends its line, so what is printed next starts on a new one
+  said <- tryCatch(.models_unit(trial_models, long_trials, "interval", NULL),
+                   rTFT_loo_unit = function(m) conditionMessage(m))
+  expect_match(said, "\n$")
   # a warning about a later model is given even when the first has nothing to say
   later <- rbind(build_hazard_models("exp", "weibull"), trial_models[1, ])
   expect_equal(count_conditions(.models_unit(later, long_trials, "interval", "id"),
@@ -442,7 +446,8 @@ test_that("units for which importance sampling cannot be trusted are counted and
   expect_equal(out$summary$ess_group, rep(conv$ess_group, 2))
   # the warning points to refitting, unless refitting was asked for
   said <- function(kfold) tryCatch(
-    .report_models(out$summary, 1.5, 50, 0.01, kfold = kfold),
+    suppressWarnings(.report_models(out$summary, 1.5, 50, 0.01, kfold = kfold),
+                     classes = "rTFT_not_converged"),
     rTFT_loo_unreliable = function(w) conditionMessage(w))
   expect_match(said(FALSE), "kfold = TRUE", fixed = TRUE)
   expect_no_match(said(TRUE), "kfold = TRUE", fixed = TRUE)
