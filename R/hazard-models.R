@@ -253,7 +253,7 @@ build_hazard_models <- function(m_form, baseline = "mem", dpar_formulas = list()
 }
 
 
-# .models_unit() / .fit_one_model() / .model_row() -----------------------------
+# .models_unit() / .models_plan() / .fit_one_model() / .model_row() -------------
 
 # The name of the unit to leave out in cross-validation, settled for all the models
 # of `models` before any is fitted: from the groupings in their formulas and the
@@ -288,6 +288,40 @@ build_hazard_models <- function(m_form, baseline = "mem", dpar_formulas = list()
   purrr::walk(held[!duplicated(said)],
               \(cnd) if (inherits(cnd, "message")) message(cnd) else warning(cnd))
   chosen[1]
+}
+
+# Check the arguments of a run of the models of `models` on the table `long`, settle
+# what every model of the run shares, before anything is fitted, and return it as a
+# list: the observation mode, the unit left out in cross-validation, the units of
+# `long` (the distinct values of that unit) and the number of chains asked for in
+# `dots`. With `kfold`, the number of folds `K` is checked against those units, so
+# that a bad `K` stops the run now and not after the fits.
+.models_plan <- function(models, long, observation, unit, kfold, K, rhat, ess,
+                         divergent, dots) {
+  .check_models(models)
+  if (!is.data.frame(long) || !"id" %in% names(long))
+    cli::cli_abort(c(
+      "{.arg long} must be the table of intervals at risk, with its {.field id} column.",
+      "i" = "Build it with {.fn build_hazard_data}."
+    ), class = "rTFT_missing_column")
+  observation <- .match_observation(observation)
+  .check_rule(rhat, ess, divergent)
+  if (!is.logical(kfold) || length(kfold) != 1L || is.na(kfold))
+    cli::cli_abort("{.arg kfold} must be {.code TRUE} or {.code FALSE}.",
+                   class = "rTFT_bad_kfold")
+  of_table <- intersect(names(dots),
+                        c("m_form", "baseline", "dpar_formulas", "costressors"))
+  if (length(of_table))
+    cli::cli_abort(c(
+      "{.arg {of_table}} cannot be given here: {?it is/they are} set for each model in {.arg models}.",
+      "i" = "Change the table, or build it again with {.fn build_hazard_models}."
+    ), class = "rTFT_set_in_models")
+  unit  <- .models_unit(models, long, observation, unit)
+  left_out <- if (unit == "id") long$id else .grouping_values(long, unit)
+  units    <- unique(as.character(left_out))
+  if (kfold) .check_K(K, length(units))
+  list(observation = observation, unit = unit, units = units,
+       chains = if (is.null(dots$chains)) 4 else dots$chains)
 }
 
 # Fit the model of `row`, one row of the table, to `long` with the arguments in
@@ -459,33 +493,12 @@ fit_hazard_models <- function(models, long,
                               observation = c("interval", "continuous", "mixed"),
                               unit = NULL, kfold = FALSE, K = NULL,
                               rhat = 1.01, ess = 400, divergent = 0.001, ...) {
-  .check_models(models)
-  if (!is.data.frame(long) || !"id" %in% names(long))
-    cli::cli_abort(c(
-      "{.arg long} must be the table of intervals at risk, with its {.field id} column.",
-      "i" = "Build it with {.fn build_hazard_data}."
-    ), class = "rTFT_missing_column")
-  observation <- .match_observation(observation)
-  .check_rule(rhat, ess, divergent)
-  if (!is.logical(kfold) || length(kfold) != 1L || is.na(kfold))
-    cli::cli_abort("{.arg kfold} must be {.code TRUE} or {.code FALSE}.",
-                   class = "rTFT_bad_kfold")
   dots <- list(...)
-  of_table <- intersect(names(dots),
-                        c("m_form", "baseline", "dpar_formulas", "costressors"))
-  if (length(of_table))
-    cli::cli_abort(c(
-      "{.arg {of_table}} cannot be given here: {?it is/they are} set for each model in {.arg models}.",
-      "i" = "Change the table, or build it again with {.fn build_hazard_models}."
-    ), class = "rTFT_set_in_models")
-  chains <- if (is.null(dots$chains)) 4 else dots$chains
-  unit   <- .models_unit(models, long, observation, unit)
-  # the number of folds is checked now, against the units of the table, and not
-  # after the models have been fitted
-  if (kfold) {
-    left_out <- if (unit == "id") long$id else .grouping_values(long, unit)
-    .check_K(K, length(unique(left_out)))
-  }
+  plan <- .models_plan(models, long, observation, unit, kfold, K, rhat, ess, divergent,
+                       dots)
+  observation <- plan$observation
+  unit        <- plan$unit
+  chains      <- plan$chains
 
   n <- nrow(models)
   results <- vector("list", n)
