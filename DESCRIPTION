@@ -38,14 +38,18 @@ Imports:
     purrr,
     stats,
     tibble,
+    tools,
     utils
 Suggests:
+    cmdstanr,
     knitr,
     plotly,
     posterior,
     quarto,
-    testthat (>= 3.0.0)
+    testthat (>= 3.0.0),
+    withr
 VignetteBuilder: quarto
+Additional_repositories: https://stan-dev.r-universe.dev/
 SystemRequirements: Quarto command line tool
     (<https://github.com/quarto-dev/quarto-cli>).
 Config/testthat/edition: 3

@@ -13,6 +13,19 @@
   returns the fits and the cross-validation results as `hazard_weights()` and
   the `average_*()` functions read them, with a summary of one row per model.
 
+## Running on a cluster
+
+* `write_hpc_bundle()` writes a table of models, its data and the settings of the
+  run into one folder, to be copied to a cluster that schedules its jobs with
+  Slurm, with scripts written for the clusters of the Digital Research Alliance
+  of Canada. The run is checked, the unit left out in cross-validation chosen and
+  the folds assigned before anything is written, and the account, time, memory
+  and modules are written once, in the folder's `settings.sh`.
+* `check_hpc_bundle()`, run on the cluster by the folder's `check.sh`, checks by
+  their checksums that the files arrived unchanged, that the installed rTFT is
+  the version that wrote them, that cmdstanr finds CmdStan, and that every model
+  can be assembled, before anything is submitted.
+
 ## Bug fixes
 
 * A failure-rate function or a baseline given as a factor was read by its

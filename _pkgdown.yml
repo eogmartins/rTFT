@@ -65,6 +65,12 @@ reference:
   - average_tdt_ttl
   - average_dctmax
   - average_survival
+- title: Running on a cluster
+  desc: >
+    Fitting a table of models on a cluster that schedules its jobs with Slurm.
+  contents:
+  - write_hpc_bundle
+  - check_hpc_bundle
 - title: Predicting survival
   contents:
   - predict_survival
