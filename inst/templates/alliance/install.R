@@ -25,8 +25,8 @@ wanted <- "{{rtft_version}}"
 have   <- if (not_installed("rTFT")) "none" else
   as.character(utils::packageVersion("rTFT"))
 if (!identical(have, wanted)) {
-  cat("rTFT: installing version", wanted, "from {{rtft_source}}",
-      "(installed:", have, ")\n")
+  cat(paste0("rTFT: installing version ", wanted, " from {{rtft_source}} (installed: ",
+             have, ")\n"))
   if (not_installed("remotes"))
     install.packages("remotes", lib = library_dir, repos = repos)
   remotes::install_github("{{rtft_source}}", lib = library_dir, repos = repos,

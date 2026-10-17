@@ -220,6 +220,43 @@ test_that("the source of rTFT on the cluster is read from how it was installed h
 })
 
 
+test_that("the copy is one rsync command over three lines, or ssh and scp on Windows", {
+  copy <- .copy_command("/home/me/run", "me@host", "scratch/run", windows = FALSE)
+  expect_equal(copy$command,
+               c('rsync -av --rsync-path="mkdir -p scratch/run && rsync" \\',
+                 '  "/home/me/run/" \\',
+                 "  me@host:scratch/run/"))
+  expect_match(copy$note, "one command over three lines", fixed = TRUE)
+  on_windows <- .copy_command("C:/Users/me/run", "me@host", "scratch/projects/run",
+                              windows = TRUE)
+  expect_equal(on_windows$command,
+               c('ssh me@host "mkdir -p scratch/projects"',
+                 'scp -r "C:/Users/me/run" me@host:scratch/projects/run'))
+  expect_match(on_windows$note, "WinSCP", fixed = TRUE)
+  # the three lines of rsync are read by a shell as one command
+  skip_if(!bash_reads_files(), "this machine's bash cannot read the files R writes")
+  lines <- withr::local_tempfile(fileext = ".sh")
+  writeLines(copy$command, lines)
+  expect_equal(system2("bash", c("-n", shQuote(lines))), 0L)
+})
+
+
+test_that("README.txt gives the copy command of the system the bundle is written on", {
+  remote <- "someone@nibi.alliancecan.ca:scratch/run"
+  unix <- readLines(file.path(write_quietly(remote = remote), "README.txt"))
+  first <- grep("rsync -av", unix)
+  expect_length(first, 1)
+  expect_match(unix[first], "\\\\$")                     # continued on the next line
+  expect_match(unix[first + 2], "someone@nibi.alliancecan.ca:scratch/run/", fixed = TRUE)
+  local_mocked_bindings(.on_windows = function() TRUE)
+  windows <- paste(readLines(file.path(write_quietly(remote = remote), "README.txt")),
+                   collapse = "\n")
+  expect_match(windows, 'ssh someone@nibi.alliancecan.ca "mkdir -p scratch"', fixed = TRUE)
+  expect_match(windows, "scp -r ", fixed = TRUE)
+  expect_no_match(windows, "rsync", fixed = TRUE)
+})
+
+
 test_that("write_hpc_bundle says what it wrote and what to do next, and returns the folder", {
   dir <- file.path(withr::local_tempdir(), "run")
   suppressMessages(
@@ -228,6 +265,14 @@ test_that("write_hpc_bundle says what it wrote and what to do next, and returns 
                    class = "rTFT_bundle_written"),
     classes = "rTFT_loo_unit")
   expect_equal(out, normalizePath(dir))
+  # it points to the command in README.txt, rather than printing it wrapped
+  said <- suppressMessages(
+    tryCatch(write_hpc_bundle(models, long, file.path(withr::local_tempdir(), "run"),
+                              account = "def-test", rtft_source = src),
+             rTFT_bundle_written = function(m) conditionMessage(m)),
+    classes = "rTFT_loo_unit")
+  expect_match(said, "README.txt", fixed = TRUE)
+  expect_no_match(said, "rsync", fixed = TRUE)
 })
 
 

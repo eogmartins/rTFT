@@ -28,9 +28,11 @@ MODULES="{{modules}}"
 # library.
 R_LIBRARY="{{r_library}}"
 
-# Load R as the settings above say, from a clean set of modules.
+# Load R as the settings above say, from a clean set of modules. The clusters of the
+# Alliance keep some modules loaded through a purge, and say so at length each time;
+# that notice is not shown. Errors in loading the modules below still are.
 load_r() {
-  module purge
+  module purge > /dev/null 2>&1
   module load $MODULES
   if [ -n "$R_LIBRARY" ]; then
     export R_LIBS="$R_LIBRARY"

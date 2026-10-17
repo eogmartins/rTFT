@@ -22,8 +22,7 @@ What to do
 
        {{copy_command}}
 
-     The --rsync-path part makes the folder on the cluster first, with any
-     folders above it that do not exist yet; rsync alone makes only the last.
+     {{copy_note}}
 
      Many clusters ask for a second factor of authentication besides your
      password, at each copy and each connection; those of the Digital Research
@@ -41,8 +40,9 @@ What to do
        bash install.sh
 
      The first time, it compiles brms and CmdStan, which can take an hour or
-     more. If the login node stops it, run it as a job instead, and wait for
-     the job to finish:
+     more. It prints a great deal; its last lines say whether it worked. If
+     the login node stops it, run it as a job instead, and wait for the job
+     to finish:
 
        bash install.sh --job
 

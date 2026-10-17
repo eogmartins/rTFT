@@ -13,7 +13,8 @@
 # 1. Helpers
 # ===========================================================================
 
-# .has_cmdstanr() / .cmdstan_found() / .installed_rtft_version() / .rtft_source()
+# .has_cmdstanr() / .cmdstan_found() / .on_windows() / .installed_rtft_version()
+# .rtft_source()
 
 # Whether the cmdstanr package is installed. It is the interface to CmdStan that the
 # cluster's fits use, and a suggested package, since it is not on CRAN.
@@ -27,6 +28,9 @@
                    error = function(e) NULL)
   !is.null(path) && dir.exists(path)
 }
+
+# Whether this machine runs Windows, which has ssh and scp but no rsync.
+.on_windows <- function() .Platform$OS.type == "windows"
 
 # The version of rTFT that is installed, as a character string.
 .installed_rtft_version <- function() as.character(utils::packageVersion("rTFT"))
@@ -128,6 +132,40 @@
   con <- file(path, open = "wb")
   on.exit(close(con))
   utils::write.csv(x, con, row.names = FALSE)
+}
+
+
+# .copy_command() ---------------------------------------------------------------
+
+# The command that copies the bundle at `local_path` to the folder `remote_folder` of
+# the cluster `ssh_target`, as lines to write into README.txt, and a note on it,
+# returned as a list. Elsewhere it is one rsync command, split over lines a shell
+# reads as one, which makes the whole path of the folder on the cluster's end of the
+# same connection, since rsync makes only the last folder of its destination. On
+# Windows, which has ssh and scp but no rsync, with `windows`, it is an ssh command
+# that makes the folders above the destination and an scp command that copies the
+# folder there; scp names the copy after the destination when it does not exist yet.
+.copy_command <- function(local_path, ssh_target, remote_folder, windows) {
+  if (!windows)
+    return(list(
+      command = c(
+        sprintf('rsync -av --rsync-path="mkdir -p %s && rsync" \\', remote_folder),
+        sprintf('  "%s/" \\', local_path),
+        sprintf("  %s:%s/", ssh_target, remote_folder)),
+      note = paste(
+        "It is one command over three lines; copy all three. The --rsync-path part",
+        "makes the folder on the cluster first, with any folders above it that do",
+        "not exist yet; rsync alone makes only the last.")))
+  parent <- dirname(remote_folder)
+  list(
+    command = c(
+      sprintf('ssh %s "mkdir -p %s"', ssh_target, parent),
+      sprintf('scp -r "%s" %s:%s', local_path, ssh_target, remote_folder)),
+    note = paste(
+      "Two commands, for the PowerShell of Windows: the first makes the folders",
+      "above the one on the cluster, the second copies the bundle into it, which",
+      "must not exist yet. Graphical tools do the same: Globus, WinSCP or MobaXterm,",
+      "which the Alliance documents."))
 }
 
 
@@ -341,12 +379,9 @@ write_hpc_bundle <- function(models, long, dir, account,
   ssh_target    <- if (is.null(remote)) "<user>@<cluster>" else sub(":.*$", "", remote)
   remote_folder <- if (is.null(remote)) "<folder>" else sub("^[^:]*:", "", remote)
   # the folder does not exist yet, so its full path is read from the folder above it
-  local_path    <- file.path(normalizePath(dirname(dir), mustWork = FALSE),
-                             basename(dir))
-  # rsync makes only the last folder of the destination, so the whole path is made
-  # first, on the cluster's end of the same connection
-  copy_command  <- sprintf('rsync -av --rsync-path="mkdir -p %s && rsync" "%s/" %s:%s/',
-                           remote_folder, local_path, ssh_target, remote_folder)
+  local_path    <- file.path(normalizePath(dirname(dir), winslash = "/",
+                                           mustWork = FALSE), basename(dir))
+  copy <- .copy_command(local_path, ssh_target, remote_folder, .on_windows())
   # what the bundle holds, as a sentence with its plurals, for README.txt
   plural   <- function(n, word) paste(n, if (n == 1) word else paste0(word, "s"))
   n_refits <- if (kfold) nrow(tasks_kfold) else 0
@@ -366,7 +401,9 @@ write_hpc_bundle <- function(models, long, dir, account,
     contents = paste(strwrap(contents, width = 80), collapse = "\n"),
     n_models = nrow(models), n_fit_tasks = nrow(tasks_fit),
     n_kfold_tasks = n_refits,
-    copy_command = copy_command, ssh_target = ssh_target, remote_folder = remote_folder)
+    copy_command = paste(copy$command, collapse = "\n       "),
+    copy_note = paste(strwrap(copy$note, width = 74), collapse = "\n     "),
+    ssh_target = ssh_target, remote_folder = remote_folder)
   # Filled before anything is written, so that a template that cannot be filled
   # leaves no half-written bundle behind. A plain loop, so that its error reaches
   # the user as it was raised and not wrapped in the error of a mapping function.
@@ -394,7 +431,7 @@ write_hpc_bundle <- function(models, long, dir, account,
   label  <- if (plan$unit == "id") "individual" else plan$unit
   cli::cli_inform(c(
     "v" = "Wrote a bundle of {nrow(models)} model{?s} to {.path {dir}}: {nrow(tasks_fit)} fit{?s}{refits}, leaving out one {label} at a time.",
-    "i" = "Copy it to the cluster: {.code {copy_command}}",
+    "i" = "Copy it to the cluster with the command in step 1 of {.file README.txt}, in that folder.",
     "i" = "Then, on the cluster, in that folder: {.code bash install.sh} (once on each cluster), then {.code bash check.sh}."
   ), class = "rTFT_bundle_written")
   invisible(normalizePath(dir))
