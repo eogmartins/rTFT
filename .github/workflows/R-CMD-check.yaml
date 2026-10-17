@@ -38,6 +38,8 @@ jobs:
         with:
           r-version: release
           use-public-rspm: true
+          # cmdstanr, a suggested package, is not on CRAN
+          extra-repositories: 'https://stan-dev.r-universe.dev'
 
       - uses: r-lib/actions/setup-r-dependencies@v2
         with:
