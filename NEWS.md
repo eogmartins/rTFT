@@ -34,6 +34,22 @@
   functions that take `m_form` or `baseline` now refuse anything but a single
   character string.
 
+# rTFT 0.1.1
+
+## Bug fixes
+
+* From version 2.10.0, `loo::loo_compare()` gives the compared models in a
+  column rather than as row names. A test and the vignette "Comparing and
+  averaging models" read the row names; both now read the models from
+  either place. The functions of the package are unchanged.
+
+## Other changes
+
+* The package has a DOI, given by `citation("rTFT")` and the README.
+* The package is checked on Linux, macOS and Windows with each push.
+* The package can be installed from R-universe.
+* The website has a page title and description for search engines.
+
 # rTFT 0.1.0
 
 First release.

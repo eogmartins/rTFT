@@ -1,5 +1,12 @@
 url: https://eogmartins.github.io/rTFT/
 
+home:
+  title: "rTFT: thermal tolerance hazard models, CTmax and thermal death time"
+  description: >-
+    R package for thermal tolerance data analysis: Bayesian hazard models of
+    failure times that give CTmax, thermal death time curves and tolerance
+    landscapes with their uncertainty.
+
 template:
   bootstrap: 5
   bslib:
