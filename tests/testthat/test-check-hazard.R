@@ -207,3 +207,52 @@ test_that("the residuals are the same again under the same seed, and uniform for
   expect_gt(stats::ks.test(a$residual, "punif")$p.value, 0.05)
   expect_error(hazard_residuals(list()), class = "rTFT_not_brmsfit")
 })
+
+
+# ===========================================================================
+# 5. A fitted model of static and ramping trials together
+# ===========================================================================
+
+# A small fitted model saved as a fixture (made by fixtures/make-hazard-fit-mixed.R):
+# three static trials checked every 5 minutes, whose failures are known to the
+# interval between two checks, and two ramps watched throughout, whose failures are
+# at known times, with ten individuals in each.
+fit_mixed <- readRDS(test_path("fixtures", "hazard-fit-mixed.rds"))
+
+test_that("check_survival follows the static trials at their checks and the ramps throughout", {
+  set.seed(1)
+  chk <- check_survival(fit_mixed, n_draws = 100)
+  rec <- .fit_record(fit_mixed)
+  expect_setequal(chk$path_id, c("T23", "T25", "T27", "r0.25", "r0.1"))
+  expect_true(all(chk$n == 10))
+  # every trial starts with everyone unaffected
+  expect_true(all(chk$observed[chk$time == 0] == 1))
+  expect_true(all(chk$lower <= chk$median & chk$median <= chk$upper))
+  # a static trial is followed at its checks and stays at its temperature
+  of_static <- grepl("^T", chk$path_id)
+  expect_true(all(chk$time[of_static] %% 5 == 0))
+  expect_equal(chk$Ta[of_static & chk$time > 0],
+               as.numeric(sub("T", "", chk$path_id[of_static & chk$time > 0])))
+  # a ramp warms through the times at which it is followed
+  expect_true(all(diff(chk$Ta[chk$path_id == "r0.25" & chk$time > 0]) > 0))
+  # in each trial the observed proportion is the Kaplan-Meier estimate of the times
+  # of its own individuals, whichever way their failures were observed
+  for (p in unique(chk$path_id)) {
+    rows <- chk$path_id == p & chk$time > 0
+    its  <- rec$individuals[rec$individuals$path_id == p, ]
+    expect_equal(chk$observed[rows], .km_survival(its$time, its$event, chk$time[rows]))
+  }
+})
+
+
+test_that("hazard_residuals gives one residual per individual of either kind of assay", {
+  set.seed(1)
+  res <- hazard_residuals(fit_mixed, n_draws = 200)
+  rec <- .fit_record(fit_mixed)
+  expect_equal(nrow(res), 50L)
+  expect_equal(res$id, rec$individuals$id)
+  expect_equal(res$event, rec$individuals$event)
+  expect_true(all(res$residual > 0 & res$residual < 1))
+  # the fixture was simulated from the model fitted to it
+  expect_gt(stats::ks.test(res$residual, "punif")$p.value, 0.05)
+})

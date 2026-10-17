@@ -4,6 +4,7 @@ Brubaker
 Bürkner
 CTmax
 Castañeda
+CmdStan
 DHARMa
 Eqn
 Ern
@@ -24,8 +25,12 @@ Orsted
 Overgaard
 PSIS
 Poisson
+R's
 Rezende
+Rhat
 Riddell
+Slurm
+Slurm's
 TDT
 Tr
 Umbanhowar
@@ -36,6 +41,7 @@ Yao
 brms
 brms's
 callout
+cmdstanr
 dCTmax
 dT
 degC

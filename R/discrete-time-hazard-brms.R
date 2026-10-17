@@ -489,8 +489,17 @@ brms_log_h0 <- list(
   )
 }
 
-# The M_catalogue entry for a failure-rate function, or a cli error naming the keys.
+# The M_catalogue entry for the failure-rate function `m_form`, or a cli error naming
+# the keys. The name must be a single character string: a factor would be read by
+# its position among its levels, not by its text, and give another entry of the
+# catalogue without an error.
 .m_form_spec <- function(m_form) {
+  if (!is.character(m_form) || length(m_form) != 1L || is.na(m_form))
+    cli::cli_abort(c(
+      "{.arg m_form} must be a single character string, the name of a function in {.code M_catalogue}.",
+      "x" = "You supplied an object of class {.cls {class(m_form)}} and length {length(m_form)}.",
+      "i" = if (is.factor(m_form)) "Convert a factor with {.fn as.character} first."
+    ), class = "rTFT_bad_m_form")
   spec <- M_catalogue[[m_form]]
   if (is.null(spec))
     cli::cli_abort(c(
@@ -500,8 +509,15 @@ brms_log_h0 <- list(
   spec
 }
 
-# The h0_catalogue entry for a baseline function, or a cli error naming the keys.
+# The h0_catalogue entry for the baseline `baseline`, or a cli error naming the keys.
+# The name must be a single character string, for the reason given above.
 .baseline_spec <- function(baseline) {
+  if (!is.character(baseline) || length(baseline) != 1L || is.na(baseline))
+    cli::cli_abort(c(
+      "{.arg baseline} must be a single character string, the name of a baseline in {.code h0_catalogue}.",
+      "x" = "You supplied an object of class {.cls {class(baseline)}} and length {length(baseline)}.",
+      "i" = if (is.factor(baseline)) "Convert a factor with {.fn as.character} first."
+    ), class = "rTFT_bad_baseline")
   spec <- h0_catalogue[[baseline]]
   if (is.null(spec))
     cli::cli_abort(c(
@@ -1028,9 +1044,9 @@ costressor <- function(name, column, ref, scale, direction,
 #'   observation, the integer `exact` flag the family branches on.
 #' @examples
 #' # A single linear ramp encoded as two points: 20 -> 35 degrees over 60 minutes,
-#' # with failure checked for every 10 minutes.
+#' # with failure checked for every minute.
 #' path   <- data.frame(path_id = "A", time = c(0, 60), temp = c(20, 35))
-#' checks <- data.frame(path_id = "A", time = seq(0, 60, by = 10))
+#' checks <- data.frame(path_id = "A", time = seq(0, 60, by = 1))
 #'
 #' # Interval-censored: one failure found at the 30-minute check, one survivor.
 #' ind <- data.frame(id = 1:2, path_id = "A", event = c(1, 0), t_upper = c(30, 60))
@@ -1040,7 +1056,7 @@ costressor <- function(name, column, ref, scale, direction,
 #' ind_c <- data.frame(id = 1, path_id = "A", event = 1, t_event = 42)
 #' build_hazard_data(ind_c, path, "continuous", checks = checks)
 #'
-#' # A finer, regular integration grid instead of the checks (known-time only);
+#' # A regular integration grid instead of the checks (known-time only);
 #' # the last interval still closes exactly on the failure time.
 #' build_hazard_data(ind_c, path, "continuous", grid_dt = 5)
 #'
@@ -1687,7 +1703,7 @@ build_hazard_spec <- function(m_form, baseline = "mem", dpar_formulas = list(),
 #' @examples
 #' # A ramp from 20 to 35 degrees over 60 minutes, with two failures.
 #' path   <- ramp_path("A", T_start = 20, rate = 0.25, t_max = 60)
-#' checks <- data.frame(path_id = "A", time = seq(0, 60, by = 10))
+#' checks <- data.frame(path_id = "A", time = seq(0, 60, by = 1))
 #' ind    <- data.frame(id = 1:3, path_id = "A", event = c(1, 1, 0),
 #'                      t_upper = c(30, 40, 60), acclim = c(10, 15, 15))
 #' long   <- build_hazard_data(ind, path, "interval", covariates = "acclim",
@@ -1997,11 +2013,26 @@ build_hazard_prior <- function(m_form, baseline = "mem", dpar_formulas = list(),
 #' @examples
 #' \dontrun{
 #' path   <- data.frame(path_id = "A", time = c(0, 60), temp = c(20, 35))
-#' checks <- data.frame(path_id = "A", time = seq(0, 60, by = 10))
+#' checks <- data.frame(path_id = "A", time = seq(0, 60, by = 1))
 #' ind    <- data.frame(id = 1:20, path_id = "A", event = 1,
 #'                      t_upper = sample(seq(10, 60, 10), 20, replace = TRUE))
 #' long   <- build_hazard_data(ind, path, "interval", checks = checks)
 #' fit    <- fit_hazard(long, "exp", chains = 4, iter = 2000, cores = 4)
+#'
+#' # Static and ramping trials in one model: a static trial at 27 degrees checked
+#' # every 10 minutes for two hours, with the ramp above watched throughout, so the
+#' # failures of the first are known to an interval and those of the second to a time.
+#' path_m   <- rbind(path, data.frame(path_id = "S", time = c(0, 120), temp = 27))
+#' checks_m <- data.frame(path_id = "S", time = seq(0, 120, by = 10))
+#' ind_m    <- rbind(
+#'   data.frame(id = 1:10, path_id = "S", event = 1, obs_type = "interval",
+#'              t_upper = sample(seq(10, 120, 10), 10, replace = TRUE), t_event = NA),
+#'   data.frame(id = 11:20, path_id = "A", event = 1, obs_type = "continuous",
+#'              t_upper = NA, t_event = runif(10, 20, 60))
+#' )
+#' long_m   <- build_hazard_data(ind_m, path_m, "mixed", checks = checks_m)
+#' fit_m    <- fit_hazard(long_m, "exp", observation = "mixed", chains = 4, iter = 2000,
+#'                        cores = 4)
 #' }
 #' @export
 fit_hazard <- function(long, m_form, baseline = "mem", dpar_formulas = list(),

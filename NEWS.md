@@ -1,3 +1,39 @@
+# rTFT (development version)
+
+## Comparing and averaging models
+
+* `build_hazard_models()` builds a table of models to compare, one row for each
+  failure-rate function with a baseline and the formulas of its parameters. A
+  formula is given to the models that have its parameter, and a name that is
+  misspelt is reported before anything is fitted.
+* `fit_hazard_models()` fits every model of the table to the same data, checks
+  each fit for convergence by one rule, and cross-validates each with the same
+  unit left out, by importance sampling and, when asked, by refitting with the
+  same folds for every model. A model that fails does not stop the others. It
+  returns the fits and the cross-validation results as `hazard_weights()` and
+  the `average_*()` functions read them, with a summary of one row per model.
+
+## Running on a cluster
+
+* `write_hpc_bundle()` writes a table of models, its data and the settings of the
+  run into one folder, to be copied to a cluster that schedules its jobs with
+  Slurm, with scripts written for the clusters of the Digital Research Alliance
+  of Canada. The run is checked, the unit left out in cross-validation chosen and
+  the folds assigned before anything is written, and the account, time, memory
+  and modules are written once, in the folder's `settings.sh`.
+* `check_hpc_bundle()`, run on the cluster by the folder's `check.sh`, checks by
+  their checksums that the files arrived unchanged, that the installed rTFT is
+  the version that wrote them, that cmdstanr finds CmdStan, and that every model
+  can be assembled, before anything is submitted.
+
+## Bug fixes
+
+* A failure-rate function or a baseline given as a factor was read by its
+  position among the factor's levels, not by its text, so another function of
+  the catalogue could be fitted without an error. `fit_hazard()` and the other
+  functions that take `m_form` or `baseline` now refuse anything but a single
+  character string.
+
 # rTFT 0.1.1
 
 ## Bug fixes

@@ -426,3 +426,30 @@ test_that("average_survival refuses what cannot be averaged, and warns once", {
     }))
   expect_equal(given, 1)
 })
+
+
+# ===========================================================================
+# 5. A fitted model of static and ramping trials together
+# ===========================================================================
+
+# A small fitted model saved as a fixture (made by fixtures/make-hazard-fit-mixed.R):
+# three static trials and two ramps of ten individuals each, with the exponential
+# failure rate, the memoryless baseline, no covariate and a reference of 20 degC.
+fit_mixed <- readRDS(test_path("fixtures", "hazard-fit-mixed.rds"))
+
+test_that("survival along a record is predicted from a fit of both kinds of assay", {
+  # An hour at 25 degC: with the memoryless baseline the hazard accrued is the rate
+  # at that temperature times the hour, draw by draw.
+  cf <- as.data.frame(posterior::as_draws_df(fit_mixed))[.thin_ids(600, 300), ]
+  rate    <- exp(cf$b_loga_Intercept + exp(cf$b_logb_Intercept) * (25 - 20))
+  by_hand <- 1 - exp(-rate * 60)
+  pred <- quietly(predict_survival(fit_mixed, flat, n_draws = 300))
+  expect_named(pred, c("survival", "mortality", "coverage", "record"))
+  expect_equal(pred$mortality$time, 60)
+  expect_equal(pred$mortality$median, stats::median(by_hand))
+  expect_equal(pred$mortality$mean, mean(by_hand))
+  expect_equal(pred$mortality$lower, unname(stats::quantile(by_hand, 0.025)))
+  # 25 degC lies within the temperatures at which individuals failed, in the static
+  # trials and under the ramps alike
+  expect_equal(pred$coverage$within, 1)
+})

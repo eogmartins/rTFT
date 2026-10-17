@@ -64,12 +64,20 @@ reference:
   - M_draws
 - title: Comparing and averaging models
   contents:
+  - build_hazard_models
+  - fit_hazard_models
   - loo_hazard
   - kfold_hazard
   - hazard_weights
   - average_tdt_ttl
   - average_dctmax
   - average_survival
+- title: Running on a cluster
+  desc: >
+    Fitting a table of models on a cluster that schedules its jobs with Slurm.
+  contents:
+  - write_hpc_bundle
+  - check_hpc_bundle
 - title: Predicting survival
   contents:
   - predict_survival

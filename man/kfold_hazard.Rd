@@ -42,14 +42,17 @@ the trial is predicted as a new trial would be.
 
 The refits take time: one model fit per fold. With \code{K} smaller than the number
 of units, the units are assigned to folds at random; call \code{\link[=set.seed]{set.seed()}} first to
-get the same folds again.
+get the same folds again. Models that are to be compared must be refitted with
+the same folds: with fewer folds than units, call \code{\link[=set.seed]{set.seed()}} with the same seed
+before each call, or use \code{\link[=fit_hazard_models]{fit_hazard_models()}}, which assigns the folds once for
+all the models.
 }
 \examples{
 \dontrun{
 # a model fitted to a small ramping trial: 20 individuals warmed from 20 to 35
-# degrees over 60 minutes and checked every 10, in two trials (see fit_hazard())
+# degrees over 60 minutes and checked every minute, in two trials (see fit_hazard())
 path   <- data.frame(path_id = "A", time = c(0, 60), temp = c(20, 35))
-checks <- data.frame(path_id = "A", time = seq(0, 60, by = 10))
+checks <- data.frame(path_id = "A", time = seq(0, 60, by = 1))
 ind    <- data.frame(id = 1:20, path_id = "A", event = 1, mass = runif(20, 8, 12),
                      trial = rep(c("a", "b"), each = 10),
                      t_upper = sample(seq(10, 60, 10), 20, replace = TRUE))

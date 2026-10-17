@@ -290,6 +290,20 @@ test_that("kfold_hazard refits once per trial, leaving each trial out in turn", 
 })
 
 
+test_that("a unit that no refit scored is missing from the result, not counted as zero", {
+  # a stand-in refit that returns no score for trial T5
+  local_mocked_bindings(.refit_fold = function(fit, data, train, unit_values, ...) {
+    held <- setdiff(unique(as.character(unit_values[!train])), "T5")
+    list(elpd = stats::setNames(rep(-1, length(held)), held), fit = fit)
+  })
+  out <- suppressMessages(kfold_hazard(fit_trials))
+  scores <- out$pointwise[, "elpd_kfold"]
+  expect_equal(names(scores)[is.na(scores)], "T5")
+  expect_equal(unname(scores[names(scores) != "T5"]), rep(-1, 7))
+  expect_true(is.na(out$estimates["elpd_kfold", "Estimate"]))
+})
+
+
 test_that("kfold_hazard with K folds leaves out every unit exactly once", {
   record <- new.env()
   record$calls <- list()
@@ -341,4 +355,50 @@ test_that("two kfold_hazard results can be compared with loo_compare", {
   models <- if ("model" %in% colnames(comparison)) comparison$model else rownames(comparison)
   expect_equal(models, c("a", "b"))
   expect_equal(as.numeric(comparison[models == "b", "elpd_diff"]), -4)
+})
+
+
+test_that(".kfold_setup takes folds that are given, in the order of the model's units", {
+  own <- suppressMessages(.kfold_setup(fit_trials, K = 4))
+  expect_equal(own$K, 4)
+  expect_named(own$folds, paste0("T", 1:8))
+  given <- stats::setNames(rep(1:2, 4), paste0("T", 8:1))
+  taken <- suppressMessages(.kfold_setup(fit_trials, folds = given))
+  expect_equal(taken$K, 2)
+  expect_equal(taken$folds, given[paste0("T", 1:8)])
+  expect_equal(taken$units, paste0("T", 1:8))
+  expect_error(suppressMessages(.kfold_setup(fit_trials, folds = given[-1])),
+               class = "rTFT_bad_folds")
+  # folds are run through by number, so none may be skipped and the first is 1
+  skipped   <- stats::setNames(rep(c(1, 3), 4), paste0("T", 1:8))
+  from_zero <- stats::setNames(rep(0:1, 4), paste0("T", 1:8))
+  expect_error(suppressMessages(.kfold_setup(fit_trials, folds = skipped)),
+               class = "rTFT_bad_folds")
+  expect_error(suppressMessages(.kfold_setup(fit_trials, folds = from_zero)),
+               class = "rTFT_bad_folds")
+})
+
+
+# ===========================================================================
+# 4. A fitted model of static and ramping trials together
+# ===========================================================================
+
+# A small fitted model saved as a fixture (made by fixtures/make-hazard-fit-mixed.R):
+# three static trials and two ramps of ten individuals each, with no group-level
+# term, so the unit is the individual.
+fit_mixed <- readRDS(test_path("fixtures", "hazard-fit-mixed.rds"))
+
+test_that("loo_hazard leaves out whole individuals of either kind of assay", {
+  expect_no_message(out <- loo_hazard(fit_mixed), class = "rTFT_loo_unit")
+  expect_s3_class(out, "psis_loo")
+  expect_equal(out$unit, "id")
+  expect_equal(nrow(out$pointwise), 50)
+  expect_true(all(is.finite(out$pointwise[, "elpd_loo"])))
+  # an individual's log-likelihood is the sum of its rows, whether they end in a
+  # failure between two checks, in a failure at a known time or in neither
+  ll <- brms::log_lik(fit_mixed)
+  id <- fit_mixed$rtft$id
+  by_hand <- vapply(unique(id), \(i) rowSums(ll[, id == i, drop = FALSE]),
+                    numeric(nrow(ll)))
+  expect_equal(unname(.sum_by_unit(ll, id)), unname(by_hand))
 })

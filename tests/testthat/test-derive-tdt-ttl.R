@@ -83,6 +83,7 @@ test_that("a matrix time argument keeps its dimensions", {
 test_that("an unknown baseline errors with the shared condition class", {
   expect_error(H0_of("nope"), class = "rTFT_unknown_baseline")
   expect_error(H0inv_of("nope"), class = "rTFT_unknown_baseline")
+  expect_error(H0_of(factor("weibull")), class = "rTFT_bad_baseline")
 })
 
 
@@ -928,3 +929,46 @@ test_that("derive_dctmax refuses bad arguments", {
   expect_error(derive_dctmax(list(), 0.3, 20), class = "rTFT_not_brmsfit")
 })
 
+
+
+# ===========================================================================
+# 9. A fitted model of static and ramping trials together
+# ===========================================================================
+
+# A small fitted model saved as a fixture (made by fixtures/make-hazard-fit-mixed.R):
+# three static trials checked every 5 minutes and two ramps watched throughout, with
+# the exponential failure rate, the memoryless baseline and no covariate, simulated
+# with log a = -5 at a reference of 20 degC and b = 0.4 per degC. 600 draws.
+fit_mixed   <- readRDS(test_path("fixtures", "hazard-fit-mixed.rds"))
+coefs_mixed <- as.data.frame(posterior::as_draws_df(fit_mixed))
+
+test_that("sCTmax and dCTmax of a fit of both kinds of assay match their closed forms", {
+  cf <- coefs_mixed[.thin_ids(600, 50), ]
+  a  <- exp(cf$b_loga_Intercept)
+  b  <- exp(cf$b_logb_Intercept)
+  # sCTmax, as for the fit of one ramp: T = Tr + (log(-log(1 - p) / t_ref) - loga) / b
+  out <- derive_tdt_ttl(fit_mixed, p = 0.5, t_ref = 60, n_draws = 50)
+  expect_named(out, c("params", "sctmax", "tdt_curves", "ttl_surface"))
+  T_by_hand <- 20 + (log(-log(0.5) / 60) - log(a)) / b
+  summary_columns <- c("median", "lower", "upper", "prob", "n_draws", "n_unreached")
+  expect_equal(out$sctmax[summary_columns], .draw_summary(T_by_hand), tolerance = 1e-7)
+  # dCTmax under a ramp that starts at the reference temperature: one half have
+  # failed when a (exp(b r t) - 1) / (b r) = log(2)
+  ramp <- suppressMessages(
+    derive_dctmax(fit_mixed, rate = 0.25, T_start = 20, n_draws = 50))
+  closed <- 20 + log1p(log(2) * b * 0.25 / a) / b
+  expect_equal(ramp$median, stats::median(closed), tolerance = 1e-5)
+  expect_equal(ramp$n_unreached, 0L)
+})
+
+
+test_that("a fit of both kinds of assay covers the values the data were simulated from", {
+  out <- derive_tdt_ttl(fit_mixed, p = 0.5, t_ref = 60)
+  covers <- function(row, truth) row$lower < truth && truth < row$upper
+  expect_true(covers(out$params[out$params$quantity == "a", ], exp(-5)))
+  expect_true(covers(out$params[out$params$quantity == "b", ], 0.4))
+  expect_true(covers(out$sctmax, 20 + (log(-log(0.5) / 60) + 5) / 0.4))
+  # the curves and the landscape are defined over the whole of their grids
+  expect_true(all(is.finite(out$tdt_curves$median)))
+  expect_true(all(out$ttl_surface$median >= 0 & out$ttl_surface$median <= 1))
+})

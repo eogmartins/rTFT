@@ -148,7 +148,7 @@ of controls failed over a time t, c is about -log(1 - q) / t, so for instance
 \examples{
 # A ramp from 20 to 35 degrees over 60 minutes, with two failures.
 path   <- ramp_path("A", T_start = 20, rate = 0.25, t_max = 60)
-checks <- data.frame(path_id = "A", time = seq(0, 60, by = 10))
+checks <- data.frame(path_id = "A", time = seq(0, 60, by = 1))
 ind    <- data.frame(id = 1:3, path_id = "A", event = c(1, 1, 0),
                      t_upper = c(30, 40, 60), acclim = c(10, 15, 15))
 long   <- build_hazard_data(ind, path, "interval", covariates = "acclim",
