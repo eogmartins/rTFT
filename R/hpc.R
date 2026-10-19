@@ -169,7 +169,22 @@
 }
 
 
-# .bundle_files() / .bundle_checksums() ----------------------------------------
+# .check_rtft_version() --------------------------------------------------------
+
+# Check that the installed rTFT is the version that wrote the bundle, as recorded in
+# `settings`, the bundle's settings, and return the installed version.
+.check_rtft_version <- function(settings) {
+  installed <- .installed_rtft_version()
+  if (!identical(installed, settings$rtft_version))
+    cli::cli_abort(c(
+      "The installed rTFT is version {.val {installed}}, and the bundle was written by version {.val {settings$rtft_version}}.",
+      "i" = "Run {.code bash install.sh}, which installs the version that wrote the bundle, so that the models fitted here are the ones written there."
+    ), class = "rTFT_version_differs")
+  installed
+}
+
+
+# .bundle_files() / .bundle_checksums() / .verify_bundle() ---------------------
 
 # The files of the folder `bundle/` of the bundle in `dir` that are checked for
 # changes, with paths relative to `dir`.
@@ -182,6 +197,33 @@
 .bundle_checksums <- function(dir) {
   files <- .bundle_files(dir)
   stats::setNames(unname(tools::md5sum(file.path(dir, files))), files)
+}
+
+# Check that `dir` holds a complete bundle whose files are all as they were written,
+# by their checksums, and return the checksums of the files found, invisibly. A file
+# missing, changed since or added since is an error, so a copy that was cut short or
+# a file edited by hand is found before anything is fitted or assembled.
+.verify_bundle <- function(dir) {
+  needed <- file.path("bundle", c("data.rds", "models.rds", "settings.rds",
+                                  "tasks-fit.csv", "checksums.txt"))
+  missing <- needed[!file.exists(file.path(dir, needed))]
+  if (length(missing))
+    cli::cli_abort(c(
+      "{.path {dir}} is not a complete bundle: {.file {missing}} {?is/are} missing.",
+      "i" = "Copy the whole folder written by {.fn write_hpc_bundle} again."
+    ), class = "rTFT_bad_bundle")
+  recorded <- utils::read.table(file.path(dir, "bundle", "checksums.txt"),
+                                col.names = c("md5", "file"), colClasses = "character")
+  found <- .bundle_checksums(dir)
+  now   <- unname(found[recorded$file])          # missing for a file no longer there
+  changed <- c(recorded$file[is.na(now) | now != recorded$md5],
+               setdiff(names(found), recorded$file))       # and a file added since
+  if (length(changed))
+    cli::cli_abort(c(
+      "{cli::qty(length(changed))}{?This file/These files} of the bundle {?is/are} not as {?it was/they were} written: {.file {changed}}.",
+      "i" = "The copy may have been cut short, or a file edited. Copy the folder again; to change the run, write a new bundle."
+    ), class = "rTFT_bundle_changed")
+  invisible(found)
 }
 
 
@@ -475,37 +517,13 @@ write_hpc_bundle <- function(models, long, dir, account,
 #' }
 #' @export
 check_hpc_bundle <- function(dir = ".") {
-  needed <- file.path("bundle", c("data.rds", "models.rds", "settings.rds",
-                                  "tasks-fit.csv", "checksums.txt"))
-  missing <- needed[!file.exists(file.path(dir, needed))]
-  if (length(missing))
-    cli::cli_abort(c(
-      "{.path {dir}} is not a complete bundle: {.file {missing}} {?is/are} missing.",
-      "i" = "Copy the whole folder written by {.fn write_hpc_bundle} again."
-    ), class = "rTFT_bad_bundle")
-
   # every file as it was written
-  recorded <- utils::read.table(file.path(dir, "bundle", "checksums.txt"),
-                                col.names = c("md5", "file"), colClasses = "character")
-  found <- .bundle_checksums(dir)
-  now   <- unname(found[recorded$file])          # missing for a file no longer there
-  changed <- c(recorded$file[is.na(now) | now != recorded$md5],
-               setdiff(names(found), recorded$file))       # and a file added since
-  if (length(changed))
-    cli::cli_abort(c(
-      "{cli::qty(length(changed))}{?This file/These files} of the bundle {?is/are} not as {?it was/they were} written: {.file {changed}}.",
-      "i" = "The copy may have been cut short, or a file edited. Copy the folder again; to change the run, write a new bundle."
-    ), class = "rTFT_bundle_changed")
+  found <- .verify_bundle(dir)
   settings <- readRDS(file.path(dir, "bundle", "settings.rds"))
   models   <- readRDS(file.path(dir, "bundle", "models.rds"))
 
   # the software that will fit the models
-  installed <- .installed_rtft_version()
-  if (!identical(installed, settings$rtft_version))
-    cli::cli_abort(c(
-      "The installed rTFT is version {.val {installed}}, and the bundle was written by version {.val {settings$rtft_version}}.",
-      "i" = "Run {.code bash install.sh}, which installs the version that wrote the bundle, so that the models fitted here are the ones written there."
-    ), class = "rTFT_version_differs")
+  installed <- .check_rtft_version(settings)
   if (!.has_cmdstanr())
     cli::cli_abort(c(
       "The {.pkg cmdstanr} package is not installed in this R.",
