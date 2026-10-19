@@ -28,10 +28,11 @@ the bundle; that cmdstanr is installed and finds CmdStan; and that every model o
 the bundle can be assembled on its data. The first problem stops the check, with
 an error that says what to do about it.
 
-The version is compared by its number. Between releases, two copies of a
-development version can share a number and differ in their code, so the check
-cannot tell them apart; the bundle installs rTFT from the commit it names when it
-can (see \code{rtft_source} in \code{\link[=write_hpc_bundle]{write_hpc_bundle()}}).
+The version is compared by its number and, when both the rTFT that wrote the
+bundle and the one installed came from GitHub, by the commit each was installed
+from, since copies of a development version share a number and can differ in
+their code. A copy installed from a folder on your own machine has no commit to
+compare, so for it only the number is checked.
 }
 \examples{
 \dontrun{

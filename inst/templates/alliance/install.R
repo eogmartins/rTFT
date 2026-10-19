@@ -20,24 +20,42 @@ repos <- c(stan = "https://stan-dev.r-universe.dev",
 not_installed <- function(package) !requireNamespace(package, quietly = TRUE)
 
 # rTFT, at the version that wrote the bundle, with brms and the other packages it
-# needs.
-wanted <- "{{rtft_version}}"
-have   <- if (not_installed("rTFT")) "none" else
-  as.character(utils::packageVersion("rTFT"))
-if (!identical(have, wanted)) {
+# needs. Copies of a development version share a number and can differ in their code,
+# so when the bundle records the commit it was written by, the commit must match too.
+wanted        <- "{{rtft_version}}"
+wanted_commit <- "{{rtft_commit}}"
+commit_of <- function(lib = NULL) {
+  d <- utils::packageDescription("rTFT", lib.loc = lib)
+  if (identical(d$RemoteType, "github") && !is.null(d$RemoteSha)) d$RemoteSha else ""
+}
+have        <- "none"
+have_commit <- ""
+if (!not_installed("rTFT")) {
+  have        <- as.character(utils::packageVersion("rTFT"))
+  have_commit <- commit_of()
+}
+same_commit <- !nzchar(wanted_commit) || identical(have_commit, wanted_commit)
+if (!identical(have, wanted) || !same_commit) {
   cat(paste0("rTFT: installing version ", wanted, " from {{rtft_source}} (installed: ",
              have, ")\n"))
   if (not_installed("remotes"))
     install.packages("remotes", lib = library_dir, repos = repos)
   remotes::install_github("{{rtft_source}}", lib = library_dir, repos = repos,
                           upgrade = "never", force = TRUE)
-  # The source may hold another version than the one that wrote the bundle (e.g., 
-  # a branch that has moved on); then the bundle cannot be run with it.
-  got <- as.character(utils::packageVersion("rTFT", lib.loc = library_dir))
+  # The source may hold another version or commit than the one that wrote the bundle
+  # (e.g., a branch that has moved on); then the bundle cannot be run with it.
+  got        <- as.character(utils::packageVersion("rTFT", lib.loc = library_dir))
+  got_commit <- commit_of(library_dir)
   if (!identical(got, wanted))
     stop("{{rtft_source}} holds rTFT ", got, ", and the bundle was written by ",
          wanted, ". Write the bundle again, with rtft_source naming the commit of ",
          wanted, ".", call. = FALSE)
+  if (nzchar(wanted_commit) && !identical(got_commit, wanted_commit))
+    stop("{{rtft_source}} holds the rTFT of commit ", substr(got_commit, 1, 7),
+         ", and the bundle was written by that of commit ",
+         substr(wanted_commit, 1, 7),
+         ". Write the bundle again, with rtft_source naming that commit.",
+         call. = FALSE)
 } else {
   cat("rTFT", wanted, "is installed\n")
 }

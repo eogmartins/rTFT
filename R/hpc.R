@@ -14,7 +14,7 @@
 # ===========================================================================
 
 # .has_cmdstanr() / .cmdstan_found() / .on_windows() / .installed_rtft_version()
-# .rtft_source()
+# .installed_rtft_commit() / .rtft_source()
 
 # Whether the cmdstanr package is installed. It is the interface to CmdStan that the
 # cluster's fits use, and a suggested package, since it is not on CRAN.
@@ -34,6 +34,15 @@
 
 # The version of rTFT that is installed, as a character string.
 .installed_rtft_version <- function() as.character(utils::packageVersion("rTFT"))
+
+# The commit the installed rTFT was installed from, read from `d`, its description: the
+# full identifier GitHub gives it, when it came from GitHub, and NA otherwise (a
+# release from an archive, or a copy on this machine).
+.installed_rtft_commit <- function(d = utils::packageDescription("rTFT")) {
+  if (identical(d$RemoteType, "github") && !is.null(d$RemoteSha)) return(d$RemoteSha)
+  NA_character_
+}
+
 
 # Where the cluster can install the rTFT that is installed here, as
 # remotes::install_github() takes it, read from `d`, its description, or NA when that
@@ -172,13 +181,26 @@
 # .check_rtft_version() --------------------------------------------------------
 
 # Check that the installed rTFT is the version that wrote the bundle, as recorded in
-# `settings`, the bundle's settings, and return the installed version.
+# `settings`, the bundle's settings, and return the installed version. Copies of a
+# development version share a number and can differ in their code, so where both
+# the installed rTFT and the one that wrote the bundle came from GitHub, their
+# commits must be the same as well.
 .check_rtft_version <- function(settings) {
   installed <- .installed_rtft_version()
+  fix <- "Run {.code bash install.sh}, which installs the version that wrote the bundle, so that the models fitted here are the ones written there."
   if (!identical(installed, settings$rtft_version))
     cli::cli_abort(c(
       "The installed rTFT is version {.val {installed}}, and the bundle was written by version {.val {settings$rtft_version}}.",
-      "i" = "Run {.code bash install.sh}, which installs the version that wrote the bundle, so that the models fitted here are the ones written there."
+      "i" = fix
+    ), class = "rTFT_version_differs")
+  # a bundle written before the commit was recorded has none, and is not checked
+  # by it
+  wrote <- if (is.null(settings$rtft_commit)) NA_character_ else settings$rtft_commit
+  have  <- .installed_rtft_commit()
+  if (!is.na(wrote) && !is.na(have) && !identical(have, wrote))
+    cli::cli_abort(c(
+      "The installed rTFT {installed} is from commit {.val {substr(have, 1, 7)}}, and the bundle was written by the rTFT {installed} of commit {.val {substr(wrote, 1, 7)}}.",
+      "i" = fix
     ), class = "rTFT_version_differs")
   installed
 }
@@ -395,7 +417,7 @@ write_hpc_bundle <- function(models, long, dir, account,
   }
   dots$backend <- "cmdstanr"
   settings <- list(
-    rtft_version = installed,
+    rtft_version = installed, rtft_commit = .installed_rtft_commit(),
     brms_version = as.character(utils::packageVersion("brms")),
     created      = format(Sys.time(), "%Y-%m-%d %H:%M %Z"),
     observation  = plan$observation, unit = plan$unit, units = plan$units,
@@ -440,6 +462,7 @@ write_hpc_bundle <- function(models, long, dir, account,
     modules = paste(modules, collapse = " "),
     r_library = if (is.null(r_library)) "" else r_library,
     rtft_version = settings$rtft_version, rtft_source = rtft_source,
+    rtft_commit = if (is.na(settings$rtft_commit)) "" else settings$rtft_commit,
     contents = paste(strwrap(contents, width = 80), collapse = "\n"),
     n_models = nrow(models), n_fit_tasks = nrow(tasks_fit),
     n_kfold_tasks = n_refits,
@@ -500,10 +523,11 @@ write_hpc_bundle <- function(models, long, dir, account,
 #' the bundle can be assembled on its data. The first problem stops the check, with
 #' an error that says what to do about it.
 #'
-#' The version is compared by its number. Between releases, two copies of a
-#' development version can share a number and differ in their code, so the check
-#' cannot tell them apart; the bundle installs rTFT from the commit it names when it
-#' can (see `rtft_source` in [write_hpc_bundle()]).
+#' The version is compared by its number and, when both the rTFT that wrote the
+#' bundle and the one installed came from GitHub, by the commit each was installed
+#' from, since copies of a development version share a number and can differ in
+#' their code. A copy installed from a folder on your own machine has no commit to
+#' compare, so for it only the number is checked.
 #'
 #' @param dir A character string, the folder of the bundle. Defaults to the working
 #'   folder, which is where `check.sh` runs it.

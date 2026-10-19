@@ -148,7 +148,8 @@ test_that("the scripts are filled in from the template, with nothing left to fil
     expect_false(any(grepl("{{", readLines(file.path(dir, file)), fixed = TRUE)))
   # the version to install, and where from
   install <- readLines(file.path(dir, "install.R"))
-  expect_true(paste0('wanted <- "', utils::packageVersion("rTFT"), '"') %in% install)
+  expect_true(any(grepl(paste0('^wanted +<- "', utils::packageVersion("rTFT"), '"$'),
+                        install)))
   expect_true(any(grepl('remotes::install_github("eogmartins/rTFT@dev-0.2.0"', install,
                         fixed = TRUE)))
   # what the bundle holds, said with its plurals
@@ -205,6 +206,11 @@ test_that("the source of rTFT on the cluster is read from how it was installed h
   expect_equal(.rtft_source(from_github), "eogmartins/rTFT@3c690c9abc")
   expect_equal(.rtft_source(list(Version = "0.1.0")), "eogmartins/rTFT@v0.1.0")
   expect_true(is.na(.rtft_source(list(Version = "0.1.0.9000"))))
+  # and the commit it came from, which only an install from GitHub records
+  expect_equal(.installed_rtft_commit(from_github), "3c690c9abc")
+  expect_true(is.na(.installed_rtft_commit(list(Version = "0.1.0"))))
+  expect_true(is.na(.installed_rtft_commit(list(Version = "0.1.0.9000",
+                                                RemoteType = "local"))))
   # a development version from a local copy must be told where to come from
   dir <- file.path(withr::local_tempdir(), "run")
   local_mocked_bindings(.rtft_source = function(...) NA_character_)
@@ -409,6 +415,35 @@ test_that("check_hpc_bundle refuses another version of rTFT, and missing softwar
   expect_error(check_hpc_bundle(dir), class = "rTFT_needs_cmdstanr")
   local_mocked_bindings(.has_cmdstanr = function() TRUE, .cmdstan_found = function() FALSE)
   expect_error(check_hpc_bundle(dir), class = "rTFT_no_cmdstan")
+})
+
+
+test_that("copies of one version are told apart by their commits, where both have one", {
+  with_cmdstan()
+  sha_a <- "3c690c9abc0000000000000000000000000000aa"
+  sha_b <- "e15b42aef00000000000000000000000000000bb"
+  local_mocked_bindings(.installed_rtft_commit = function(...) sha_a)
+  dir <- write_quietly()
+  expect_equal(readRDS(file.path(dir, "bundle", "settings.rds"))$rtft_commit, sha_a)
+  # the install reinstalls when the commit differs, and checks what it installed
+  install <- readLines(file.path(dir, "install.R"))
+  expect_true(any(grepl(paste0('^wanted_commit <- "', sha_a, '"$'), install)))
+  expect_no_error(parse(text = install))
+  expect_true(suppressMessages(check_hpc_bundle(dir)))
+  # another commit of the same version is refused
+  local_mocked_bindings(.installed_rtft_commit = function(...) sha_b)
+  expect_error(check_hpc_bundle(dir), class = "rTFT_version_differs")
+  expect_match(tryCatch(check_hpc_bundle(dir), error = conditionMessage), "e15b42a",
+               fixed = TRUE)
+  # a copy without a commit, installed from a folder, is checked by its number alone
+  local_mocked_bindings(.installed_rtft_commit = function(...) NA_character_)
+  expect_true(suppressMessages(check_hpc_bundle(dir)))
+  # and so is a bundle that recorded none
+  plain <- write_quietly()
+  expect_true(is.na(readRDS(file.path(plain, "bundle", "settings.rds"))$rtft_commit))
+  expect_true('wanted_commit <- ""' %in% readLines(file.path(plain, "install.R")))
+  local_mocked_bindings(.installed_rtft_commit = function(...) sha_b)
+  expect_true(suppressMessages(check_hpc_bundle(plain)))
 })
 
 

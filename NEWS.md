@@ -23,7 +23,7 @@
   and modules are written once, in the folder's `settings.sh`.
 * `check_hpc_bundle()`, run on the cluster by the folder's `check.sh`, checks by
   their checksums that the files arrived unchanged, that the installed rTFT is
-  the version that wrote them, that cmdstanr finds CmdStan, and that every model
+  the version that wrote them (and, between releases, from the same commit), that cmdstanr finds CmdStan, and that every model
   can be assembled, before anything is submitted.
 
 ## Bug fixes
