@@ -40,6 +40,10 @@
   (out of time, out of memory, or for a reason of its own), and gives the
   command that submits again only the tasks not done, leaving out those still
   waiting in the queue or running.
+* `collect_hpc()` assembles the results, once they have been copied back, into
+  what `fit_hazard_models()` returns. Each result carries the checksums of the
+  bundle it was computed from, so it is never assembled with another; models
+  and folds without a result are named.
 
 ## Bug fixes
 

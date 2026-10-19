@@ -45,5 +45,6 @@ hpc_status()
 }
 }
 \seealso{
-\code{\link[=run_hpc_task]{run_hpc_task()}}, which runs a task.
+\code{\link[=run_hpc_task]{run_hpc_task()}}, which runs a task, and \code{\link[=collect_hpc]{collect_hpc()}}, which assembles
+the results.
 }

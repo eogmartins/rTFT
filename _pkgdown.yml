@@ -80,6 +80,7 @@ reference:
   - check_hpc_bundle
   - run_hpc_task
   - hpc_status
+  - collect_hpc
 - title: Predicting survival
   contents:
   - predict_survival

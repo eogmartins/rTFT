@@ -85,3 +85,20 @@ What to do
      MEM_PER_CPU in settings.sh first. The command leaves out tasks still
      waiting or running; do not submit those again by hand, or they will run
      twice.
+
+  8. When status.sh says every task is done, copy the results back, in a
+     terminal on your own computer, not the one connected to the cluster:
+
+       {{copy_back_command}}
+
+     results/ holds every fit, and can take some gigabytes. If you have moved
+     the bundle's folder on your computer since writing it, change the path
+     in the command, and in step 9.
+
+  9. Assemble them in R, on your own computer:
+
+       out <- rTFT::collect_hpc("{{local_path}}")
+       out$summary
+
+     You can collect before every task is done: models without a result yet
+     are named, and step 8 can be run again to bring back the rest.

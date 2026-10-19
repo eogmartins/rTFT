@@ -614,12 +614,14 @@ fit_hazard_models <- function(models, long,
 # results when `kfold` says they were asked for.
 .report_models <- function(model_summary, rhat, ess, divergent, kfold = FALSE) {
   fitted <- model_summary$status == "fitted"
-  failed <- model_summary$model[!fitted]
+  failed <- model_summary$model[model_summary$status == "failed"]
   if (length(failed))
     cli::cli_warn(c(
       "!" = "{length(failed)} of the {nrow(model_summary)} model{?s} could not be fitted: {.val {failed}}.",
       "i" = "The reason for each is in {.field message} of the summary.",
-      "i" = if (any(fitted)) "The other models were fitted."
+      # not said of a collection from a cluster with models still missing
+      "i" = if (any(fitted) && sum(fitted) + length(failed) == nrow(model_summary))
+        "The other models were fitted."
     ), class = "rTFT_models_failed")
   unmet <- model_summary$model[fitted & !model_summary$converged]
   if (length(unmet))

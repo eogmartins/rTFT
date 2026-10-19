@@ -144,7 +144,7 @@
 }
 
 
-# .copy_command() ---------------------------------------------------------------
+# .copy_command() / .copy_back_command() ---------------------------------------
 
 # The command that copies the bundle at `local_path` to the folder `remote_folder` of
 # the cluster `ssh_target`, as lines to write into README.txt, and a note on it,
@@ -175,6 +175,19 @@
       "above the one on the cluster, the second copies the bundle into it, which",
       "must not exist yet. Graphical tools do the same: Globus, WinSCP or MobaXterm,",
       "which the Alliance documents."))
+}
+
+
+# The command that copies the folder results/ of the bundle from the folder
+# `remote_folder` of the cluster `ssh_target` back into the bundle at `local_path`,
+# as lines to write into README.txt: one rsync command over three lines, or on
+# Windows, with `windows`, one scp command, which copies the folder into the bundle.
+.copy_back_command <- function(local_path, ssh_target, remote_folder, windows) {
+  if (!windows)
+    return(c("rsync -av \\",
+             sprintf("  %s:%s/results/ \\", ssh_target, remote_folder),
+             sprintf('  "%s/results/"', local_path)))
+  sprintf('scp -r %s:%s/results "%s"', ssh_target, remote_folder, local_path)
 }
 
 
@@ -261,10 +274,10 @@
 .verify_bundle <- function(dir) {
   needed <- file.path("bundle", c("data.rds", "models.rds", "settings.rds",
                                   "tasks-fit.csv", "checksums.txt"))
-  missing <- needed[!file.exists(file.path(dir, needed))]
-  if (length(missing))
+  absent <- needed[!file.exists(file.path(dir, needed))]
+  if (length(absent))
     cli::cli_abort(c(
-      "{.path {dir}} is not a complete bundle: {.file {missing}} {?is/are} missing.",
+      "{.path {dir}} is not a complete bundle: {.file {absent}} {?is/are} missing.",
       "i" = "Copy the whole folder written by {.fn write_hpc_bundle} again."
     ), class = "rTFT_bad_bundle")
   recorded <- utils::read.table(file.path(dir, "bundle", "checksums.txt"),
@@ -393,8 +406,9 @@
 #'   [fit_hazard()] takes.
 #' @return The path of the bundle, invisibly. A message says what was written and
 #'   what to do next.
-#' @seealso [check_hpc_bundle()], which checks the bundle on the cluster, and
-#'   [hpc_status()], which says what its tasks have done.
+#' @seealso [check_hpc_bundle()], which checks the bundle on the cluster,
+#'   [hpc_status()], which says what its tasks have done, and [collect_hpc()], which
+#'   assembles their results.
 #' @examples
 #' # a small ramping assay in two trials (see fit_hazard())
 #' path   <- data.frame(path_id = "A", time = c(0, 60), temp = c(20, 35))
@@ -495,6 +509,7 @@ write_hpc_bundle <- function(models, long, dir, account,
   local_path    <- file.path(normalizePath(dirname(dir), winslash = "/",
                                            mustWork = FALSE), basename(dir))
   copy <- .copy_command(local_path, ssh_target, remote_folder, .on_windows())
+  copy_back <- .copy_back_command(local_path, ssh_target, remote_folder, .on_windows())
   # what the bundle holds, as a sentence with its plurals, for README.txt
   plural   <- function(n, word) paste(n, if (n == 1) word else paste0(word, "s"))
   n_refits <- if (kfold) nrow(tasks_kfold) else 0
@@ -517,6 +532,8 @@ write_hpc_bundle <- function(models, long, dir, account,
     n_kfold_tasks = n_refits,
     copy_command = paste(copy$command, collapse = "\n       "),
     copy_note = paste(strwrap(copy$note, width = 74), collapse = "\n     "),
+    copy_back_command = paste(copy_back, collapse = "\n       "),
+    local_path = local_path,
     ssh_target = ssh_target, remote_folder = remote_folder)
   # Filled before anything is written, so that a template that cannot be filled
   # leaves no half-written bundle behind. A plain loop, so that its error reaches
@@ -828,8 +845,8 @@ check_hpc_bundle <- function(dir = ".") {
 #' (`fit-001.previous.csv`), so that a task running again is seen as started. A
 #' result is written under another name and renamed when complete, so a task stopped
 #' at the end of its wall time leaves no result that looks complete. Every result is
-#' stamped with the checksums of the bundle, so that it is never assembled with
-#' another bundle.
+#' stamped with the checksums of the bundle, so that [collect_hpc()] never assembles
+#' it with another bundle.
 #'
 #' @param dir A character string, the folder of the bundle. Defaults to the working
 #'   folder, which is where `task.sh` runs it.
@@ -1092,7 +1109,8 @@ run_hpc_task <- function(dir = ".", stage = "fit",
 #' @return A data frame with one row per task, invisibly: its `stage` (`"fit"` or
 #'   `"kfold"`), `task` number, `model`, `fold` (`NA` for a fit), `status`, the
 #'   `reason` a task is not done, and the `seconds` it took. A message summarises it.
-#' @seealso [run_hpc_task()], which runs a task.
+#' @seealso [run_hpc_task()], which runs a task, and [collect_hpc()], which assembles
+#'   the results.
 #' @examples
 #' \dontrun{
 #' # on the cluster, from the folder of the bundle; status.sh runs the same
@@ -1162,7 +1180,7 @@ hpc_status <- function(dir = ".") {
   cli::cli_inform(c(
     stats::setNames(as_is(counts), rep("*", length(counts))),
     listed,
-    "v" = if (!nrow(not_done)) "Every task is done.",
+    "v" = if (!nrow(not_done)) "Every task is done. Copy {.file results/} back to your own computer as step 8 of {.file README.txt} says, and assemble the results there with {.fn collect_hpc}.",
     "i" = if (nrow(again)) "To submit again the tasks not done, and only those:",
     " " = if (nrow(again)) "{command}",
     "i" = if (running) "A task started without a record of its end may still be running; {.code sq} lists the tasks waiting or running.",
@@ -1170,4 +1188,211 @@ hpc_status <- function(dir = ".") {
     " " = if (nrow(queued)) "{if_gone}"
   ), class = "rTFT_hpc_status")
   invisible(states)
+}
+
+
+# ===========================================================================
+# 6. Collecting the results
+# ===========================================================================
+
+# .read_result() / .collect_kfold() / .say_other_version() ---------------------
+
+# The result of task `task` of `stage` in the bundle in `dir`, whose identity is
+# `id`: what run_hpc_task() wrote when the task ended well; an error holding its
+# reason, with the `seconds` it took, when it failed; or NULL when it has no record
+# of how it ended. A result stamped with another bundle is an error, since it was
+# computed from other data or other models, and so is a record or a result that
+# cannot be read whole, as a copy cut short leaves it.
+.read_result <- function(dir, stage, task, id) {
+  csv  <- .task_file(dir, stage, task, "csv")
+  file <- .task_file(dir, stage, task, "rds")
+  unreadable <- function(what) cli::cli_abort(c(
+    "{.file {what}} cannot be read whole.",
+    "i" = "The copy back may have been cut short: copy {.file results/} back again."
+  ), class = "rTFT_result_unreadable")
+  record <- tryCatch(.read_record(dir, stage, task), error = function(e) list())
+  if (!file.exists(csv)) return(NULL)
+  # one value of each, present: a record cut short can have fewer columns, or none
+  # of its one row
+  one <- function(x) length(x) == 1L && !is.na(x) && nzchar(x)
+  if (!one(record$status) || !one(record$bundle)) unreadable(basename(csv))
+  foreign <- function(what) cli::cli_abort(c(
+    "{.file {what}} was written for another bundle than the one in {.path {dir}}.",
+    "i" = "Results are assembled only with the bundle that computed them: copy the {.file results/} of this bundle into its own folder."
+  ), class = "rTFT_result_not_of_bundle")
+  if (!identical(record$bundle, id)) foreign(basename(csv))
+  if (record$status == "failed") {
+    err <- simpleError(record$message)
+    err$seconds <- as.numeric(record$seconds)
+    return(err)
+  }
+  if (!file.exists(file)) return(NULL)
+  res <- tryCatch(readRDS(file), error = function(e) unreadable(basename(file)))
+  if (!identical(res$bundle, id)) foreign(basename(file))
+  res
+}
+
+# Assemble the results by refitting of each model named in `fitted`, from the refits
+# of the bundle in `dir` (whose identity is `id`, and whose `settings` give the unit
+# and the folds), as kfold_hazard() assembles them, and return a list of two
+# elements: `kfold`, the results by model, and `errors`, the reason each model left
+# out has none: a fold with no result, a fold that failed, or a log predictive
+# density that is undefined (NaN).
+.collect_kfold <- function(dir, settings, fitted, id) {
+  tasks  <- .read_tasks(dir, "kfold")
+  folds  <- settings$folds[settings$units]
+  kfold  <- list()
+  errors <- character(0)
+  for (m in fitted) {
+    mine   <- tasks[tasks$model == m, ]
+    elpd   <- stats::setNames(rep(NA_real_, length(folds)), names(folds))
+    scored <- stats::setNames(rep(FALSE, length(folds)), names(folds))
+    problems <- character(0)
+    for (j in seq_len(nrow(mine))) {
+      k   <- mine$fold[j]
+      res <- .read_result(dir, "kfold", mine$task[j], id)
+      if (is.null(res)) {
+        problems <- c(problems, sprintf("fold %d has no result", k))
+      } else if (inherits(res, "error")) {
+        problems <- c(problems,
+                      sprintf("fold %d failed (%s)", k, conditionMessage(res)))
+      } else if (!setequal(names(res$elpd), names(folds)[folds == k])) {
+        problems <- c(problems, sprintf("fold %d scored other units than its own", k))
+      } else {
+        elpd[names(res$elpd)]   <- res$elpd
+        scored[names(res$elpd)] <- TRUE
+      }
+    }
+    # An undefined score (NaN) is reported, never summed into an estimate. A score
+    # of -Inf is kept, as kfold_hazard() keeps it: the refit gave the unit no
+    # chance at all, which is a result and not an undefined one.
+    bad <- names(elpd)[scored & is.na(elpd)]
+    if (length(bad))
+      problems <- c(problems, paste("the log predictive density is undefined for",
+                                    paste(bad, collapse = ", ")))
+    if (length(problems)) {
+      errors[[m]] <- paste0("Not cross-validated by refitting: ",
+                            paste(problems, collapse = "; "), ".")
+    } else {
+      kfold[[m]] <- .kfold_result(elpd, settings$unit, settings$K, folds)
+    }
+  }
+  list(kfold = kfold, errors = errors)
+}
+
+
+# Say, when the rTFT installed here is not the one that wrote the bundle whose
+# `settings` are given (another version, or another commit where both are known),
+# which made the fits and which reads them, and return nothing. The fits carry the
+# settings that the functions deriving and plotting results read, so a difference
+# is worth knowing as the fits are collected, rather than when one of those
+# functions fails far from its cause.
+.say_other_version <- function(settings) {
+  installed <- .installed_rtft_version()
+  have  <- .installed_rtft_commit()
+  wrote <- if (is.null(settings$rtft_commit)) NA_character_ else settings$rtft_commit
+  other_commit <- !is.na(have) && !is.na(wrote) && !identical(have, wrote)
+  if (identical(installed, settings$rtft_version) && !other_commit)
+    return(invisible(NULL))
+  of <- function(version, commit)
+    paste0(version, if (!is.na(commit)) paste0(" (commit ", substr(commit, 1, 7), ")"))
+  made  <- of(settings$rtft_version, wrote)
+  reads <- of(installed, have)
+  cli::cli_inform(c(
+    "i" = "These fits were made by rTFT {made}; this is rTFT {reads}.",
+    " " = "A newer rTFT reads fits of an older one; should a function fail on them, install the version that wrote the bundle to work with them."
+  ), class = "rTFT_collected_by_other_version")
+  invisible(NULL)
+}
+
+
+# collect_hpc() ----------------------------------------------------------------
+
+#' Assemble the results of a bundle run on a cluster
+#'
+#' Assembles the results of the tasks of a bundle written by [write_hpc_bundle()],
+#' once its folder `results/` has been copied back from the cluster, into what
+#' [fit_hazard_models()] returns: the fits, their cross-validation results and a
+#' summary of one row per model, ready for [hazard_weights()] and the functions that
+#' average models.
+#'
+#' Nothing is assembled from a bundle whose files have changed since it was written,
+#' or with a result computed from another bundle: the files are checked against their
+#' checksums, and each result against the stamp of the bundle that computed it.
+#'
+#' The convergence rule of the bundle is applied to each fit and reported as
+#' [fit_hazard_models()] reports it. A model whose fit failed is reported with its
+#' reason, and one whose fit has no result yet (its task did not run, or has not
+#' finished) is marked `"missing"` in the summary and named in a warning, so the
+#' results can be looked at before every task is done. A model is cross-validated by
+#' refitting only when every one of its folds has a result with a log predictive
+#' density defined for each of its units; otherwise the reason is given in the
+#' summary. A density of zero, a log predictive density of `-Inf`, is kept, as
+#' [kfold_hazard()] keeps it.
+#'
+#' @param dir A character string, the folder of the bundle, on your own computer,
+#'   with the folder `results/` copied back into it. Defaults to the working folder.
+#' @return A list with the four elements that [fit_hazard_models()] returns: `fits`,
+#'   `loo`, `kfold` and `summary`. In `summary`, `status` is `"fitted"`, `"failed"` or
+#'   `"missing"`, and `seconds` is the time each fit and its cross-validation took on
+#'   the cluster.
+#' @seealso [write_hpc_bundle()], which writes the bundle, and [hpc_status()], which
+#'   says what each task has done.
+#' @examples
+#' \dontrun{
+#' # on your own computer, once results/ has been copied back into the bundle
+#' out <- collect_hpc("my-run")
+#' out$summary
+#' weights <- hazard_weights(out$kfold)
+#' }
+#' @export
+collect_hpc <- function(dir = ".") {
+  .verify_bundle(dir)
+  id       <- .bundle_id(dir)
+  settings <- readRDS(file.path(dir, "bundle", "settings.rds"))
+  models   <- readRDS(file.path(dir, "bundle", "models.rds"))
+  tasks    <- .read_tasks(dir, "fit")
+  rule     <- settings$rule
+  kfold    <- isTRUE(settings$kfold)
+  .say_other_version(settings)
+
+  n <- nrow(models)
+  results <- vector("list", n)
+  rows    <- vector("list", n)
+  for (i in seq_len(n)) {
+    res <- .read_result(dir, "fit", tasks$task[tasks$model == models$model[i]], id)
+    no_result <- is.null(res)
+    if (no_result)
+      res <- simpleError("No result: its task did not run, or has not finished.")
+    seconds <- if (is.null(res$seconds)) NA_real_ else res$seconds
+    results[[i]] <- res
+    rows[[i]] <- .model_row(models[i, ], res, seconds, rule$rhat, rule$ess,
+                            rule$divergent)
+    if (no_result) rows[[i]]$status <- "missing"
+  }
+  model_summary <- purrr::list_rbind(rows)
+  fitted <- model_summary$status == "fitted"
+  named  <- function(what) stats::setNames(purrr::map(results[fitted], what),
+                                           models$model[fitted])
+  out <- list(fits = named("fit"), loo = named("loo"), kfold = NULL,
+              summary = model_summary)
+
+  if (kfold) {
+    cv <- .collect_kfold(dir, settings, names(out$fits), id)
+    out$kfold   <- cv$kfold
+    out$summary <- .kfold_columns(out$summary, cv$kfold, cv$errors)
+  }
+  absent <- model_summary$model[model_summary$status == "missing"]
+  if (length(absent))
+    cli::cli_warn(c(
+      "!" = "{length(absent)} of the {n} model{?s} {cli::qty(length(absent))}{?has/have} no result yet: {.val {absent}}.",
+      "i" = "{.code bash status.sh}, on the cluster, says why; copy {.file results/} back again when {cli::qty(length(absent))}{?it is/they are} done."
+    ), class = "rTFT_tasks_missing")
+  .report_models(out$summary, rule$rhat, rule$ess, rule$divergent, kfold)
+  refitted <- if (kfold)
+    paste0(", ", length(out$kfold), " cross-validated by refitting") else ""
+  cli::cli_inform(c(
+    "v" = "Collected {sum(fitted)} of the {n} model{?s}{refitted}."
+  ), class = "rTFT_hpc_collected")
+  out
 }

@@ -169,6 +169,7 @@ write_hpc_bundle(models, long, bundle, account = "def-someone", kfold = TRUE,
 list.files(bundle, recursive = TRUE)
 }
 \seealso{
-\code{\link[=check_hpc_bundle]{check_hpc_bundle()}}, which checks the bundle on the cluster, and
-\code{\link[=hpc_status]{hpc_status()}}, which says what its tasks have done.
+\code{\link[=check_hpc_bundle]{check_hpc_bundle()}}, which checks the bundle on the cluster,
+\code{\link[=hpc_status]{hpc_status()}}, which says what its tasks have done, and \code{\link[=collect_hpc]{collect_hpc()}}, which
+assembles their results.
 }

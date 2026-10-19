@@ -229,6 +229,10 @@ test_that("the scripts are filled in from the template, with nothing left to fil
   expect_match(readme, "someone@nibi.alliancecan.ca:scratch/run/", fixed = TRUE)
   # the copy makes the whole path of the folder on the cluster first
   expect_match(readme, 'rsync -av --rsync-path="mkdir -p scratch/run && rsync"', fixed = TRUE)
+  # and the results come back into the bundle, to be assembled there
+  expect_match(readme, "someone@nibi.alliancecan.ca:scratch/run/results/ \\", fixed = TRUE)
+  expect_match(readme, paste0('"', normalizePath(dir), '/results/"'), fixed = TRUE)
+  expect_match(readme, paste0('rTFT::collect_hpc("', normalizePath(dir), '")'), fixed = TRUE)
   for (file in scripts)
     expect_false(any(grepl("{{", readLines(file.path(dir, file)), fixed = TRUE)))
   # the version to install, and where from
@@ -346,6 +350,7 @@ test_that("README.txt gives the copy command of the system the bundle is written
   expect_match(windows, 'ssh someone@nibi.alliancecan.ca "mkdir -p scratch"', fixed = TRUE)
   expect_match(windows, "scp -r ", fixed = TRUE)
   expect_no_match(windows, "rsync", fixed = TRUE)
+  expect_match(windows, "scp -r someone@nibi.alliancecan.ca:scratch/run/results ", fixed = TRUE)
 })
 
 
@@ -730,6 +735,10 @@ test_that("a model keeps its name through the tables of the tasks, whatever it i
   expect_equal(vapply(record$calls, `[[`, "", "baseline"), c("mem", "weibull"))
   expect_identical(readRDS(.task_file(dir, "fit", 1, "rds"))$model, "NA")
   expect_identical(status_quietly(dir)$model, c("NA", "1", rep(c("NA", "1"), each = 3)))
+  out <- suppressMessages(suppressWarnings(collect_hpc(dir)))
+  expect_named(out$fits, c("NA", "1"))
+  expect_named(out$kfold, c("NA", "1"))
+  expect_identical(out$summary$model, c("NA", "1"))
 })
 
 
@@ -984,6 +993,7 @@ test_that("hpc_status says when every task is done, and what comes next", {
   expect_match(said, "Every task is done", fixed = TRUE)
   # and no line without words, such as an empty list of tasks would leave
   expect_true(all(grepl("[[:alpha:]]", strsplit(said, "\n")[[1]])))
+  expect_match(said, "collect_hpc()", fixed = TRUE)
   expect_no_match(said, "submit.sh", fixed = TRUE)
 })
 
@@ -1001,6 +1011,189 @@ test_that("a result written for another bundle, or that went missing, is not cou
   expect_equal(states$status[1:2], c("failed", "failed"))
   expect_match(states$reason[1], "another bundle", fixed = TRUE)
   expect_match(states$reason[2], "missing", fixed = TRUE)
+})
+
+
+# ===========================================================================
+# 7. Collecting the results (collect_hpc)
+# ===========================================================================
+
+test_that("collect_hpc returns what fit_hazard_models() returns for the same run", {
+  local_mocked_bindings(fit_hazard = stand_in_fit(new_record()),
+                        .refit_fold = stand_in_refit(new_record()))
+  dir <- trial_bundle()
+  run_all(dir)
+  expect_message(
+    out <- suppressWarnings(collect_hpc(dir)), class = "rTFT_hpc_collected")
+  set.seed(3)
+  ref <- suppressMessages(suppressWarnings(fit_hazard_models(
+    trial_models, long_trials, kfold = TRUE, K = 3, chains = 2, seed = 1,
+    sd_prior = "exponential(1)")))
+  expect_named(out, c("fits", "loo", "kfold", "summary"))
+  expect_identical(names(out$fits), c("exp_mem", "exp_weibull"))
+  expect_equal(out$fits$exp_mem, ref$fits$exp_mem)
+  expect_equal(out$loo, ref$loo)
+  expect_equal(names(out$summary), names(ref$summary))
+  expect_equal(dplyr::select(out$summary, -"seconds"), dplyr::select(ref$summary, -"seconds"))
+  expect_false(anyNA(out$summary$seconds))
+  # the refits are scored on the folds of the bundle, unit by unit
+  settings <- readRDS(file.path(dir, "bundle", "settings.rds"))
+  for (m in names(out$kfold)) {
+    expect_s3_class(out$kfold[[m]], c("kfold", "loo"))
+    expect_equal(out$kfold[[m]]$estimates, ref$kfold[[m]]$estimates)
+    expect_equal(out$kfold[[m]]$pointwise, ref$kfold[[m]]$pointwise)
+    expect_equal(out$kfold[[m]]$folds, settings$folds)
+    expect_equal(out$kfold[[m]]$K, 3)
+  }
+  expect_no_error(suppressMessages(hazard_weights(out$kfold)))
+})
+
+
+test_that("models and folds without a result are named, and the rest is collected", {
+  local_mocked_bindings(fit_hazard = stand_in_fit(new_record()),
+                        .refit_fold = stand_in_refit(new_record()))
+  dir <- trial_bundle()
+  run_quietly(dir, "fit", 1)
+  for (i in 1:2) run_quietly(dir, "kfold", i)
+  expect_warning(expect_warning(
+    out <- suppressMessages(suppressWarnings(
+      collect_hpc(dir), classes = c("rTFT_not_converged", "rTFT_loo_unreliable"))),
+    class = "rTFT_tasks_missing"), class = "rTFT_models_failed")
+  expect_equal(out$summary$status, c("fitted", "missing"))
+  expect_named(out$fits, "exp_mem")
+  expect_length(out$kfold, 0)
+  expect_match(out$summary$message[1], "fold 3 has no result", fixed = TRUE)
+  expect_match(out$summary$message[2], "No result", fixed = TRUE)
+  expect_true(all(is.na(out$summary$elpd_kfold)))
+  said <- message_of(collect_hpc(dir), "rTFT_tasks_missing")
+  expect_match(said, "1 of the 2 models has no result yet", fixed = TRUE)
+})
+
+
+test_that("a fit that failed is reported with its reason, and its refits are not sought", {
+  record <- new_record()
+  local_mocked_bindings(fit_hazard = stand_in_fit(record),
+                        .refit_fold = stand_in_refit(new_record()))
+  dir <- trial_bundle()
+  run_quietly(dir, "fit", 1)
+  for (i in 1:3) run_quietly(dir, "kfold", i)
+  record$fail <- TRUE
+  try(run_quietly(dir, "fit", 2), silent = TRUE)
+  out <- suppressMessages(suppressWarnings(collect_hpc(dir)))
+  expect_equal(out$summary$status, c("fitted", "failed"))
+  expect_match(out$summary$message[2], "the sampler stopped", fixed = TRUE)
+  expect_false(is.na(out$summary$seconds[2]))
+  expect_named(out$kfold, "exp_mem")
+})
+
+
+test_that("a model that failed is told apart from one that has no result yet", {
+  record <- new_record()
+  local_mocked_bindings(fit_hazard = stand_in_fit(record))
+  three <- build_hazard_models("exp", c("mem", "weibull", "llogis"),
+                               dpar_formulas = list(loga = ~ 1 + (1 | trial)))
+  dir <- trial_bundle(kfold = FALSE, models = three)
+  run_quietly(dir, "fit", 1)
+  record$fail <- TRUE
+  try(run_quietly(dir, "fit", 2), silent = TRUE)
+  # the third has not run: it is missing, not failed, and the others are not all
+  # said to have been fitted
+  failed <- message_of(collect_hpc(dir), "rTFT_models_failed")
+  expect_match(failed, "1 of the 3 models could not be fitted: \"exp_weibull\"")
+  expect_no_match(failed, "The other models were fitted", fixed = TRUE)
+  expect_match(message_of(collect_hpc(dir), "rTFT_tasks_missing"),
+               "1 of the 3 models has no result yet: \"exp_llogis\"")
+  # once it has run, every model is fitted or failed, and that is said
+  record$fail <- FALSE
+  run_quietly(dir, "fit", 3)
+  expect_match(message_of(collect_hpc(dir), "rTFT_models_failed"),
+               "The other models were fitted", fixed = TRUE)
+})
+
+
+test_that("a refit whose score is undefined is reported, and one of -Inf is kept", {
+  local_mocked_bindings(fit_hazard = stand_in_fit(new_record()),
+                        .refit_fold = stand_in_refit(new_record()))
+  dir <- trial_bundle()
+  run_all(dir)
+  # model 1, fold 2: an undefined score
+  file <- .task_file(dir, "kfold", 2, "rds")
+  res  <- readRDS(file)
+  res$elpd[1] <- NaN
+  saveRDS(res, file)
+  # model 2, fold 2: a unit given no chance at all
+  file <- .task_file(dir, "kfold", 5, "rds")
+  res  <- readRDS(file)
+  res$elpd[1] <- -Inf
+  saveRDS(res, file)
+  out <- suppressMessages(suppressWarnings(collect_hpc(dir)))
+  expect_named(out$kfold, "exp_weibull")
+  expect_match(out$summary$message[1],
+               paste("undefined for", names(res$elpd)[1]), fixed = TRUE)
+  expect_true(is.na(out$summary$elpd_kfold[1]))
+  # kept as kfold_hazard() keeps it: the estimate is -Inf
+  expect_equal(out$kfold$exp_weibull$estimates["elpd_kfold", "Estimate"], -Inf)
+  expect_equal(out$summary$elpd_kfold[2], -Inf)
+})
+
+
+test_that("a result or a record cut short in the copy back is named, and not read", {
+  local_mocked_bindings(fit_hazard = stand_in_fit(new_record()))
+  dir <- trial_bundle(kfold = FALSE)
+  for (i in 1:2) run_quietly(dir, "fit", i)
+  cut_in_half <- function(file) {
+    whole <- readBin(file, "raw", file.size(file))
+    writeBin(whole[seq_len(length(whole) %/% 2)], file)
+  }
+  cut_in_half(.task_file(dir, "fit", 2, "rds"))
+  expect_error(suppressWarnings(collect_hpc(dir)), class = "rTFT_result_unreadable")
+  expect_match(tryCatch(suppressWarnings(collect_hpc(dir)), error = conditionMessage),
+               "fit-002.rds", fixed = TRUE)
+  # a record cut short is not taken for one written by another bundle
+  file.copy(.task_file(dir, "fit", 1, "csv"), .task_file(dir, "fit", 2, "csv"),
+            overwrite = TRUE)
+  cut_in_half(.task_file(dir, "fit", 1, "csv"))
+  expect_error(suppressWarnings(collect_hpc(dir)), class = "rTFT_result_unreadable")
+  expect_match(tryCatch(suppressWarnings(collect_hpc(dir)), error = conditionMessage),
+               "fit-001.csv", fixed = TRUE)
+  writeBin(raw(0), .task_file(dir, "fit", 1, "csv"))                    # and empty
+  expect_error(suppressWarnings(collect_hpc(dir)), class = "rTFT_result_unreadable")
+})
+
+
+test_that("collecting with another rTFT than the one that fitted says so", {
+  local_mocked_bindings(fit_hazard = stand_in_fit(new_record()))
+  sha_a <- "3c690c9abc0000000000000000000000000000aa"
+  local_mocked_bindings(.installed_rtft_commit = function(...) sha_a)
+  dir <- trial_bundle(kfold = FALSE)
+  for (i in 1:2) run_quietly(dir, "fit", i)
+  quiet <- function(expr) suppressWarnings(expr)
+  # the same rTFT: nothing is said
+  expect_no_message(quiet(collect_hpc(dir)), class = "rTFT_collected_by_other_version")
+  # another commit of the same version
+  local_mocked_bindings(.installed_rtft_commit = function(...) "e15b42aef0")
+  said <- message_of(collect_hpc(dir), "rTFT_collected_by_other_version")
+  expect_match(said, "made by rTFT .* \\(commit 3c690c9\\); this is rTFT .* \\(commit e15b42a\\)")
+  # another version, installed from a folder (no commit): it still collects
+  local_mocked_bindings(.installed_rtft_version = function() "9.9.9",
+                        .installed_rtft_commit = function(...) NA_character_)
+  expect_message(out <- quiet(collect_hpc(dir)), class = "rTFT_collected_by_other_version")
+  expect_named(out$fits, c("exp_mem", "exp_weibull"))
+})
+
+
+test_that("results are never assembled with a bundle other than their own", {
+  local_mocked_bindings(fit_hazard = stand_in_fit(new_record()))
+  dir   <- trial_bundle(kfold = FALSE)
+  other <- trial_bundle(kfold = FALSE, seed = 2)
+  for (i in 1:2) run_quietly(other, "fit", i)
+  run_quietly(dir, "fit", 1)
+  file.copy(file.path(other, "results", c("fit-002.csv", "fit-002.rds")),
+            file.path(dir, "results"))
+  expect_error(suppressWarnings(collect_hpc(dir)), class = "rTFT_result_not_of_bundle")
+  # nor with a bundle whose files changed after the run
+  writeLines("x", file.path(other, "bundle", "extra.csv"))
+  expect_error(collect_hpc(other), class = "rTFT_bundle_changed")
 })
 
 

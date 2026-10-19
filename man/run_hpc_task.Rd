@@ -55,8 +55,8 @@ how an earlier attempt ended is moved aside when a task starts again
 (\verb{fit-001.previous.csv}), so that a task running again is seen as started. A
 result is written under another name and renamed when complete, so a task stopped
 at the end of its wall time leaves no result that looks complete. Every result is
-stamped with the checksums of the bundle, so that it is never assembled with
-another bundle.
+stamped with the checksums of the bundle, so that \code{\link[=collect_hpc]{collect_hpc()}} never assembles
+it with another bundle.
 }
 \examples{
 \dontrun{
