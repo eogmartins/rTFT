@@ -216,6 +216,9 @@ test_that("with kfold = TRUE the folds are assigned once and each refit is a tas
 
 
 test_that("the scripts are filled in from the template, with nothing left to fill", {
+  # the commands checked here are those written on macOS and Linux; Windows has its
+  # own, checked below
+  local_mocked_bindings(.on_windows = function() FALSE)
   dir <- write_quietly(chains = 3, time = "1-00:00:00", modules = c("StdEnv/2023", "r/4.4.0"),
                        r_library = "~/R/rtft",
                        remote = "someone@nibi.alliancecan.ca:scratch/run")
@@ -231,8 +234,11 @@ test_that("the scripts are filled in from the template, with nothing left to fil
   expect_match(readme, 'rsync -av --rsync-path="mkdir -p scratch/run && rsync"', fixed = TRUE)
   # and the results come back into the bundle, to be assembled there
   expect_match(readme, "someone@nibi.alliancecan.ca:scratch/run/results/ \\", fixed = TRUE)
-  expect_match(readme, paste0('"', normalizePath(dir), '/results/"'), fixed = TRUE)
-  expect_match(readme, paste0('rTFT::collect_hpc("', normalizePath(dir), '")'), fixed = TRUE)
+  # the paths are written with forward slashes on every system
+  expect_match(readme, paste0('"', normalizePath(dir, winslash = "/"), '/results/"'),
+               fixed = TRUE)
+  expect_match(readme, paste0('rTFT::collect_hpc("', normalizePath(dir, winslash = "/"),
+                              '")'), fixed = TRUE)
   for (file in scripts)
     expect_false(any(grepl("{{", readLines(file.path(dir, file)), fixed = TRUE)))
   # the version to install, and where from
@@ -339,6 +345,7 @@ test_that("the copy is one rsync command over three lines, or ssh and scp on Win
 
 test_that("README.txt gives the copy command of the system the bundle is written on", {
   remote <- "someone@nibi.alliancecan.ca:scratch/run"
+  local_mocked_bindings(.on_windows = function() FALSE)
   unix <- readLines(file.path(write_quietly(remote = remote), "README.txt"))
   first <- grep("rsync -av --rsync-path", unix, fixed = TRUE)
   expect_length(first, 1)
