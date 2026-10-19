@@ -15,16 +15,22 @@
 
 ## Running on a cluster
 
-* `write_hpc_bundle()` writes a table of models, its data and the settings of the
-  run into one folder, to be copied to a cluster that schedules its jobs with
-  Slurm, with scripts written for the clusters of the Digital Research Alliance
-  of Canada. The run is checked, the unit left out in cross-validation chosen and
-  the folds assigned before anything is written, and the account, time, memory
-  and modules are written once, in the folder's `settings.sh`.
+* `write_hpc_bundle()` writes a table of models, its data and the settings of
+  the run into one folder, to be copied to a cluster that schedules its jobs
+  with Slurm, with scripts written for the clusters of the Digital Research
+  Alliance of Canada. The run is checked, the unit left out in cross-validation
+  chosen and the folds assigned before anything is written, and the account,
+  time, memory and modules are written once, in the folder's `settings.sh`.
 * `check_hpc_bundle()`, run on the cluster by the folder's `check.sh`, checks by
   their checksums that the files arrived unchanged, that the installed rTFT is
-  the version that wrote them (and, between releases, from the same commit), that cmdstanr finds CmdStan, and that every model
-  can be assembled, before anything is submitted.
+  the version that wrote them (and, between releases, from the same commit),
+  that cmdstanr finds CmdStan, and that every model can be assembled, before
+  anything is submitted.
+* `run_hpc_task()` runs one task of a bundle on the cluster: it fits one model,
+  as `fit_hazard_models()` fits it, or refits one model without the units of one
+  fold, starting from the model's fit. A task whose result is already there is
+  not run again, and each task records how it ended, with the reason for a
+  failure.
 
 ## Bug fixes
 

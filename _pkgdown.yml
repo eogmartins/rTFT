@@ -78,6 +78,7 @@ reference:
   contents:
   - write_hpc_bundle
   - check_hpc_bundle
+  - run_hpc_task
 - title: Predicting survival
   contents:
   - predict_survival

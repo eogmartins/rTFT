@@ -239,7 +239,7 @@
 }
 
 
-# .bundle_files() / .bundle_checksums() / .verify_bundle() ---------------------
+# .bundle_files() / .bundle_checksums() / .verify_bundle() / .bundle_id() ------
 
 # The files of the folder `bundle/` of the bundle in `dir` that are checked for
 # changes, with paths relative to `dir`.
@@ -279,6 +279,13 @@
       "i" = "The copy may have been cut short, or a file edited. Copy the folder again; to change the run, write a new bundle."
     ), class = "rTFT_bundle_changed")
   invisible(found)
+}
+
+# The identity of the bundle in `dir`: the checksum of its list of checksums, which
+# changes when any file of the bundle does. Every result of a task is stamped with
+# it, so that no result is assembled with a bundle other than the one it came from.
+.bundle_id <- function(dir) {
+  unname(tools::md5sum(file.path(dir, "bundle", "checksums.txt")))
 }
 
 
@@ -561,7 +568,9 @@ write_hpc_bundle <- function(models, long, dir, account,
 #' bundle and the one installed came from GitHub, by the commit each was installed
 #' from, since copies of a development version share a number and can differ in
 #' their code. A copy installed from a folder on your own machine has no commit to
-#' compare, so for it only the number is checked.
+#' compare, so for it only the number is checked. [run_hpc_task()] makes the same
+#' check at the start of each task, since the library can change while tasks wait
+#' in the queue.
 #'
 #' @param dir A character string, the folder of the bundle. Defaults to the working
 #'   folder, which is where `check.sh` runs it.
@@ -607,4 +616,311 @@ check_hpc_bundle <- function(dir = ".") {
     "v" = "{nrow(models)} model{?s} assembled{refits}."
   ), class = "rTFT_bundle_checked")
   invisible(TRUE)
+}
+
+
+# ===========================================================================
+# 4. Running one task on the cluster
+# ===========================================================================
+
+# .check_stage() / .read_tasks() / .check_task() / .task_label() ---------------
+
+# Check that `stage` is "fit" or "kfold", and return it.
+.check_stage <- function(stage) {
+  if (!is.character(stage) || length(stage) != 1L || is.na(stage) ||
+      !stage %in% c("fit", "kfold"))
+    cli::cli_abort(c(
+      "{.arg stage} must be {.val fit} or {.val kfold}.",
+      "x" = "You supplied {.val {stage}}."
+    ), class = "rTFT_bad_stage")
+  stage
+}
+
+# The table of the tasks of `stage` in the bundle in `dir`, as a data frame, or NULL
+# for the refits of a bundle written without them. Every column is read as text and
+# none as missing, so that a model named "NA", "1" or "TRUE" keeps its name; the
+# numbers of the tasks and the folds are then made whole numbers.
+.read_tasks <- function(dir, stage) {
+  file <- file.path(dir, "bundle", paste0("tasks-", stage, ".csv"))
+  if (!file.exists(file)) return(NULL)
+  tasks <- utils::read.csv(file, colClasses = "character", na.strings = character(0))
+  for (column in intersect(c("task", "fold"), names(tasks)))
+    tasks[[column]] <- as.integer(tasks[[column]])
+  tasks
+}
+
+# The row of `tasks`, the table of the tasks of `stage`, that holds task `task`, given
+# as a number or as text holding one, as Slurm gives it. A task the table does not
+# have is an error, so an array that asks for more tasks than there are fails loudly.
+.check_task <- function(task, tasks, stage) {
+  if (is.null(tasks))
+    cli::cli_abort(c(
+      "This bundle has no refits for cross-validation.",
+      "i" = "It was written with {.code kfold = FALSE}; a bundle written with {.code kfold = TRUE} has them."
+    ), class = "rTFT_no_task")
+  # empty: run by hand, outside a Slurm job, with no task given
+  if (identical(task, ""))
+    cli::cli_abort(c(
+      "No task was given, and {.envvar SLURM_ARRAY_TASK_ID}, which Slurm sets for each task of a job array, is not set.",
+      "i" = "Give {.arg task}, such as {.code run_hpc_task(stage = \"{stage}\", task = 1)}."
+    ), class = "rTFT_no_task")
+  number <- suppressWarnings(as.numeric(task))
+  if (length(number) != 1L || is.na(number) || !number %in% tasks$task)
+    cli::cli_abort(c(
+      "There is no task {.val {task}} among the {nrow(tasks)} task{?s} of the {.val {stage}} stage of this bundle.",
+      "i" = "The tasks are numbered from 1 to {nrow(tasks)}. On Slurm the number is that of the array task, so an {.code --array} beyond it ends here."
+    ), class = "rTFT_no_task")
+  match(number, tasks$task)
+}
+
+# How messages name the tasks in the rows of `row`, of the stages `stage` (one, or
+# one for each row): "fit 2 (exp_mem)", or "refit 3 (exp_mem, fold 1)".
+.task_label <- function(stage, row) {
+  ifelse(rep_len(stage, nrow(row)) == "fit",
+         sprintf("fit %d (%s)", row$task, row$model),
+         sprintf("refit %d (%s, fold %d)", row$task, row$model, row$fold))
+}
+
+
+# .task_file() / .write_whole() / .read_record() / .slurm_job() ----------------
+# .one_line() / .duration()
+
+# The path of a file of task `task` of `stage` in the folder results/ of `dir`, with
+# the extension `ext`: "rds" for its result, "csv" for the record of how it ended,
+# and "started" for the record of when and where it began.
+.task_file <- function(dir, stage, task, ext) {
+  file.path(dir, "results", sprintf("%s-%03d.%s", stage, as.integer(task), ext))
+}
+
+# Write `x` to the file `path` with `write`, a function of an object and a path,
+# under another name first and then renamed, so that a task stopped while it writes
+# (e.g., at the end of its wall time) leaves no file that looks complete and is not.
+# Return `path`, invisibly.
+.write_whole <- function(x, path, write) {
+  part <- paste0(path, ".part")
+  write(x, part)
+  # file.rename() warns as well as failing; the error below says it once
+  if (!suppressWarnings(file.rename(part, path)))
+    cli::cli_abort("{.path {path}} could not be written.", class = "rTFT_not_written")
+  invisible(path)
+}
+
+# The record of how task `task` of `stage` ended, as a list of one character value
+# per column, or NULL when it has none: it has not ended, or not started. Every column
+# is read as text, so that a checksum made only of digits stays as it was written.
+.read_record <- function(dir, stage, task) {
+  file <- .task_file(dir, stage, task, "csv")
+  if (!file.exists(file)) return(NULL)
+  as.list(utils::read.csv(file, colClasses = "character"))
+}
+
+# The job and the array task that run this task, as Slurm names them in the names of
+# its logs ("1234_5"), or NA outside Slurm.
+.slurm_job <- function() {
+  job   <- Sys.getenv("SLURM_ARRAY_JOB_ID")
+  index <- Sys.getenv("SLURM_ARRAY_TASK_ID")
+  if (!nzchar(job) || !nzchar(index)) return(NA_character_)
+  paste0(job, "_", index)
+}
+
+# The message of the condition `cnd` as one line of plain ASCII text, to keep in a
+# table that may be written where R does not run in UTF-8: the bullets of cli in
+# their ASCII form, and the curly quotes of base R's messages made straight.
+.one_line <- function(cnd) {
+  old <- options(cli.unicode = FALSE)
+  on.exit(options(old))
+  x <- cli::ansi_strip(conditionMessage(cnd))
+  x <- gsub("[\u2018\u2019]", "'", x)
+  x <- gsub("[\u201c\u201d]", "\"", x)
+  gsub("[[:space:]]+", " ", trimws(x))
+}
+
+# A time of `seconds` as text, in seconds, minutes or hours, the unit chosen after
+# rounding, so that 119.6 seconds is "2 min" and not "120 s".
+.duration <- function(seconds) {
+  if (round(seconds) < 120) return(paste(round(seconds), "s"))
+  if (round(seconds / 60) < 120) return(paste(round(seconds / 60), "min"))
+  paste(round(seconds / 3600, 1), "h")
+}
+
+
+# .fit_task() / .kfold_task() --------------------------------------------------
+
+# Fit the model of `row`, a task of the fits, to the data of the bundle in `dir`
+# with the bundle's `settings`, as fit_hazard_models() fits each model, with the
+# chains on as many cores as there are chains, and return what .fit_one_model()
+# returns: the fit, its cross-validation by importance sampling, its convergence
+# diagnostics and the number of units for which importance sampling cannot be
+# trusted.
+.fit_task <- function(dir, settings, row) {
+  models <- readRDS(file.path(dir, "bundle", "models.rds"))
+  long   <- readRDS(file.path(dir, "bundle", "data.rds"))
+  .fit_one_model(models[models$model == row$model, ], long, settings$observation,
+                 settings$unit, settings$chains,
+                 c(settings$dots, list(cores = settings$chains)))
+}
+
+# Refit the model of `row`, a task of the refits, without the units of its fold, and
+# return, as `elpd` in a list, the log predictive density of each unit of the fold,
+# named by unit, as kfold_hazard() computes it. The refit starts from the model's
+# fit, read from the result of its task in `dir`, which must have ended well for the
+# bundle whose identity is `id`; the bundle's `settings` give the unit, the folds
+# and the arguments of the refit.
+.kfold_task <- function(dir, settings, row, id) {
+  fits   <- .read_tasks(dir, "fit")
+  j      <- fits$task[fits$model == row$model]
+  record <- .read_record(dir, "fit", j)
+  file   <- .task_file(dir, "fit", j, "rds")
+  if (is.null(record) || !identical(record$status, "done") ||
+      !identical(record$bundle, id) || !file.exists(file))
+    cli::cli_abort(c(
+      "The refits of {.val {row$model}} start from its fit, task {j} of the fits, which has not ended well.",
+      "i" = "Run that task first, and this refit after it."
+    ), class = "rTFT_fit_not_ready")
+  fit   <- readRDS(file)$fit
+  setup <- withCallingHandlers(
+    .kfold_setup(fit, settings$unit, folds = settings$folds),
+    rTFT_loo_leak = function(w) invokeRestart("muffleWarning"))
+  row_fold <- unname(setup$folds[as.character(setup$unit$values)])
+  fold <- do.call(.refit_fold, c(
+    list(fit, setup$data, row_fold != row$fold, setup$unit$values),
+    .refit_args(settings$dots), list(cores = settings$chains)))
+  list(elpd = fold$elpd)
+}
+
+
+# run_hpc_task() ---------------------------------------------------------------
+
+#' Run one task of a bundle on the cluster
+#'
+#' Runs one task of a bundle written by [write_hpc_bundle()]: the fit of one model,
+#' or one refit of a model for cross-validation, without the units of one fold. It is
+#' called on a compute node of the cluster, once for each task of a job array that
+#' Slurm runs, and is seldom called by hand.
+#'
+#' A fit is made as [fit_hazard_models()] makes it: with [fit_hazard()], refused if it
+#' lost a chain, and cross-validated by importance sampling with [loo_hazard()],
+#' leaving out the unit settled when the bundle was written. A refit starts from the
+#' model's fit, read from the result of its task, so it runs only once that fit has
+#' ended well, and it predicts the units left out as [kfold_hazard()] does. Each
+#' model is compiled once, by its fit, into the folder `stan/` of the bundle, where
+#' its refits find the compiled program.
+#'
+#' Before anything is fitted, the files of the bundle are checked against their
+#' checksums and the installed rTFT against the version that wrote the bundle; a task
+#' stopped by the second check is recorded as failed, with the reason. A task whose
+#' result is already in `results/` is not run again, so the tasks of a stage can be
+#' submitted again to run only those that failed or did not finish.
+#'
+#' Each task writes into `results/`: a record of when and where it started
+#' (`fit-001.started`, for the first fit), and when it ends, a record of how it ended
+#' (`fit-001.csv`) and, if it ended well, its result (`fit-001.rds`). The record of
+#' how an earlier attempt ended is moved aside when a task starts again
+#' (`fit-001.previous.csv`), so that a task running again is seen as started. A
+#' result is written under another name and renamed when complete, so a task stopped
+#' at the end of its wall time leaves no result that looks complete. Every result is
+#' stamped with the checksums of the bundle, so that it is never assembled with
+#' another bundle.
+#'
+#' @param dir A character string, the folder of the bundle. Defaults to the working
+#'   folder.
+#' @param stage A character string, `"fit"` (the default) for a fit, or `"kfold"` for a
+#'   refit for cross-validation.
+#' @param task A single whole number, or a character string holding one, the number of
+#'   the task among those of its stage, as the tables `bundle/tasks-fit.csv` and
+#'   `bundle/tasks-kfold.csv` number them. Defaults to the number Slurm gives the
+#'   array task, in the environment variable `SLURM_ARRAY_TASK_ID`.
+#' @return The path of the task's result, invisibly. A message says how the task
+#'   ended. A task that fails is an error, raised after its reason has been written
+#'   into `results/`.
+#' @seealso [write_hpc_bundle()], which writes the bundle.
+#' @examples
+#' \dontrun{
+#' # on the cluster, in a task of a job array, from the folder of the bundle; the
+#' # number of the task is given by Slurm
+#' run_hpc_task(stage = "fit")
+#'
+#' # the second fit of the bundle in the folder my-run, run by hand
+#' run_hpc_task("my-run", stage = "fit", task = 2)
+#' }
+#' @export
+run_hpc_task <- function(dir = ".", stage = "fit",
+                         task = Sys.getenv("SLURM_ARRAY_TASK_ID")) {
+  stage <- .check_stage(stage)
+  .verify_bundle(dir)
+  settings  <- readRDS(file.path(dir, "bundle", "settings.rds"))
+  tasks     <- .read_tasks(dir, stage)
+  row       <- tasks[.check_task(task, tasks, stage), ]
+  id     <- .bundle_id(dir)
+  label  <- .task_label(stage, row)
+  result <- .task_file(dir, stage, row$task, "rds")
+
+  # a task that has ended well is not run again
+  ended <- .read_record(dir, stage, row$task)
+  if (!is.null(ended) && identical(ended$status, "done") &&
+      identical(ended$bundle, id) && file.exists(result)) {
+    cli::cli_inform(c("v" = "Task {label} has its result already, and is not run again."),
+                    class = "rTFT_task_skipped")
+    return(invisible(result))
+  }
+
+  host <- Sys.info()[["nodename"]]
+  job  <- .slurm_job()
+  now  <- function() format(Sys.time(), "%Y-%m-%d %H:%M:%S %Z")
+  dir.create(file.path(dir, "results"), showWarnings = FALSE)
+  # The record of how an earlier attempt ended is moved aside, so that while this one
+  # runs the task is seen as started, and not as failed and to be submitted again;
+  # the reason of the earlier attempt is kept beside it.
+  if (!is.null(ended)) {
+    previous <- .task_file(dir, stage, row$task, "previous.csv")
+    if (!suppressWarnings(file.rename(.task_file(dir, stage, row$task, "csv"),
+                                      previous)))
+      cli::cli_abort("{.path {previous}} could not be written.",
+                     class = "rTFT_not_written")
+  }
+  .write_whole(data.frame(stage = stage, task = row$task, job = job, host = host,
+                          started = now()),
+               .task_file(dir, stage, row$task, "started"), .write_csv_lf)
+  cli::cli_inform("Running task {label}, on {host}.", class = "rTFT_task_progress")
+
+  # Each model is compiled into the folder stan/ of the bundle, where its refits find
+  # it: cmdstanr reuses a compiled program whose code is the same.
+  old <- options(cmdstanr_write_stan_file_dir = normalizePath(file.path(dir, "stan")),
+                 mc.cores = settings$chains)
+  on.exit(options(old), add = TRUE)
+  begun <- proc.time()[["elapsed"]]
+  # The version is checked here, among what the task records, so that a task stopped
+  # by it says why in results/.
+  res <- tryCatch({
+    .check_rtft_version(settings)
+    if (stage == "fit") .fit_task(dir, settings, row)
+    else .kfold_task(dir, settings, row, id)
+  }, error = function(e) e)
+  seconds <- proc.time()[["elapsed"]] - begun
+  failed  <- inherits(res, "error")
+
+  record <- data.frame(
+    stage = stage, task = row$task, model = row$model,
+    fold = if (stage == "kfold") row$fold else NA_integer_,
+    status = if (failed) "failed" else "done",
+    message = if (failed) .one_line(res) else NA_character_,
+    seconds = round(seconds), bundle = id,
+    rtft_version = .installed_rtft_version(), job = job,
+    host = host, ended = now())
+  # the result first and the record of its end last, so that a record that says done
+  # always has its result beside it
+  if (!failed)
+    .write_whole(c(res, list(task = row$task, model = row$model, fold = record$fold,
+                             seconds = seconds, bundle = id)),
+                 result, saveRDS)
+  .write_whole(record, .task_file(dir, stage, row$task, "csv"), .write_csv_lf)
+  if (failed)
+    cli::cli_abort(c(
+      "Task {label} failed.",
+      "x" = "{record$message}",
+      "i" = "The reason is kept in {.file results/}."
+    ), class = "rTFT_task_failed")
+  cli::cli_inform(c("v" = "Task {label} ended well, in {(.duration(seconds))}."),
+                  class = "rTFT_task_done")
+  invisible(result)
 }

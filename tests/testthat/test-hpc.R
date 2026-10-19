@@ -55,6 +55,67 @@ with_cmdstan <- function(env = parent.frame()) {
 }
 
 
+# A fitted model of eight trials of six individuals, with a random intercept per
+# trial on log a (two chains, 600 draws), the table it was fitted to, and two models
+# of that table. The tasks of a bundle of them are run with stand-ins for the fit and
+# for the refits, as in the tests of fit_hazard_models(), since fitting takes minutes.
+fit_trials   <- readRDS(test_path("fixtures", "hazard-fit-trials.rds"))
+long_trials  <- cbind(fit_trials$data, id = fit_trials$rtft$id)
+trial_models <- build_hazard_models("exp", c("mem", "weibull"),
+                                    dpar_formulas = list(loga = ~ 1 + (1 | trial)))
+
+new_record <- function() {
+  record <- new.env()
+  record$calls <- list()
+  record$fail  <- FALSE
+  record
+}
+
+# The stand-in for fit_hazard(): it records what it was given and returns the stored
+# fit, or stops, as a sampler can, when `record$fail` is TRUE.
+stand_in_fit <- function(record) {
+  function(long, m_form, baseline, dpar_formulas, observation, costressors, ...) {
+    record$calls[[length(record$calls) + 1]] <- list(
+      m_form = m_form, baseline = baseline, args = list(...))
+    if (record$fail) stop("the sampler stopped")
+    fit_trials
+  }
+}
+
+# The stand-in for a refit: it records what it was given and returns, for each unit
+# left out, minus the unit's position among all the units.
+stand_in_refit <- function(record) {
+  function(fit, data, train, unit_values, ...) {
+    held <- unique(as.character(unit_values[!train]))
+    record$calls[[length(record$calls) + 1]] <- list(held = held, args = list(...))
+    list(elpd = stats::setNames(-match(held, unique(as.character(unit_values))), held),
+         fit = fit)
+  }
+}
+
+# Write a bundle of the two models of the trials, with refits in three folds (six
+# tasks), into a new temporary folder, and return the folder. Two bundles written
+# alike are the same bundle, so `seed` is changed to write another; `models` gives
+# other models of the trials.
+trial_bundle <- function(kfold = TRUE, seed = 1, models = trial_models,
+                         env = parent.frame()) {
+  dir <- file.path(withr::local_tempdir(.local_envir = env), "run")
+  set.seed(3)
+  suppressMessages(write_hpc_bundle(
+    models, long_trials, dir, account = "def-test", rtft_source = src,
+    kfold = kfold, K = if (kfold) 3, chains = 2, seed = seed,
+    sd_prior = "exponential(1)"))
+  dir
+}
+
+# Run a task, or every task of a bundle, without the messages of the tasks.
+run_quietly <- function(...) suppressMessages(run_hpc_task(...))
+run_all <- function(dir, kfold = 1:6) {
+  for (i in 1:2) run_quietly(dir, "fit", i)
+  for (i in kfold) run_quietly(dir, "kfold", i)
+}
+
+
 # ===========================================================================
 # 2. Writing the bundle (write_hpc_bundle)
 # ===========================================================================
@@ -455,11 +516,13 @@ test_that("copies of one version are told apart by their commits, where both hav
   expect_true(any(grepl(paste0('^wanted_commit <- "', sha_a, '"$'), install)))
   expect_no_error(parse(text = install))
   expect_true(suppressMessages(check_hpc_bundle(dir)))
-  # another commit of the same version is refused
+  # another commit of the same version is refused, here and at the start of a task
   local_mocked_bindings(.installed_rtft_commit = function(...) sha_b)
   expect_error(check_hpc_bundle(dir), class = "rTFT_version_differs")
   expect_match(tryCatch(check_hpc_bundle(dir), error = conditionMessage), "e15b42a",
                fixed = TRUE)
+  expect_error(suppressMessages(run_hpc_task(dir, "fit", 1)), class = "rTFT_task_failed")
+  expect_match(.read_record(dir, "fit", 1)$message, "from commit \"e15b42a\"", fixed = TRUE)
   # a copy without a commit, installed from a folder, is checked by its number alone
   local_mocked_bindings(.installed_rtft_commit = function(...) NA_character_)
   expect_true(suppressMessages(check_hpc_bundle(dir)))
@@ -502,4 +565,231 @@ test_that("what is installed is read from the machine itself", {
   skip_if_not_installed("cmdstanr")
   expect_type(.cmdstan_found(), "logical")
   expect_length(.cmdstan_found(), 1)
+})
+
+test_that("a file is written whole or not at all", {
+  dir  <- withr::local_tempdir()
+  path <- file.path(dir, "a.rds")
+  expect_equal(.write_whole(1:3, path, saveRDS), path)
+  expect_equal(readRDS(path), 1:3)
+  expect_false(file.exists(paste0(path, ".part")))
+  # a file cannot be renamed onto a folder that holds something
+  taken <- file.path(dir, "taken")
+  dir.create(taken)
+  writeLines("x", file.path(taken, "x"))
+  expect_error(.write_whole(1:3, taken, saveRDS), class = "rTFT_not_written")
+})
+
+
+test_that("a task is named the same way in its own messages and in the status", {
+  fits <- data.frame(task = 2L, model = "exp_weibull")
+  expect_equal(.task_label("fit", fits), "fit 2 (exp_weibull)")
+  mixed <- data.frame(task = c(1L, 3L), model = "exp_mem", fold = c(NA, 3L))
+  expect_equal(.task_label(c("fit", "kfold"), mixed),
+               c("fit 1 (exp_mem)", "refit 3 (exp_mem, fold 3)"))
+})
+
+
+test_that("a reason is kept as one line of ASCII text, and a time in its unit", {
+  made_by_cli <- tryCatch(cli::cli_abort(c("Only 1 of the {2} chains finished.",
+                                           "i" = "See {.file logs/}.")),
+                          error = identity)
+  expect_equal(.one_line(made_by_cli), "Only 1 of the 2 chains finished. i See 'logs/'.")
+  # base R quotes names with curly quotes where R runs in UTF-8
+  quoted <- simpleError("there is no package called \u2018brms\u2019 \u201cnow\u201d")
+  expect_equal(.one_line(quoted), "there is no package called 'brms' \"now\"")
+  # the unit is chosen after rounding
+  expect_equal(vapply(c(14, 119.6, 840, 7199, 41000), .duration, ""),
+               c("14 s", "2 min", "14 min", "2 h", "11.4 h"))
+})
+
+
+
+# ===========================================================================
+# 5. Running a task (run_hpc_task)
+# ===========================================================================
+
+test_that("run_hpc_task fits the model of its task as fit_hazard_models() does, and keeps it", {
+  record <- new_record()
+  local_mocked_bindings(fit_hazard = stand_in_fit(record))
+  dir <- trial_bundle()
+  before <- getOption("cmdstanr_write_stan_file_dir")
+  expect_message(expect_message(path <- run_hpc_task(dir, "fit", 2),
+                                class = "rTFT_task_progress"),
+                 class = "rTFT_task_done")
+  expect_equal(path, .task_file(dir, "fit", 2, "rds"))
+  # the model of the task, with the arguments of the bundle and a core per chain
+  expect_length(record$calls, 1)
+  expect_equal(record$calls[[1]]$baseline, "weibull")
+  expect_mapequal(record$calls[[1]]$args,
+                  list(chains = 2, seed = 1, sd_prior = "exponential(1)",
+                       backend = "cmdstanr", cores = 2))
+  expect_identical(getOption("cmdstanr_write_stan_file_dir"), before)
+  # the result, stamped with the bundle
+  res <- readRDS(path)
+  expect_s3_class(res$fit, "brmsfit")
+  expect_s3_class(res$loo, "loo")
+  expect_equal(res$loo$unit, "trial")
+  expect_equal(res$model, "exp_weibull")
+  expect_equal(res$bundle, .bundle_id(dir))
+  expect_true(all(c("convergence", "high_k", "seconds") %in% names(res)))
+  # and the records of its start and of its end
+  ended <- .read_record(dir, "fit", 2)
+  expect_equal(ended$status, "done")
+  expect_equal(ended$model, "exp_weibull")
+  expect_equal(ended$bundle, .bundle_id(dir))
+  expect_true(is.na(ended$message))
+  expect_true(file.exists(.task_file(dir, "fit", 2, "started")))
+  expect_length(list.files(file.path(dir, "results"), pattern = "[.]part$"), 0)
+})
+
+
+test_that("a task that has ended well is not run again, and one that failed is", {
+  record <- new_record()
+  local_mocked_bindings(fit_hazard = stand_in_fit(record))
+  dir <- trial_bundle()
+  run_quietly(dir, "fit", 1)
+  expect_message(run_hpc_task(dir, "fit", 1), class = "rTFT_task_skipped")
+  expect_length(record$calls, 1)
+  # a task that fails says so, and keeps its reason
+  record$fail <- TRUE
+  expect_error(run_quietly(dir, "fit", 2), class = "rTFT_task_failed")
+  ended <- .read_record(dir, "fit", 2)
+  expect_equal(ended$status, "failed")
+  expect_match(ended$message, "the sampler stopped", fixed = TRUE)
+  expect_false(file.exists(.task_file(dir, "fit", 2, "rds")))
+  # and is run again
+  record$fail <- FALSE
+  run_quietly(dir, "fit", 2)
+  expect_length(record$calls, 3)
+  expect_equal(.read_record(dir, "fit", 2)$status, "done")
+})
+
+
+test_that("the number of the task is read from Slurm", {
+  record <- new_record()
+  local_mocked_bindings(fit_hazard = stand_in_fit(record))
+  dir <- trial_bundle()
+  withr::local_envvar(SLURM_ARRAY_TASK_ID = "2", SLURM_ARRAY_JOB_ID = "77")
+  run_quietly(dir)
+  expect_equal(record$calls[[1]]$baseline, "weibull")
+  started <- utils::read.csv(.task_file(dir, "fit", 2, "started"), colClasses = "character")
+  expect_equal(started$job, "77_2")
+  expect_equal(.read_record(dir, "fit", 2)$job, "77_2")
+})
+
+
+test_that("a model keeps its name through the tables of the tasks, whatever it is", {
+  record <- new_record()
+  local_mocked_bindings(fit_hazard = stand_in_fit(record),
+                        .refit_fold = stand_in_refit(new_record()))
+  odd <- build_hazard_models("exp", c("mem", "weibull"),
+                             dpar_formulas = list(loga = ~ 1 + (1 | trial)),
+                             model_names = c("NA", "1"))
+  dir <- trial_bundle(models = odd)
+  tasks <- .read_tasks(dir, "kfold")
+  expect_identical(tasks$model, rep(c("NA", "1"), each = 3))
+  expect_type(tasks$task, "integer")
+  expect_type(tasks$fold, "integer")
+  run_all(dir)
+  # each task fitted its own model, and kept its name
+  expect_equal(vapply(record$calls, `[[`, "", "baseline"), c("mem", "weibull"))
+  expect_identical(readRDS(.task_file(dir, "fit", 1, "rds"))$model, "NA")
+})
+
+
+test_that("a refit starts from its model's fit and leaves out the units of its fold", {
+  refits <- new_record()
+  local_mocked_bindings(fit_hazard = stand_in_fit(new_record()),
+                        .refit_fold = stand_in_refit(refits))
+  dir <- trial_bundle()
+  settings <- readRDS(file.path(dir, "bundle", "settings.rds"))
+  tasks <- .read_tasks(dir, "kfold")
+  # before its fit has ended, a refit cannot start
+  expect_error(.kfold_task(dir, settings, tasks[1, ], .bundle_id(dir)),
+               class = "rTFT_fit_not_ready")
+  expect_error(run_quietly(dir, "kfold", 1), class = "rTFT_task_failed")
+  expect_match(.read_record(dir, "kfold", 1)$message, "start from its fit", fixed = TRUE)
+  expect_length(refits$calls, 0)
+  # once it has, each refit leaves out its own fold, and is given what brms takes
+  run_quietly(dir, "fit", 1)
+  for (i in 1:3) run_quietly(dir, "kfold", i)
+  expect_length(refits$calls, 3)
+  for (k in 1:3) {
+    held <- names(settings$folds)[settings$folds == k]
+    expect_setequal(refits$calls[[k]]$held, held)
+    expect_mapequal(refits$calls[[k]]$args,
+                    list(chains = 2, seed = 1, backend = "cmdstanr", cores = 2))
+    res <- readRDS(.task_file(dir, "kfold", k, "rds"))
+    expect_setequal(names(res$elpd), held)
+    expect_equal(res$fold, k)
+    expect_equal(res$bundle, .bundle_id(dir))
+  }
+})
+
+
+test_that("run_hpc_task refuses a task that is not one, before fitting anything", {
+  record <- new_record()
+  local_mocked_bindings(fit_hazard = stand_in_fit(record))
+  dir <- trial_bundle()
+  expect_error(run_hpc_task(dir, "refit", 1), class = "rTFT_bad_stage")
+  expect_error(run_hpc_task(dir, c("fit", "kfold"), 1), class = "rTFT_bad_stage")
+  for (bad in list(0, 3, "", "a", c(1, 2)))
+    expect_error(run_hpc_task(dir, "fit", bad), class = "rTFT_no_task")
+  expect_error(run_hpc_task(dir, "kfold", 7), class = "rTFT_no_task")
+  withr::local_envvar(SLURM_ARRAY_TASK_ID = NA)
+  expect_error(run_hpc_task(dir, "fit"), class = "rTFT_no_task")
+  # outside Slurm, with no task given, the message says to give one
+  expect_match(tryCatch(run_hpc_task(dir, "kfold"), error = conditionMessage),
+               'run_hpc_task(stage = "kfold", task = 1)', fixed = TRUE)
+  # a bundle without refits has no task for them
+  expect_error(run_hpc_task(trial_bundle(kfold = FALSE), "kfold", 1),
+               class = "rTFT_no_task")
+  expect_length(record$calls, 0)
+  expect_false(file.exists(.task_file(dir, "fit", 1, "started")))
+})
+
+
+test_that("run_hpc_task refuses a bundle that changed, or another version of rTFT", {
+  record <- new_record()
+  local_mocked_bindings(fit_hazard = stand_in_fit(record))
+  dir <- trial_bundle()
+  writeLines("x", file.path(dir, "bundle", "extra.csv"))
+  expect_error(run_hpc_task(dir, "fit", 1), class = "rTFT_bundle_changed")
+  file.remove(file.path(dir, "bundle", "extra.csv"))
+  expect_false(file.exists(.task_file(dir, "fit", 1, "started")))
+  # another version stops the task before it fits, and the reason is recorded
+  local_mocked_bindings(.installed_rtft_version = function() "0.0.1")
+  expect_error(run_quietly(dir, "fit", 1), class = "rTFT_task_failed")
+  expect_length(record$calls, 0)
+  ended <- .read_record(dir, "fit", 1)
+  expect_equal(ended$status, "failed")
+  expect_equal(ended$rtft_version, "0.0.1")
+  expect_match(ended$message, "The installed rTFT is version \"0.0.1\"", fixed = TRUE)
+})
+
+
+test_that("a task run again keeps the record of its earlier end aside", {
+  record <- new_record()
+  local_mocked_bindings(fit_hazard = stand_in_fit(record))
+  dir <- trial_bundle()
+  record$fail <- TRUE
+  try(run_quietly(dir, "fit", 2), silent = TRUE)
+  expect_equal(.read_record(dir, "fit", 2)$status, "failed")
+  # while the second attempt runs (seen from inside the fit), the task has no record
+  # of an end
+  record$fail <- FALSE
+  during <- NULL
+  local_mocked_bindings(fit_hazard = function(...) {
+    during <<- .read_record(dir, "fit", 2)
+    fit_trials
+  })
+  run_quietly(dir, "fit", 2)
+  expect_null(during)
+  # the earlier end is beside it, with its reason
+  previous <- utils::read.csv(.task_file(dir, "fit", 2, "previous.csv"),
+                              colClasses = "character")
+  expect_equal(previous$status, "failed")
+  expect_match(previous$message, "the sampler stopped", fixed = TRUE)
+  expect_equal(.read_record(dir, "fit", 2)$status, "done")
 })

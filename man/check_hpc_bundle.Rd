@@ -32,7 +32,9 @@ The version is compared by its number and, when both the rTFT that wrote the
 bundle and the one installed came from GitHub, by the commit each was installed
 from, since copies of a development version share a number and can differ in
 their code. A copy installed from a folder on your own machine has no commit to
-compare, so for it only the number is checked.
+compare, so for it only the number is checked. \code{\link[=run_hpc_task]{run_hpc_task()}} makes the same
+check at the start of each task, since the library can change while tasks wait
+in the queue.
 }
 \examples{
 \dontrun{
