@@ -206,6 +206,39 @@
 }
 
 
+# .model_key() / .check_distinct_models() ---------------------------------------
+
+# The model in row `i` of `models` as one string, to compare models by: its
+# failure-rate function, its baseline, the formula of each parameter, by parameter,
+# and its co-stressors, everything but its name.
+.model_key <- function(models, i) {
+  as_text <- function(x) paste(deparse(x), collapse = " ")
+  formulas <- models$dpar_formulas[[i]]
+  given    <- sort(names(formulas))
+  paste(c(models$m_form[i], models$baseline[i],
+          paste(given, vapply(formulas[given], as_text, character(1))),
+          as_text(models$costressors[[i]])),
+        collapse = "\r")
+}
+
+# Check that no two models of `models` are the same model under different names, and
+# return TRUE invisibly. On the cluster their tasks would run at the same time and
+# compile one program, whose file is named by its code, into the same file.
+.check_distinct_models <- function(models) {
+  keys <- vapply(seq_len(nrow(models)), \(i) .model_key(models, i), character(1))
+  same <- keys %in% keys[duplicated(keys)]
+  if (any(same)) {
+    sets <- vapply(split(models$model[same], keys[same]),
+                   \(m) paste0('"', m, '"', collapse = " and "), character(1))
+    cli::cli_abort(c(
+      "Some models of the table are the same model under different names: {sets}.",
+      "i" = "Fitted at the same time on the cluster, they would compile one program into the same file. Keep one of each."
+    ), class = "rTFT_duplicate_models")
+  }
+  invisible(TRUE)
+}
+
+
 # .bundle_files() / .bundle_checksums() / .verify_bundle() ---------------------
 
 # The files of the folder `bundle/` of the bundle in `dir` that are checked for
@@ -408,6 +441,7 @@ write_hpc_bundle <- function(models, long, dir, account,
   # the run itself, checked last, since it also chooses the unit and says so
   plan <- .models_plan(models, long, observation, unit, kfold, K, rhat, ess, divergent,
                        dots)
+  .check_distinct_models(models)
 
   # the folds, assigned once for all the models
   folds <- NULL

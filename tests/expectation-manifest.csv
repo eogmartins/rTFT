@@ -9,4 +9,4 @@ test-plot-survival.R,84
 test-check-hazard.R,83
 test-plot-check.R,29
 test-hazard-models.R,197
-test-hpc.R,141
+test-hpc.R,146

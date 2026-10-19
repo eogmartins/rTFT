@@ -346,6 +346,31 @@ test_that("the run is checked as fit_hazard_models() checks it, before anything 
 })
 
 
+test_that("two models that differ only in their names are refused", {
+  dir <- file.path(withr::local_tempdir(), "run")
+  again <- models[1, ]
+  again$model <- "exp_mem_again"
+  expect_error(suppressMessages(write_hpc_bundle(rbind(models, again), long, dir,
+                                                 account = "def-test",
+                                                 rtft_source = src)),
+               class = "rTFT_duplicate_models")
+  said <- tryCatch(suppressMessages(write_hpc_bundle(
+    rbind(models, again), long, dir, account = "def-test", rtft_source = src)),
+    error = function(e) cli::ansi_strip(conditionMessage(e)))
+  expect_match(said, '"exp_mem" and "exp_mem_again"', fixed = TRUE)
+  expect_false(dir.exists(dir))
+  # the same function and baseline with another formula, or with a co-stressor, is
+  # another model
+  other <- again
+  other$dpar_formulas <- list(list(loga = ~ 1 + mass + (1 | trial)))
+  expect_true(.check_distinct_models(rbind(models, other)))
+  stressed <- again
+  stressed$costressors <- list(list(costressor("DO", column = "do", ref = 8.5, scale = 1,
+                                               direction = -1)))
+  expect_true(.check_distinct_models(rbind(models, stressed)))
+})
+
+
 test_that("a template of one's own is used, and one that cannot be filled is refused", {
   own <- withr::local_tempdir()
   for (file in scripts)
