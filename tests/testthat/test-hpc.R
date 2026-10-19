@@ -223,7 +223,7 @@ test_that("the scripts are filled in from the template, with nothing left to fil
                        r_library = "~/R/rtft",
                        remote = "someone@nibi.alliancecan.ca:scratch/run")
   settings <- readLines(file.path(dir, "settings.sh"))
-  expect_true(all(c('ACCOUNT="def-test"', 'TIME="1-00:00:00"', 'MEM_PER_CPU="4G"',
+  expect_true(all(c('ACCOUNT="def-test"', 'TIME="1-00:00:00"', 'MEM_PER_CPU="4000M"',
                     'CPUS_PER_TASK="3"', 'MODULES="StdEnv/2023 r/4.4.0"',
                     'R_LIBRARY="~/R/rtft"', 'EMAIL=""') %in% settings))
   readme <- paste(readLines(file.path(dir, "README.txt")), collapse = "\n")
@@ -1244,7 +1244,7 @@ test_that("submit.sh submits the fits, then the refits to start when the fits en
   expect_null(attr(out, "status"))
   sent <- readLines(calls)
   expect_length(sent, 2)
-  expect_match(sent[1], "--account=def-test --job-name=rtft-fit --array=1-2 --time=12:00:00 --mem-per-cpu=4G --cpus-per-task=2 --output=logs/fit-%A_%a.out task.sh fit",
+  expect_match(sent[1], "--account=def-test --job-name=rtft-fit --array=1-2 --time=12:00:00 --mem-per-cpu=4000M --cpus-per-task=2 --output=logs/fit-%A_%a.out task.sh fit",
                fixed = TRUE)
   expect_match(sent[2], "--array=1-6", fixed = TRUE)
   expect_match(sent[2], "--dependency=afterany:1001 task.sh kfold", fixed = TRUE)

@@ -33,7 +33,7 @@ if [ "${1:-}" = "--job" ]; then
     MAIL=(--mail-user="$EMAIL" --mail-type=END,FAIL)
   fi
   sbatch --account="$ACCOUNT" --job-name=rtft-install --time=03:00:00 \
-    --cpus-per-task=4 --mem-per-cpu=4G --output=logs/install-%j.out \
+    --cpus-per-task=4 --mem-per-cpu=4000M --output=logs/install-%j.out \
     ${MAIL[@]+"${MAIL[@]}"} "$(basename "$0")"
   echo "Submitted. When the job has finished, read logs/install-<job number>.out,"
   echo "then run:  bash check.sh"

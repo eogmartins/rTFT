@@ -17,7 +17,7 @@ write_hpc_bundle(
   ess = 400,
   divergent = 0.001,
   time = "12:00:00",
-  mem_per_cpu = "4G",
+  mem_per_cpu = "4000M",
   email = NULL,
   modules = c("StdEnv/2023", "r/4.5.0"),
   r_library = NULL,
@@ -62,7 +62,8 @@ takes it: hours, minutes and seconds (\code{"12:00:00"}, the default), or days
 first (\code{"1-12:00:00"}).}
 
 \item{mem_per_cpu}{A character string, the memory for each core, with its unit, as
-Slurm's \code{--mem-per-cpu} takes it. Defaults to \code{"4G"}.}
+Slurm's \code{--mem-per-cpu} takes it. Defaults to \code{"4000M"}. Slurm reads \code{"4G"} as
+4096 M, which the clusters of the Alliance point out at each submission.}
 
 \item{email}{An optional character string, the address Slurm writes to when a task
 fails. \code{NULL} (the default) sends no mail.}

@@ -82,7 +82,7 @@
   if (any(bad))
     cli::cli_abort(c(
       "Some settings of the cluster cannot be used: {.arg {names(bad)[bad]}}.",
-      "i" = "{.arg account} is the name of your allocation (such as {.val def-someone}), {.arg time} is written as {.val 12:00:00} or {.val 1-00:00:00}, and {.arg mem_per_cpu} as {.val 4G} or {.val 4000M}.",
+      "i" = "{.arg account} is the name of your allocation (such as {.val def-someone}), {.arg time} is written as {.val 12:00:00} or {.val 1-00:00:00}, and {.arg mem_per_cpu} as {.val 4000M} or {.val 4G}.",
       "i" = "{.arg remote} is the place on the cluster to copy the bundle to, as {.val user@nibi.alliancecan.ca:scratch/my-run}."
     ), class = "rTFT_bad_hpc_setting")
   invisible(TRUE)
@@ -373,7 +373,8 @@
 #'   takes it: hours, minutes and seconds (`"12:00:00"`, the default), or days
 #'   first (`"1-12:00:00"`).
 #' @param mem_per_cpu A character string, the memory for each core, with its unit, as
-#'   Slurm's `--mem-per-cpu` takes it. Defaults to `"4G"`.
+#'   Slurm's `--mem-per-cpu` takes it. Defaults to `"4000M"`. Slurm reads `"4G"` as
+#'   4096 M, which the clusters of the Alliance point out at each submission.
 #' @param email An optional character string, the address Slurm writes to when a task
 #'   fails. `NULL` (the default) sends no mail.
 #' @param modules A character vector, the modules that give R on the cluster. The
@@ -434,7 +435,7 @@ write_hpc_bundle <- function(models, long, dir, account,
                              observation = c("interval", "continuous", "mixed"),
                              unit = NULL, kfold = FALSE, K = NULL,
                              rhat = 1.01, ess = 400, divergent = 0.001,
-                             time = "12:00:00", mem_per_cpu = "4G", email = NULL,
+                             time = "12:00:00", mem_per_cpu = "4000M", email = NULL,
                              modules = c("StdEnv/2023", "r/4.5.0"), r_library = NULL,
                              remote = NULL, rtft_source = NULL, template = "alliance",
                              ...) {
