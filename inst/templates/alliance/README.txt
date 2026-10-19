@@ -10,6 +10,9 @@ What is in it
   install.sh    installs rTFT, cmdstanr and CmdStan into the cluster's R
   install.R     the R part of install.sh
   check.sh      checks the bundle and the cluster's R, on the login node
+  submit.sh     submits the tasks to Slurm, the cluster's scheduler
+  task.sh       what Slurm runs for each task; not run by hand
+  status.sh     says what each task has done, and what to do next
   bundle/       the data, the models and the settings of the run, with their
                 checksums; nothing in it is to be edited
   stan/         where the compiled Stan programs will be kept
@@ -56,3 +59,29 @@ What to do
 
      check.sh reports anything missing and what to do about it. Run it again
      until it reports nothing missing.
+
+  5. Submit the tasks:
+
+       bash submit.sh
+
+     Each fit is one task of a job array, a set of jobs that Slurm runs side
+     by side as cores become free, and each refit for cross-validation is one
+     task of a second array, which waits for the fits to end, since each refit
+     starts from its model's fit. submit.sh prints the number Slurm gave each
+     array. A task can wait in the queue for minutes or for hours, depending
+     on how busy the cluster is. The tasks run whether or not you stay
+     connected: you can log out, and run status.sh when you come back.
+
+  6. Follow the tasks:
+
+       sq                  the tasks waiting (PD) and running (R)
+       bash status.sh      what each task has done, and what to do next
+
+     What each task prints is in logs/, one file per task.
+
+  7. When a task failed, ran out of time or memory, or was stopped by Slurm,
+     status.sh says so and gives the command that submits again only the
+     tasks not done. If a task ran out of time or memory, raise TIME or
+     MEM_PER_CPU in settings.sh first. The command leaves out tasks still
+     waiting or running; do not submit those again by hand, or they will run
+     twice.

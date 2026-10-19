@@ -43,7 +43,6 @@
   NA_character_
 }
 
-
 # Where the cluster can install the rTFT that is installed here, as
 # remotes::install_github() takes it, read from `d`, its description, or NA when that
 # cannot be told: the commit it was installed from, when it came from GitHub; the
@@ -91,7 +90,8 @@
 
 # The files of a template, which write_hpc_bundle() fills in and writes into the
 # bundle.
-.script_files <- c("settings.sh", "install.sh", "install.R", "check.sh", "README.txt")
+.script_files <- c("settings.sh", "install.sh", "install.R", "check.sh", "submit.sh",
+                   "task.sh", "status.sh", "README.txt")
 
 # The folder that holds the scripts of `template`: "alliance" for the one written
 # for the clusters of the Digital Research Alliance of Canada, or the path of a
@@ -320,6 +320,10 @@
 #'   cmdstanr, and CmdStan. It is run once on each cluster, on the login node or, with
 #'   `bash install.sh --job`, as a Slurm job.
 #' * `check.sh`, which checks the bundle and the R of the cluster on the login node.
+#' * `submit.sh`, which submits the tasks to Slurm as job arrays, one for the fits
+#'   and one for the refits, queued to start when the fits have ended; `task.sh`,
+#'   which Slurm runs for each task and which calls [run_hpc_task()]; and
+#'   `status.sh`, which calls [hpc_status()] to say what each task has done.
 #' * `README.txt`, the steps to take, with the commands filled in.
 #' * `bundle/`, the data (`data.rds`), the models (`models.rds`), the settings of the
 #'   run (`settings.rds`), the tasks as tables to read (`tasks-fit.csv`, and
@@ -379,14 +383,18 @@
 #'   must be given, such as `"eogmartins/rTFT@dev-0.2.0"`.
 #' @param template A character string, `"alliance"` (the default) for the scripts
 #'   written for the clusters of the Alliance, or the path of a folder of your own
-#'   holding `settings.sh`, `install.sh`, `install.R`, `check.sh` and `README.txt`
-#'   with the same placeholders.
+#'   holding `settings.sh`, `install.sh`, `install.R`, `check.sh`, `submit.sh`,
+#'   `task.sh`, `status.sh` and `README.txt`, with the same placeholders.
+#'   [hpc_status()] finds the log of a task as `logs/<stage>-<array job>_<task>.out`;
+#'   a template that names its logs otherwise loses only the reason given for a task
+#'   stopped by Slurm.
 #' @param ... Further arguments for every fit, as in [fit_hazard_models()], such as
 #'   `chains`, `iter`, `warmup`, `seed` or `control`, or the priors that
 #'   [fit_hazard()] takes.
 #' @return The path of the bundle, invisibly. A message says what was written and
 #'   what to do next.
-#' @seealso [check_hpc_bundle()], which checks the bundle on the cluster.
+#' @seealso [check_hpc_bundle()], which checks the bundle on the cluster, and
+#'   [hpc_status()], which says what its tasks have done.
 #' @examples
 #' # a small ramping assay in two trials (see fit_hazard())
 #' path   <- data.frame(path_id = "A", time = c(0, 60), temp = c(20, 35))
@@ -613,7 +621,8 @@ check_hpc_bundle <- function(dir = ".") {
   cli::cli_inform(c(
     "v" = "Every file of the bundle is as it was written ({length(found)} file{?s}).",
     "v" = "rTFT {installed}, the version that wrote the bundle; brms {brms}; CmdStan found.",
-    "v" = "{nrow(models)} model{?s} assembled{refits}."
+    "v" = "{nrow(models)} model{?s} assembled{refits}.",
+    "i" = "Submit the tasks with {.code bash submit.sh}."
   ), class = "rTFT_bundle_checked")
   invisible(TRUE)
 }
@@ -775,7 +784,7 @@ check_hpc_bundle <- function(dir = ".") {
       !identical(record$bundle, id) || !file.exists(file))
     cli::cli_abort(c(
       "The refits of {.val {row$model}} start from its fit, task {j} of the fits, which has not ended well.",
-      "i" = "Run that task first, and this refit after it."
+      "i" = "Run that task first; {.code bash submit.sh --fit {j} --kfold {row$task}} submits the two, the refit to start when the fit has ended."
     ), class = "rTFT_fit_not_ready")
   fit   <- readRDS(file)$fit
   setup <- withCallingHandlers(
@@ -795,8 +804,8 @@ check_hpc_bundle <- function(dir = ".") {
 #'
 #' Runs one task of a bundle written by [write_hpc_bundle()]: the fit of one model,
 #' or one refit of a model for cross-validation, without the units of one fold. It is
-#' called on a compute node of the cluster, once for each task of a job array that
-#' Slurm runs, and is seldom called by hand.
+#' called on a compute node of the cluster by the bundle's script `task.sh`, which
+#' Slurm runs once for each task of a job array, and is seldom called by hand.
 #'
 #' A fit is made as [fit_hazard_models()] makes it: with [fit_hazard()], refused if it
 #' lost a chain, and cross-validated by importance sampling with [loo_hazard()],
@@ -823,7 +832,7 @@ check_hpc_bundle <- function(dir = ".") {
 #' another bundle.
 #'
 #' @param dir A character string, the folder of the bundle. Defaults to the working
-#'   folder.
+#'   folder, which is where `task.sh` runs it.
 #' @param stage A character string, `"fit"` (the default) for a fit, or `"kfold"` for a
 #'   refit for cross-validation.
 #' @param task A single whole number, or a character string holding one, the number of
@@ -833,11 +842,12 @@ check_hpc_bundle <- function(dir = ".") {
 #' @return The path of the task's result, invisibly. A message says how the task
 #'   ended. A task that fails is an error, raised after its reason has been written
 #'   into `results/`.
-#' @seealso [write_hpc_bundle()], which writes the bundle.
+#' @seealso [write_hpc_bundle()], which writes the bundle, and [hpc_status()], which
+#'   says what each task has done.
 #' @examples
 #' \dontrun{
-#' # on the cluster, in a task of a job array, from the folder of the bundle; the
-#' # number of the task is given by Slurm
+#' # on the cluster, from the folder of the bundle; task.sh runs the same, with the
+#' # number of the task given by Slurm
 #' run_hpc_task(stage = "fit")
 #'
 #' # the second fit of the bundle in the folder my-run, run by hand
@@ -890,7 +900,7 @@ run_hpc_task <- function(dir = ".", stage = "fit",
   on.exit(options(old), add = TRUE)
   begun <- proc.time()[["elapsed"]]
   # The version is checked here, among what the task records, so that a task stopped
-  # by it says why in results/.
+  # by it says why in results/, where hpc_status() reads it.
   res <- tryCatch({
     .check_rtft_version(settings)
     if (stage == "fit") .fit_task(dir, settings, row)
@@ -918,9 +928,246 @@ run_hpc_task <- function(dir = ".", stage = "fit",
     cli::cli_abort(c(
       "Task {label} failed.",
       "x" = "{record$message}",
-      "i" = "The reason is kept in {.file results/}."
+      "i" = "The reason is kept in {.file results/}, and {.code bash status.sh} lists every task that failed."
     ), class = "rTFT_task_failed")
   cli::cli_inform(c("v" = "Task {label} ended well, in {(.duration(seconds))}."),
                   class = "rTFT_task_done")
   invisible(result)
+}
+
+
+# ===========================================================================
+# 5. Following the run
+# ===========================================================================
+
+# .array_ranges() / .expand_ranges() / .read_submissions() / .log_reason() ------
+# .task_states()
+
+# The whole numbers `x` as Slurm's --array takes them, each run of consecutive
+# numbers shortened to its ends: "1-3,5,7-8".
+.array_ranges <- function(x) {
+  x   <- sort(unique(as.integer(x)))
+  run <- cumsum(c(1L, diff(x) != 1L))
+  ends <- vapply(split(x, run), \(r) {
+    if (length(r) == 1L) as.character(r) else paste0(r[1], "-", r[length(r)])
+  }, character(1))
+  paste(ends, collapse = ",")
+}
+
+# The whole numbers that `x`, a list as Slurm's --array takes it ("1-3,5"), stands
+# for: 1, 2, 3 and 5.
+.expand_ranges <- function(x) {
+  ends <- strsplit(strsplit(x, ",", fixed = TRUE)[[1]], "-", fixed = TRUE)
+  unlist(lapply(ends, \(e) seq(as.integer(e[1]), as.integer(e[length(e)]))))
+}
+
+# The submissions submit.sh recorded in the folder results/ of `dir`, as a data frame
+# with one row per task submitted: its `stage`, `task` number, the `time` it was
+# submitted (in seconds since 1970, by the clock of the login node) and the Slurm
+# `job`; without rows when none was recorded.
+.read_submissions <- function(dir) {
+  none <- data.frame(stage = character(0), task = integer(0), time = numeric(0),
+                     job = character(0))
+  file <- file.path(dir, "results", "submitted.csv")
+  if (!file.exists(file)) return(none)
+  sent <- utils::read.csv(file, colClasses = "character")
+  rows <- purrr::map(seq_len(nrow(sent)), \(i) data.frame(
+    stage = sent$stage[i], task = .expand_ranges(sent$tasks[i]),
+    time = as.numeric(sent$time[i]), job = sent$job[i]))
+  rbind(none, do.call(rbind, rows))
+}
+
+# Why the task of `stage` that started as the Slurm job and array task `job` has no
+# record of how it ended, as far as the log Slurm wrote for it in the folder logs/ of
+# `dir` can tell: it ran out of time, ran out of memory, was stopped by Slurm for a
+# reason Slurm gives (a node that failed, say) or was cancelled; or else it may
+# still be running. Slurm writes a line of its own into the log when it stops a
+# task.
+.log_reason <- function(dir, stage, job) {
+  log <- file.path("logs", sprintf("%s-%s.out", stage, job))
+  if (is.na(job) || !file.exists(file.path(dir, log)))
+    return(paste("no result yet: it may still be running, or it stopped before it",
+                 "could write one"))
+  text <- readLines(file.path(dir, log), warn = FALSE)
+  if (any(grepl("DUE TO TIME LIMIT", text, fixed = TRUE)))
+    return(sprintf("it ran out of time (raise TIME in settings.sh); see %s", log))
+  if (any(grepl("oom[-_]kill|out of memory", text, ignore.case = TRUE)))
+    return(sprintf("it ran out of memory (raise MEM_PER_CPU in settings.sh); see %s",
+                   log))
+  # "CANCELLED AT <time> DUE TO NODE FAILURE": Slurm's reason, in its own words
+  stopped <- regmatches(text, regexpr("CANCELLED AT [^ ]+ DUE TO [A-Z ]+", text))
+  if (length(stopped))
+    return(sprintf("it was stopped by Slurm, due to %s; see %s",
+                   tolower(trimws(sub(".* DUE TO ", "", stopped[1]))), log))
+  if (any(grepl("CANCELLED", text, fixed = TRUE)))
+    return(sprintf("it was cancelled; see %s", log))
+  sprintf("no result yet: it may still be running, or it stopped without one; see %s",
+          log)
+}
+
+# The state of each task of `stage` in the bundle in `dir`, whose identity is `id`,
+# as a data frame with one row per task: its `stage`, `task` number, `model` and
+# `fold` (NA for a fit); its `status`, one of "done", "failed", "started" (with no
+# record of how it ended), "queued" (submitted since its files were last written,
+# and waiting to start) and "not started"; the `reason` a task is not done; and the
+# `seconds` it took. NULL for the refits of a bundle written without them.
+.task_states <- function(dir, stage, id) {
+  tasks <- .read_tasks(dir, stage)
+  if (is.null(tasks)) return(NULL)
+  sent <- .read_submissions(dir)
+  sent <- sent[sent$stage == stage, ]
+  one <- function(i) {
+    task    <- tasks$task[i]
+    record  <- .read_record(dir, stage, task)
+    started <- .task_file(dir, stage, task, "started")
+    status  <- "not started"
+    reason  <- NA_character_
+    seconds <- NA_real_
+    if (!is.null(record)) {
+      seconds <- as.numeric(record$seconds)
+      if (!identical(record$bundle, id)) {
+        status <- "failed"
+        reason <- "its result was written for another bundle"
+      } else if (record$status == "done" &&
+                 !file.exists(.task_file(dir, stage, task, "rds"))) {
+        status <- "failed"
+        reason <- "its result is missing from results/"
+      } else {
+        status <- record$status
+        if (status == "failed") reason <- record$message
+      }
+    } else if (file.exists(started)) {
+      status <- "started"
+      reason <- .log_reason(dir, stage,
+                            utils::read.csv(started, colClasses = "character")$job)
+    }
+    # A task not done that was submitted after its files were last written waits in
+    # the queue: its files still tell of an earlier attempt, if any.
+    mine <- sent[sent$task == task, ]
+    if (status != "done" && nrow(mine)) {
+      files <- .task_file(dir, stage, task, c("csv", "started"))
+      written <- suppressWarnings(max(as.numeric(file.info(files)$mtime), na.rm = TRUE))
+      last <- mine[which.max(mine$time), ]
+      if (last$time > written) {
+        status <- "queued"
+        reason <- sprintf("submitted at %s as job %s, waiting to start",
+                          format(as.POSIXct(last$time), "%Y-%m-%d %H:%M"), last$job)
+      }
+    }
+    tibble::tibble(stage = stage, task = task, model = tasks$model[i],
+                   fold = if (stage == "kfold") tasks$fold[i] else NA_integer_,
+                   status = status, reason = reason, seconds = seconds)
+  }
+  purrr::list_rbind(purrr::map(seq_len(nrow(tasks)), one))
+}
+
+
+# hpc_status() -----------------------------------------------------------------
+
+#' What each task of a bundle has done, and what to do next
+#'
+#' Reads the records that the tasks of a bundle written by [write_hpc_bundle()] have
+#' left in its folder `results/`, and says, for each stage of the run, how many tasks
+#' are done, which are not and why, and what to do next. It is run on the cluster by
+#' the bundle's script `status.sh`, and works as well on a copy of the bundle brought
+#' back.
+#'
+#' A task is `"done"` when it ended well, `"failed"` when it ended with an error, whose
+#' message is its reason, `"started"` when it began and has no record of how it ended,
+#' `"queued"` when `submit.sh` submitted it after its files were last written, so that
+#' it waits in the queue, and `"not started"` otherwise. A task that started and has no
+#' record is either still running or was stopped by Slurm before it could write one.
+#' Slurm says which in the log it wrote for the task, in the folder `logs/`, and the
+#' reason given is read from it: out of time, out of memory, stopped by Slurm for a
+#' reason it gives (a node that failed, say), or cancelled. Slurm's command
+#' `squeue -u $USER` (`sq` on the clusters of the Alliance) lists the tasks still
+#' waiting or running.
+#'
+#' When tasks remain to be run, the message gives the command that submits them
+#' again, and only them: it leaves out a task that may still be running or that
+#' waits in the queue. A task already done is never run twice.
+#'
+#' @param dir A character string, the folder of the bundle. Defaults to the working
+#'   folder, which is where `status.sh` runs it.
+#' @return A data frame with one row per task, invisibly: its `stage` (`"fit"` or
+#'   `"kfold"`), `task` number, `model`, `fold` (`NA` for a fit), `status`, the
+#'   `reason` a task is not done, and the `seconds` it took. A message summarises it.
+#' @seealso [run_hpc_task()], which runs a task.
+#' @examples
+#' \dontrun{
+#' # on the cluster, from the folder of the bundle; status.sh runs the same
+#' hpc_status()
+#' }
+#' @export
+hpc_status <- function(dir = ".") {
+  .verify_bundle(dir)
+  id <- .bundle_id(dir)
+  states <- purrr::list_rbind(list(.task_states(dir, "fit", id),
+                                   .task_states(dir, "kfold", id)))
+
+  # Text from the records, the names of the models and the reasons, is shown as it
+  # is: braces are doubled so that cli does not read them as its own.
+  as_is <- function(x) gsub("([{}])", "\\1\\1", x)
+  stage_name <- c(fit = "Fits", kfold = "Refits for cross-validation")
+  counts <- character(0)
+  for (s in unique(states$stage)) {
+    of <- states$status[states$stage == s]
+    n  <- table(factor(of, levels = c("done", "failed", "started", "queued",
+                                      "not started")))
+    others <- n[-1][n[-1] > 0]
+    counts <- c(counts, paste0(
+      stage_name[[s]], ": ", n[["done"]], " of ", length(of), " done",
+      if (length(others)) paste0("; ", paste(others, names(others), collapse = ", ")),
+      "."))
+  }
+  not_done <- states[states$status != "done", ]
+  shown    <- utils::head(not_done, 10)
+  # Built only when there is a task to list: paste0() recycles empty columns
+  # against its constant pieces, and would give one empty line.
+  listed <- character(0)
+  if (nrow(shown)) {
+    reason <- ifelse(is.na(shown$reason), "", paste0(", ", shown$reason))
+    listed <- stats::setNames(
+      as_is(paste0(.task_label(shown$stage, shown), ": ", shown$status, reason)),
+      # a cross for a task that failed, a warning for one that started without
+      # ending, and a plain bullet for one that waits or has not started
+      c(failed = "x", started = "!", queued = "*", `not started` = "*")[shown$status])
+  }
+  if (nrow(not_done) > nrow(shown))
+    listed <- c(listed, " " = paste("and", nrow(not_done) - nrow(shown), "more."))
+
+  # what to run again: the tasks that failed or never started, and those whose log
+  # says Slurm stopped them; never one that may be running or waits in the queue
+  stopped <- not_done$status == "started" &
+    grepl("^it (ran out|was stopped|was cancelled)", not_done$reason)
+  again   <- not_done[not_done$status %in% c("failed", "not started") | stopped, ]
+  queued  <- not_done[not_done$status == "queued", ]
+  submit  <- function(of) paste(c(
+    "bash submit.sh",
+    if (any(of$stage == "fit"))
+      paste("--fit", .array_ranges(of$task[of$stage == "fit"])),
+    if (any(of$stage == "kfold"))
+      paste("--kfold", .array_ranges(of$task[of$stage == "kfold"]))),
+    collapse = " ")
+  command  <- submit(again)
+  if_gone  <- submit(queued)
+  running  <- any(not_done$status == "started" & !stopped)
+
+  # Not wrapped to the width of the console, so that each command to paste is on one
+  # line: wrapped, its second line would be pasted as a command of its own. The
+  # commands are plain text and not code, which cli puts between backticks where the
+  # console has no colours, and bash would run what lies between them.
+  old <- options(cli.width = Inf)
+  on.exit(options(old), add = TRUE)
+  cli::cli_inform(c(
+    stats::setNames(as_is(counts), rep("*", length(counts))),
+    listed,
+    "v" = if (!nrow(not_done)) "Every task is done.",
+    "i" = if (nrow(again)) "To submit again the tasks not done, and only those:",
+    " " = if (nrow(again)) "{command}",
+    "i" = if (running) "A task started without a record of its end may still be running; {.code sq} lists the tasks waiting or running.",
+    "i" = if (nrow(queued)) "A task submitted and waiting to start is not submitted again. One that {.code sq} no longer lists was cancelled before it started; to submit those:",
+    " " = if (nrow(queued)) "{if_gone}"
+  ), class = "rTFT_hpc_status")
+  invisible(states)
 }

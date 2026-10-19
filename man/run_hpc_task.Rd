@@ -12,7 +12,7 @@ run_hpc_task(
 }
 \arguments{
 \item{dir}{A character string, the folder of the bundle. Defaults to the working
-folder.}
+folder, which is where \code{task.sh} runs it.}
 
 \item{stage}{A character string, \code{"fit"} (the default) for a fit, or \code{"kfold"} for a
 refit for cross-validation.}
@@ -30,8 +30,8 @@ into \verb{results/}.
 \description{
 Runs one task of a bundle written by \code{\link[=write_hpc_bundle]{write_hpc_bundle()}}: the fit of one model,
 or one refit of a model for cross-validation, without the units of one fold. It is
-called on a compute node of the cluster, once for each task of a job array that
-Slurm runs, and is seldom called by hand.
+called on a compute node of the cluster by the bundle's script \code{task.sh}, which
+Slurm runs once for each task of a job array, and is seldom called by hand.
 }
 \details{
 A fit is made as \code{\link[=fit_hazard_models]{fit_hazard_models()}} makes it: with \code{\link[=fit_hazard]{fit_hazard()}}, refused if it
@@ -60,8 +60,8 @@ another bundle.
 }
 \examples{
 \dontrun{
-# on the cluster, in a task of a job array, from the folder of the bundle; the
-# number of the task is given by Slurm
+# on the cluster, from the folder of the bundle; task.sh runs the same, with the
+# number of the task given by Slurm
 run_hpc_task(stage = "fit")
 
 # the second fit of the bundle in the folder my-run, run by hand
@@ -69,5 +69,6 @@ run_hpc_task("my-run", stage = "fit", task = 2)
 }
 }
 \seealso{
-\code{\link[=write_hpc_bundle]{write_hpc_bundle()}}, which writes the bundle.
+\code{\link[=write_hpc_bundle]{write_hpc_bundle()}}, which writes the bundle, and \code{\link[=hpc_status]{hpc_status()}}, which
+says what each task has done.
 }

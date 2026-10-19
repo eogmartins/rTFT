@@ -31,6 +31,15 @@
   fold, starting from the model's fit. A task whose result is already there is
   not run again, and each task records how it ended, with the reason for a
   failure.
+* The bundle's `submit.sh` submits the fits as one job array and the refits for
+  cross-validation as another, queued to start when the fits have ended, and
+  `task.sh` runs each task. A task that failed or ran out of time can be
+  submitted again alone.
+* `hpc_status()`, run on the cluster by the bundle's `status.sh`, says what each
+  task has done and why a task is not done, including a task that Slurm stopped
+  (out of time, out of memory, or for a reason of its own), and gives the
+  command that submits again only the tasks not done, leaving out those still
+  waiting in the queue or running.
 
 ## Bug fixes
 

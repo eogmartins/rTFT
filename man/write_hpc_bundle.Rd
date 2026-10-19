@@ -91,8 +91,11 @@ must be given, such as \code{"eogmartins/rTFT@dev-0.2.0"}.}
 
 \item{template}{A character string, \code{"alliance"} (the default) for the scripts
 written for the clusters of the Alliance, or the path of a folder of your own
-holding \code{settings.sh}, \code{install.sh}, \code{install.R}, \code{check.sh} and \code{README.txt}
-with the same placeholders.}
+holding \code{settings.sh}, \code{install.sh}, \code{install.R}, \code{check.sh}, \code{submit.sh},
+\code{task.sh}, \code{status.sh} and \code{README.txt}, with the same placeholders.
+\code{\link[=hpc_status]{hpc_status()}} finds the log of a task as \verb{logs/<stage>-<array job>_<task>.out};
+a template that names its logs otherwise loses only the reason given for a task
+stopped by Slurm.}
 
 \item{...}{Further arguments for every fit, as in \code{\link[=fit_hazard_models]{fit_hazard_models()}}, such as
 \code{chains}, \code{iter}, \code{warmup}, \code{seed} or \code{control}, or the priors that
@@ -127,6 +130,10 @@ the cluster: rTFT at the version that wrote the bundle, from \code{rtft_source},
 cmdstanr, and CmdStan. It is run once on each cluster, on the login node or, with
 \verb{bash install.sh --job}, as a Slurm job.
 \item \code{check.sh}, which checks the bundle and the R of the cluster on the login node.
+\item \code{submit.sh}, which submits the tasks to Slurm as job arrays, one for the fits
+and one for the refits, queued to start when the fits have ended; \code{task.sh},
+which Slurm runs for each task and which calls \code{\link[=run_hpc_task]{run_hpc_task()}}; and
+\code{status.sh}, which calls \code{\link[=hpc_status]{hpc_status()}} to say what each task has done.
 \item \code{README.txt}, the steps to take, with the commands filled in.
 \item \verb{bundle/}, the data (\code{data.rds}), the models (\code{models.rds}), the settings of the
 run (\code{settings.rds}), the tasks as tables to read (\code{tasks-fit.csv}, and
@@ -162,5 +169,6 @@ write_hpc_bundle(models, long, bundle, account = "def-someone", kfold = TRUE,
 list.files(bundle, recursive = TRUE)
 }
 \seealso{
-\code{\link[=check_hpc_bundle]{check_hpc_bundle()}}, which checks the bundle on the cluster.
+\code{\link[=check_hpc_bundle]{check_hpc_bundle()}}, which checks the bundle on the cluster, and
+\code{\link[=hpc_status]{hpc_status()}}, which says what its tasks have done.
 }

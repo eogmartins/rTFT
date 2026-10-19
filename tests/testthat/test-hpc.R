@@ -30,7 +30,8 @@ write_quietly <- function(..., dir = NULL) {
 }
 
 # The scripts a bundle holds.
-scripts <- c("settings.sh", "install.sh", "install.R", "check.sh", "README.txt")
+scripts <- c("settings.sh", "install.sh", "install.R", "check.sh", "submit.sh", "task.sh",
+             "status.sh", "README.txt")
 
 # The files a bundle holds, below its folder.
 bundle_files <- function(dir) sort(list.files(dir, recursive = TRUE))
@@ -115,6 +116,28 @@ run_all <- function(dir, kfold = 1:6) {
   for (i in kfold) run_quietly(dir, "kfold", i)
 }
 
+# Write the record that a task started, as run_hpc_task() writes it, as the Slurm job
+# `job`, and the log Slurm wrote for it, holding `log`.
+fake_start <- function(dir, stage, task, job, log = NULL) {
+  .write_csv_lf(data.frame(stage = stage, task = task, job = job, host = "nc1",
+                           started = "2026-10-17 10:00:00 PDT"),
+                .task_file(dir, stage, task, "started"))
+  if (!is.null(log))
+    writeLines(log, file.path(dir, "logs", sprintf("%s-%s.out", stage, job)))
+}
+
+# The status of each task, as hpc_status() gives it, without its message.
+status_quietly <- function(dir) suppressMessages(hpc_status(dir))
+
+# The message of a condition of class `class` that an expression gives, as plain text.
+message_of <- function(expr, class) {
+  said <- NULL
+  suppressWarnings(suppressMessages(withCallingHandlers(expr, condition = function(cnd) {
+    if (inherits(cnd, class)) said <<- cli::ansi_strip(conditionMessage(cnd))
+  })))
+  said
+}
+
 
 # ===========================================================================
 # 2. Writing the bundle (write_hpc_bundle)
@@ -125,7 +148,8 @@ test_that("write_hpc_bundle writes the scripts, the inputs and the empty folders
   expect_equal(bundle_files(dir),
                c("README.txt", "bundle/checksums.txt", "bundle/data.rds",
                  "bundle/models.rds", "bundle/settings.rds", "bundle/tasks-fit.csv",
-                 "check.sh", "install.R", "install.sh", "settings.sh"))
+                 "check.sh", "install.R", "install.sh", "settings.sh", "status.sh",
+                 "submit.sh", "task.sh"))
   expect_true(all(dir.exists(file.path(dir, c("stan", "results", "logs")))))
   # without cross-validation by refitting there is no table of refits
   expect_false(file.exists(file.path(dir, "bundle", "tasks-kfold.csv")))
@@ -240,7 +264,8 @@ test_that("the scripts are valid shell scripts, and the R script valid R", {
   dir <- write_quietly()
   expect_no_error(parse(file.path(dir, "install.R")))
   skip_if(!bash_reads_files(), "this machine's bash cannot read the files R writes")
-  for (file in c("settings.sh", "install.sh", "check.sh"))
+  for (file in c("settings.sh", "install.sh", "check.sh", "submit.sh", "task.sh",
+                 "status.sh"))
     expect_equal(system2("bash", c("-n", shQuote(file.path(dir, file)))), 0L)
 })
 
@@ -311,7 +336,7 @@ test_that("the copy is one rsync command over three lines, or ssh and scp on Win
 test_that("README.txt gives the copy command of the system the bundle is written on", {
   remote <- "someone@nibi.alliancecan.ca:scratch/run"
   unix <- readLines(file.path(write_quietly(remote = remote), "README.txt"))
-  first <- grep("rsync -av", unix)
+  first <- grep("rsync -av --rsync-path", unix, fixed = TRUE)
   expect_length(first, 1)
   expect_match(unix[first], "\\\\$")                     # continued on the next line
   expect_match(unix[first + 2], "someone@nibi.alliancecan.ca:scratch/run/", fixed = TRUE)
@@ -567,6 +592,7 @@ test_that("what is installed is read from the machine itself", {
   expect_length(.cmdstan_found(), 1)
 })
 
+
 test_that("a file is written whole or not at all", {
   dir  <- withr::local_tempdir()
   path <- file.path(dir, "a.rds")
@@ -603,6 +629,14 @@ test_that("a reason is kept as one line of ASCII text, and a time in its unit", 
                c("14 s", "2 min", "14 min", "2 h", "11.4 h"))
 })
 
+
+test_that("the task numbers are written as Slurm's --array takes them, and read back", {
+  expect_equal(.array_ranges(c(1, 2, 3, 5, 7, 8)), "1-3,5,7-8")
+  expect_equal(.array_ranges(c(4, 2)), "2,4")
+  expect_equal(.array_ranges(6), "6")
+  expect_equal(.expand_ranges("1-3,5,7-8"), c(1:3, 5L, 7:8))
+  expect_equal(.expand_ranges("6"), 6L)
+})
 
 
 # ===========================================================================
@@ -695,6 +729,7 @@ test_that("a model keeps its name through the tables of the tasks, whatever it i
   # each task fitted its own model, and kept its name
   expect_equal(vapply(record$calls, `[[`, "", "baseline"), c("mem", "weibull"))
   expect_identical(readRDS(.task_file(dir, "fit", 1, "rds"))$model, "NA")
+  expect_identical(status_quietly(dir)$model, c("NA", "1", rep(c("NA", "1"), each = 3)))
 })
 
 
@@ -758,7 +793,8 @@ test_that("run_hpc_task refuses a bundle that changed, or another version of rTF
   expect_error(run_hpc_task(dir, "fit", 1), class = "rTFT_bundle_changed")
   file.remove(file.path(dir, "bundle", "extra.csv"))
   expect_false(file.exists(.task_file(dir, "fit", 1, "started")))
-  # another version stops the task before it fits, and the reason is recorded
+  # another version stops the task before it fits, and the reason is recorded, so
+  # that hpc_status() can say it
   local_mocked_bindings(.installed_rtft_version = function() "0.0.1")
   expect_error(run_quietly(dir, "fit", 1), class = "rTFT_task_failed")
   expect_length(record$calls, 0)
@@ -766,30 +802,316 @@ test_that("run_hpc_task refuses a bundle that changed, or another version of rTF
   expect_equal(ended$status, "failed")
   expect_equal(ended$rtft_version, "0.0.1")
   expect_match(ended$message, "The installed rTFT is version \"0.0.1\"", fixed = TRUE)
+  states <- status_quietly(dir)
+  expect_match(states$reason[1], "The installed rTFT is version \"0.0.1\"", fixed = TRUE)
 })
 
 
-test_that("a task run again keeps the record of its earlier end aside", {
+test_that("a task run again is seen as started, and its earlier end is kept aside", {
   record <- new_record()
   local_mocked_bindings(fit_hazard = stand_in_fit(record))
   dir <- trial_bundle()
   record$fail <- TRUE
   try(run_quietly(dir, "fit", 2), silent = TRUE)
-  expect_equal(.read_record(dir, "fit", 2)$status, "failed")
-  # while the second attempt runs (seen from inside the fit), the task has no record
-  # of an end
+  expect_equal(status_quietly(dir)$status[2], "failed")
+  # while the second attempt runs (seen from inside the fit), the task is started,
+  # and is not among those to submit again
   record$fail <- FALSE
-  during <- NULL
+  during <- seen <- said <- NULL
   local_mocked_bindings(fit_hazard = function(...) {
     during <<- .read_record(dir, "fit", 2)
+    seen   <<- status_quietly(dir)
+    said   <<- message_of(hpc_status(dir), "rTFT_hpc_status")
     fit_trials
   })
   run_quietly(dir, "fit", 2)
-  expect_null(during)
+  expect_null(during)                                  # no record of an end yet
+  expect_equal(seen$status[2], "started")
+  expect_no_match(said, "--fit 1-2", fixed = TRUE)
+  expect_match(said, "--fit 1 ", fixed = TRUE)
   # the earlier end is beside it, with its reason
   previous <- utils::read.csv(.task_file(dir, "fit", 2, "previous.csv"),
                               colClasses = "character")
   expect_equal(previous$status, "failed")
   expect_match(previous$message, "the sampler stopped", fixed = TRUE)
   expect_equal(.read_record(dir, "fit", 2)$status, "done")
+})
+
+
+# ===========================================================================
+# 6. Following the run (hpc_status)
+# ===========================================================================
+
+test_that("hpc_status says that nothing has started, and how to start it", {
+  dir <- trial_bundle()
+  expect_message(states <- hpc_status(dir), class = "rTFT_hpc_status")
+  expect_equal(nrow(states), 8)
+  expect_equal(states$stage, rep(c("fit", "kfold"), c(2, 6)))
+  expect_equal(states$task, c(1:2, 1:6))
+  expect_equal(states$fold, c(NA, NA, rep(1:3, 2)))
+  expect_equal(unique(states$status), "not started")
+  said <- message_of(hpc_status(dir), "rTFT_hpc_status")
+  expect_match(said, "Fits: 0 of 2 done; 2 not started.", fixed = TRUE)
+  expect_match(said, "bash submit.sh --fit 1-2 --kfold 1-6", fixed = TRUE)
+})
+
+
+test_that("hpc_status gives each task's state, and why it is not done", {
+  record <- new_record()
+  local_mocked_bindings(fit_hazard = stand_in_fit(record),
+                        .refit_fold = stand_in_refit(new_record()))
+  dir <- trial_bundle()
+  run_quietly(dir, "fit", 1)
+  record$fail <- TRUE
+  try(run_quietly(dir, "fit", 2), silent = TRUE)
+  run_quietly(dir, "kfold", 1)
+  fake_start(dir, "kfold", 2, "80_2",
+             "slurmstepd: error: *** JOB 82 ON nc1 CANCELLED AT 2026-10-17T22:00:00 DUE TO TIME LIMIT ***")
+  fake_start(dir, "kfold", 3, "80_3",
+             "slurmstepd: error: Detected 1 oom_kill event in StepId=83.batch.")
+  fake_start(dir, "kfold", 4, "80_4", "Running task refit 4")
+  fake_start(dir, "kfold", 5, "80_5")
+  states <- status_quietly(dir)
+  expect_equal(states$status, c("done", "failed", "done", "started", "started",
+                                "started", "started", "not started"))
+  expect_match(states$reason[2], "the sampler stopped", fixed = TRUE)
+  expect_match(states$reason[4], "ran out of time", fixed = TRUE)
+  expect_match(states$reason[5], "ran out of memory", fixed = TRUE)
+  expect_match(states$reason[6], "may still be running", fixed = TRUE)
+  expect_match(states$reason[6], "see logs/kfold-80_4.out", fixed = TRUE)
+  expect_match(states$reason[7], "may still be running", fixed = TRUE)
+  expect_true(all(is.na(states$reason[c(1, 3)])))
+  expect_false(anyNA(states$seconds[1:3]))
+  # what to submit again: what failed, never started, or was stopped by Slurm, but
+  # not what may still be running
+  said <- message_of(hpc_status(dir), "rTFT_hpc_status")
+  expect_match(said, "bash submit.sh --fit 2 --kfold 2-3,6", fixed = TRUE)
+  expect_match(said, "Refits for cross-validation: 1 of 6 done; 4 started, 1 not started.",
+               fixed = TRUE)
+  expect_match(said, "sq", fixed = TRUE)
+})
+
+
+test_that("a task stopped by Slurm is told apart by the line Slurm wrote in its log", {
+  dir <- trial_bundle()
+  dir.create(file.path(dir, "logs"), showWarnings = FALSE)
+  reason <- function(line) {
+    writeLines(c("Running task refit 1", line), file.path(dir, "logs", "kfold-90_1.out"))
+    .log_reason(dir, "kfold", "90_1")
+  }
+  expect_match(reason("slurmstepd: error: *** JOB 91 ON nc1 CANCELLED AT 2026-10-19T01:00:00 DUE TO NODE FAILURE, SEE SLURMCTLD LOG FOR DETAILS ***"),
+               "^it was stopped by Slurm, due to node failure; see logs/kfold-90_1.out$")
+  expect_match(reason("slurmstepd: error: *** JOB 91 ON nc1 CANCELLED AT 2026-10-19T01:00:00 DUE TO PREEMPTION ***"),
+               "due to preemption;", fixed = TRUE)
+  # cancelled by hand, with scancel, Slurm gives no reason
+  expect_match(reason("slurmstepd: error: *** JOB 91 ON nc1 CANCELLED AT 2026-10-19T01:00:00 ***"),
+               "^it was cancelled; see")
+  # a task stopped by Slurm is among those to submit again; one that may still be
+  # running is not
+  fake_start(dir, "kfold", 1, "90_1")
+  reason("slurmstepd: error: *** JOB 91 ON nc1 CANCELLED AT 2026-10-19T01:00:00 DUE TO NODE FAILURE ***")
+  expect_match(message_of(hpc_status(dir), "rTFT_hpc_status"), "--kfold 1-6", fixed = TRUE)
+  reason("Running task refit 1, still sampling")
+  expect_match(message_of(hpc_status(dir), "rTFT_hpc_status"), "--kfold 2-6", fixed = TRUE)
+})
+
+
+test_that("a task submitted again waits in the queue, and is not given to submit again", {
+  record <- new_record()
+  local_mocked_bindings(fit_hazard = stand_in_fit(record))
+  dir <- trial_bundle()
+  run_quietly(dir, "fit", 1)
+  record$fail <- TRUE
+  try(run_quietly(dir, "fit", 2), silent = TRUE)
+  # every file of the tasks written an hour ago; the record of submit.sh says fit 2
+  # and every refit were submitted since, and fit 1 too (it stays done)
+  files <- list.files(file.path(dir, "results"), full.names = TRUE)
+  Sys.setFileTime(files, Sys.time() - 3600)
+  now <- round(as.numeric(Sys.time()))
+  writeLines(c('"time","stage","tasks","job"',
+               paste0(now - 7200, ',"fit","1-2","90"'),
+               paste0(now, ',"fit","1-2","95"'),
+               paste0(now, ',"kfold","1-6","96"')),
+             file.path(dir, "results", "submitted.csv"))
+  sent <- .read_submissions(dir)
+  expect_equal(nrow(sent), 10)
+  expect_equal(sent$task[sent$job == "96"], 1:6)
+  states <- status_quietly(dir)
+  expect_equal(states$status, c("done", "queued", rep("queued", 6)))
+  expect_match(states$reason[2], "as job 95, waiting to start", fixed = TRUE)
+  said <- message_of(hpc_status(dir), "rTFT_hpc_status")
+  expect_no_match(said, "To submit again", fixed = TRUE)
+  expect_match(said, "bash submit.sh --fit 2 --kfold 1-6", fixed = TRUE)   # if gone
+  # a submission older than a task's files is an earlier one
+  writeLines(c('"time","stage","tasks","job"', paste0(now - 7200, ',"fit","2","90"')),
+             file.path(dir, "results", "submitted.csv"))
+  states <- status_quietly(dir)
+  expect_equal(states$status[1:3], c("done", "failed", "not started"))
+  # and without a record of submissions nothing is queued
+  file.remove(file.path(dir, "results", "submitted.csv"))
+  expect_false(any(status_quietly(dir)$status == "queued"))
+})
+
+
+test_that("each command to submit again is printed on one line, whatever the width", {
+  local_mocked_bindings(fit_hazard = stand_in_fit(new_record()))
+  dir <- trial_bundle()
+  run_quietly(dir, "fit", 1)
+  # cli wraps a message to the width in force when it is printed; testthat does not
+  # wrap at all, so what is checked is the width in force as the message is given
+  withr::local_options(cli.width = 20)
+  width <- NULL
+  said  <- NULL
+  suppressMessages(withCallingHandlers(hpc_status(dir), rTFT_hpc_status = function(m) {
+    width <<- getOption("cli.width")
+    said  <<- conditionMessage(m)
+  }))
+  expect_identical(width, Inf)
+  expect_match(said, "bash submit.sh --fit 2 --kfold 1-6", fixed = TRUE)
+  expect_no_match(said, "`bash submit.sh", fixed = TRUE)     # plain text to paste
+  expect_identical(getOption("cli.width"), 20)                 # and the width is back
+})
+
+
+test_that("hpc_status says when every task is done, and what comes next", {
+  local_mocked_bindings(fit_hazard = stand_in_fit(new_record()),
+                        .refit_fold = stand_in_refit(new_record()))
+  dir <- trial_bundle()
+  run_all(dir)
+  states <- status_quietly(dir)
+  expect_equal(unique(states$status), "done")
+  said <- message_of(hpc_status(dir), "rTFT_hpc_status")
+  expect_match(said, "Every task is done", fixed = TRUE)
+  # and no line without words, such as an empty list of tasks would leave
+  expect_true(all(grepl("[[:alpha:]]", strsplit(said, "\n")[[1]])))
+  expect_no_match(said, "submit.sh", fixed = TRUE)
+})
+
+
+test_that("a result written for another bundle, or that went missing, is not counted done", {
+  local_mocked_bindings(fit_hazard = stand_in_fit(new_record()))
+  dir   <- trial_bundle()
+  other <- trial_bundle(kfold = FALSE, seed = 2)
+  run_quietly(other, "fit", 1)
+  file.copy(file.path(other, "results", c("fit-001.csv", "fit-001.rds")),
+            file.path(dir, "results"))
+  run_quietly(dir, "fit", 2)
+  file.remove(.task_file(dir, "fit", 2, "rds"))
+  states <- status_quietly(dir)
+  expect_equal(states$status[1:2], c("failed", "failed"))
+  expect_match(states$reason[1], "another bundle", fixed = TRUE)
+  expect_match(states$reason[2], "missing", fixed = TRUE)
+})
+
+
+# ===========================================================================
+# 8. The scripts that submit and run the tasks
+# ===========================================================================
+
+# Put stand-ins for the commands of a cluster first on the path: `sbatch`, which
+# records how it was called and prints a job number as Slurm prints it with
+# --parsable; `module`, which does nothing; and `Rscript`, which records how it was
+# called. Return the file of the records.
+fake_cluster <- function(env = parent.frame()) {
+  bin <- withr::local_tempdir(.local_envir = env)
+  log <- file.path(bin, "calls.txt")
+  writeLines(c("#!/bin/bash", 'echo "sbatch $*" >> "$CALLS"',
+               'echo "$(( 1000 + $(wc -l < "$CALLS") ));nibi"'),
+             file.path(bin, "sbatch"))
+  writeLines(c("#!/bin/bash", "exit 0"), file.path(bin, "module"))
+  writeLines(c("#!/bin/bash", 'echo "Rscript $*" >> "$CALLS"',
+               'echo "TMPDIR=$TMPDIR" >> "$CALLS"'), file.path(bin, "Rscript"))
+  Sys.chmod(file.path(bin, c("sbatch", "module", "Rscript")), "0755")
+  file.create(log)
+  withr::local_envvar(PATH = paste(bin, Sys.getenv("PATH"), sep = ":"), CALLS = log,
+                      .local_envir = env)
+  log
+}
+
+# Run a script of the bundle in `dir` with bash, with `args`, and return what it
+# printed, with its exit status as the attribute "status" when it is not 0.
+run_script <- function(dir, script, args = character(0)) {
+  suppressWarnings(system2("bash", shQuote(c(file.path(dir, script), args)),
+                           stdout = TRUE, stderr = TRUE))
+}
+
+
+test_that("submit.sh submits the fits, then the refits to start when the fits end", {
+  skip_if(!bash_reads_files(), "this machine's bash cannot read the files R writes")
+  calls <- fake_cluster()
+  dir <- trial_bundle()
+  out <- run_script(dir, "submit.sh")
+  expect_null(attr(out, "status"))
+  sent <- readLines(calls)
+  expect_length(sent, 2)
+  expect_match(sent[1], "--account=def-test --job-name=rtft-fit --array=1-2 --time=12:00:00 --mem-per-cpu=4G --cpus-per-task=2 --output=logs/fit-%A_%a.out task.sh fit",
+               fixed = TRUE)
+  expect_match(sent[2], "--array=1-6", fixed = TRUE)
+  expect_match(sent[2], "--dependency=afterany:1001 task.sh kfold", fixed = TRUE)
+  expect_match(paste(out, collapse = "\n"), "as job 1001.", fixed = TRUE)
+  # each submission is recorded, for hpc_status() to read
+  sent <- utils::read.csv(file.path(dir, "results", "submitted.csv"),
+                          colClasses = "character")
+  expect_equal(sent$stage, c("fit", "kfold"))
+  expect_equal(sent$tasks, c("1-2", "1-6"))
+  expect_equal(sent$job, c("1001", "1002"))
+  expect_true(all(abs(as.numeric(sent$time) - as.numeric(Sys.time())) < 120))
+  expect_equal(unique(status_quietly(dir)$status), "queued")
+  expect_true(all(dir.exists(file.path(dir, c("logs", "results", "stan")))))
+})
+
+
+test_that("submit.sh submits only the tasks it is given, and refuses what it cannot submit", {
+  skip_if(!bash_reads_files(), "this machine's bash cannot read the files R writes")
+  calls <- fake_cluster()
+  dir <- trial_bundle()
+  run_script(dir, "submit.sh", c("--kfold", "2-3,5"))
+  sent <- readLines(calls)
+  expect_length(sent, 1)
+  expect_match(sent, "--array=2-3,5", fixed = TRUE)
+  expect_no_match(sent, "dependency", fixed = TRUE)
+  run_script(dir, "submit.sh", c("--fit", "2", "--kfold", "4"))
+  sent <- readLines(calls)[2:3]
+  expect_match(sent[1], "--array=2 ", fixed = TRUE)
+  expect_match(sent[2], "--dependency=afterany:1002", fixed = TRUE)
+  # what cannot be submitted is not
+  for (bad in list("--fit", c("--fit", "x"), c("--fit", "1;2"), c("--all", "1"),
+                   c("--fit", "0"), c("--fit", "1-3"), c("--kfold", "2,7")))
+    expect_equal(attr(run_script(dir, "submit.sh", bad), "status"), 1L)
+  expect_match(paste(run_script(dir, "submit.sh", c("--fit", "1-3")), collapse = " "),
+               "This bundle has 2 fits; fit 3 is not one of them.", fixed = TRUE)
+  expect_length(readLines(calls), 3)
+  # a bundle without refits submits its fits alone, and has no refits to submit
+  plain <- trial_bundle(kfold = FALSE)
+  run_script(plain, "submit.sh")
+  expect_length(readLines(calls), 4)
+  expect_match(readLines(calls)[4], "task.sh fit", fixed = TRUE)
+  expect_equal(attr(run_script(plain, "submit.sh", c("--kfold", "1")), "status"), 1L)
+})
+
+
+test_that("task.sh loads R and runs the task of its stage", {
+  skip_if(!bash_reads_files(), "this machine's bash cannot read the files R writes")
+  calls <- fake_cluster()
+  dir <- trial_bundle()
+  node_disk <- withr::local_tempdir()
+  withr::local_envvar(SLURM_SUBMIT_DIR = dir, SLURM_ARRAY_TASK_ID = "2",
+                      SLURM_TMPDIR = node_disk)
+  out <- run_script(dir, "task.sh", "kfold")
+  expect_null(attr(out, "status"))
+  # R is run with its temporary files on the node's own disk
+  expect_equal(readLines(calls), c("Rscript -e rTFT::run_hpc_task('.', 'kfold')",
+                                   paste0("TMPDIR=", node_disk)))
+  expect_equal(attr(run_script(dir, "task.sh", "all"), "status"), 1L)
+  expect_length(readLines(calls), 2)
+})
+
+
+test_that("status.sh loads R and reports on the bundle", {
+  skip_if(!bash_reads_files(), "this machine's bash cannot read the files R writes")
+  calls <- fake_cluster()
+  dir <- trial_bundle()
+  out <- run_script(dir, "status.sh")
+  expect_null(attr(out, "status"))
+  expect_equal(readLines(calls)[1], "Rscript -e invisible(rTFT::hpc_status(\".\"))")
 })
