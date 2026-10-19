@@ -531,25 +531,8 @@ fit_hazard_models <- function(models, long,
 
   if (kfold) {
     cv <- .kfold_models(out$fits, unit, K, dots)
-    out$kfold <- cv$kfold
-    estimate  <- function(m, column) {
-      if (is.null(cv$kfold[[m]])) return(NA_real_)
-      cv$kfold[[m]]$estimates["elpd_kfold", column]
-    }
-    out$summary$elpd_kfold <- vapply(model_summary$model, estimate, numeric(1),
-                                     "Estimate", USE.NAMES = FALSE)
-    out$summary$se_kfold   <- vapply(model_summary$model, estimate, numeric(1),
-                                     "SE", USE.NAMES = FALSE)
-    out$summary <- dplyr::relocate(out$summary, "elpd_kfold", "se_kfold",
-                                   .after = "high_k")
-    not_refitted <- model_summary$model %in% names(cv$errors)
-    out$summary$message[not_refitted] <-
-      unname(cv$errors[model_summary$model[not_refitted]])
-    if (length(cv$errors))
-      cli::cli_warn(c(
-        "!" = "{length(cv$errors)} model{?s} could not be cross-validated by refitting: {.val {names(cv$errors)}}.",
-        "i" = "The reason for each is in {.field message} of the summary."
-      ), class = "rTFT_models_failed")
+    out$kfold   <- cv$kfold
+    out$summary <- .kfold_columns(out$summary, cv$kfold, cv$errors)
   }
 
   .report_models(out$summary, rhat, ess, divergent, kfold)
@@ -557,18 +540,23 @@ fit_hazard_models <- function(models, long,
 }
 
 
-# .kfold_models() / .report_models() -------------------------------------------
+# .refit_args() / .kfold_models() / .kfold_columns() / .report_models() ---------
+
+# The arguments of `dots`, those given for every fit, that are given to a refit: those
+# brms takes. Those that only fit_hazard() takes, the priors and the steepness of a
+# threshold, are left out, since a refit keeps them from the fit it starts from.
+.refit_args <- function(dots) {
+  dots[setdiff(names(dots), c("prior", "intercept_priors", "slope_prior", "sd_prior",
+                              "k_sw"))]
+}
 
 # Cross-validate each model of `fits` by refitting, leaving out `unit` in `K` folds,
 # and return a list of two elements: `kfold`, the results by model, and `errors`, the
 # reason each model whose refits failed was left out. The folds are assigned once,
-# for the first model cross-validated, and given to every model after it. Of the
-# arguments in `dots`, those brms takes are given to the refits; those that only
-# fit_hazard() takes, the priors and the steepness of a threshold, are left out,
-# since a refit keeps them from the fit it starts from.
+# for the first model cross-validated, and given to every model after it. The refits
+# are given the arguments of `dots` that .refit_args() keeps.
 .kfold_models <- function(fits, unit, K, dots) {
-  refit_args <- dots[setdiff(names(dots), c("prior", "intercept_priors", "slope_prior",
-                                            "sd_prior", "k_sw"))]
+  refit_args <- .refit_args(dots)
   quietly <- function(expr) withCallingHandlers(
     expr, rTFT_loo_leak = function(w) invokeRestart("muffleWarning"))
   folds  <- NULL
@@ -589,6 +577,34 @@ fit_hazard_models <- function(models, long,
     }
   }
   list(kfold = kfold, errors = errors)
+}
+
+# Add to `model_summary` the estimate by refitting of each model in `kfold`, a named
+# list of results in the layout of kfold_hazard(), as the columns `elpd_kfold` and
+# `se_kfold` after `high_k` (missing for a model without a result), and put in
+# `message` the reason each model named in `errors`, a named character vector, was
+# not cross-validated by refitting, with a warning that names those models. Return
+# the summary.
+.kfold_columns <- function(model_summary, kfold, errors) {
+  estimate <- function(m, column) {
+    if (is.null(kfold[[m]])) return(NA_real_)
+    kfold[[m]]$estimates["elpd_kfold", column]
+  }
+  model_summary$elpd_kfold <- vapply(model_summary$model, estimate, numeric(1),
+                                     "Estimate", USE.NAMES = FALSE)
+  model_summary$se_kfold   <- vapply(model_summary$model, estimate, numeric(1), "SE",
+                                     USE.NAMES = FALSE)
+  model_summary <- dplyr::relocate(model_summary, "elpd_kfold", "se_kfold",
+                                   .after = "high_k")
+  not_refitted <- model_summary$model %in% names(errors)
+  model_summary$message[not_refitted] <-
+    unname(errors[model_summary$model[not_refitted]])
+  if (length(errors))
+    cli::cli_warn(c(
+      "!" = "{length(errors)} model{?s} could not be cross-validated by refitting: {.val {names(errors)}}.",
+      "i" = "The reason for each is in {.field message} of the summary."
+    ), class = "rTFT_models_failed")
+  model_summary
 }
 
 # Say, from `model_summary`, which models failed, which did not meet the convergence
