@@ -138,6 +138,19 @@ message_of <- function(expr, class) {
   said
 }
 
+# Check that `said` gives `command` to run on the cluster as plain text, ready to paste:
+# not between backticks, which cli puts around code where the terminal has no colours
+# and bash would run, and not followed by the full stop of a sentence, which bash would
+# read as part of the last argument.
+expect_plain_command <- function(said, command) {
+  expect_match(said, command, fixed = TRUE)
+  expect_no_match(said, paste0("`", command), fixed = TRUE)
+  expect_no_match(said, paste0(command, "."), fixed = TRUE)
+}
+
+# The message of an error, as plain text.
+said_by <- function(err) cli::ansi_strip(conditionMessage(err))
+
 
 # ===========================================================================
 # 2. Writing the bundle (write_hpc_bundle)
@@ -377,6 +390,8 @@ test_that("write_hpc_bundle says what it wrote and what to do next, and returns 
     classes = "rTFT_loo_unit")
   expect_match(said, "README.txt", fixed = TRUE)
   expect_no_match(said, "rsync", fixed = TRUE)
+  expect_plain_command(said, "bash install.sh")
+  expect_plain_command(said, "bash check.sh")
 })
 
 
@@ -495,6 +510,8 @@ test_that("check_hpc_bundle passes a bundle as it was written, and says what it 
   dir <- write_quietly(kfold = TRUE)
   expect_message(out <- check_hpc_bundle(dir), class = "rTFT_bundle_checked")
   expect_true(out)
+  expect_plain_command(message_of(check_hpc_bundle(dir), "rTFT_bundle_checked"),
+                       "bash submit.sh")
   # from the folder itself, as check.sh runs it
   withr::local_dir(dir)
   expect_true(suppressMessages(check_hpc_bundle()))
@@ -531,13 +548,16 @@ test_that("check_hpc_bundle refuses another version of rTFT, and missing softwar
   dir <- write_quietly()
   local_mocked_bindings(.has_cmdstanr = function() TRUE, .cmdstan_found = function() TRUE,
                         .installed_rtft_version = function() "0.0.1")
-  expect_error(check_hpc_bundle(dir), class = "rTFT_version_differs")
+  err <- expect_error(check_hpc_bundle(dir), class = "rTFT_version_differs")
+  expect_plain_command(said_by(err), "bash install.sh")
   local_mocked_bindings(.installed_rtft_version = function()
     as.character(utils::packageVersion("rTFT")))
   local_mocked_bindings(.has_cmdstanr = function() FALSE)
-  expect_error(check_hpc_bundle(dir), class = "rTFT_needs_cmdstanr")
+  err <- expect_error(check_hpc_bundle(dir), class = "rTFT_needs_cmdstanr")
+  expect_plain_command(said_by(err), "bash install.sh")
   local_mocked_bindings(.has_cmdstanr = function() TRUE, .cmdstan_found = function() FALSE)
-  expect_error(check_hpc_bundle(dir), class = "rTFT_no_cmdstan")
+  err <- expect_error(check_hpc_bundle(dir), class = "rTFT_no_cmdstan")
+  expect_plain_command(said_by(err), "bash install.sh --job")
 })
 
 
@@ -773,9 +793,11 @@ test_that("a refit starts from its model's fit and leaves out the units of its f
   settings <- readRDS(file.path(dir, "bundle", "settings.rds"))
   tasks <- .read_tasks(dir, "kfold")
   # before its fit has ended, a refit cannot start
-  expect_error(.kfold_task(dir, settings, tasks[1, ], .bundle_id(dir)),
-               class = "rTFT_fit_not_ready")
-  expect_error(run_quietly(dir, "kfold", 1), class = "rTFT_task_failed")
+  err <- expect_error(.kfold_task(dir, settings, tasks[1, ], .bundle_id(dir)),
+                      class = "rTFT_fit_not_ready")
+  expect_plain_command(said_by(err), "bash submit.sh --fit 1 --kfold 1")
+  err <- expect_error(run_quietly(dir, "kfold", 1), class = "rTFT_task_failed")
+  expect_plain_command(said_by(err), "bash status.sh")
   expect_match(.read_record(dir, "kfold", 1)$message, "start from its fit", fixed = TRUE)
   expect_length(refits$calls, 0)
   # once it has, each refit leaves out its own fold, and is given what brms takes
@@ -1090,6 +1112,7 @@ test_that("models and folds without a result are named, and the rest is collecte
   expect_true(all(is.na(out$summary$elpd_kfold)))
   said <- message_of(collect_hpc(dir), "rTFT_tasks_missing")
   expect_match(said, "1 of the 2 models has no result yet", fixed = TRUE)
+  expect_plain_command(said, "bash status.sh")
 })
 
 

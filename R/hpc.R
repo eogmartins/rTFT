@@ -200,7 +200,7 @@
 # commits must be the same as well.
 .check_rtft_version <- function(settings) {
   installed <- .installed_rtft_version()
-  fix <- "Run {.code bash install.sh}, which installs the version that wrote the bundle, so that the models fitted here are the ones written there."
+  fix <- "Run bash install.sh, which installs the version that wrote the bundle, so that the models fitted here are the ones written there."
   if (!identical(installed, settings$rtft_version))
     cli::cli_abort(c(
       "The installed rTFT is version {.val {installed}}, and the bundle was written by version {.val {settings$rtft_version}}.",
@@ -564,7 +564,9 @@ write_hpc_bundle <- function(models, long, dir, account,
   cli::cli_inform(c(
     "v" = "Wrote a bundle of {nrow(models)} model{?s} to {.path {dir}}: {nrow(tasks_fit)} fit{?s}{refits}, leaving out one {label} at a time.",
     "i" = "Copy it to the cluster with the command in step 1 of {.file README.txt}, in that folder.",
-    "i" = "Then, on the cluster, in that folder: {.code bash install.sh} (once on each cluster), then {.code bash check.sh}."
+    "i" = "Then, on the cluster, in that folder, run these two (the first once on each cluster):",
+    " " = "bash install.sh",
+    " " = "bash check.sh"
   ), class = "rTFT_bundle_written")
   invisible(normalizePath(dir))
 }
@@ -620,12 +622,13 @@ check_hpc_bundle <- function(dir = ".") {
   if (!.has_cmdstanr())
     cli::cli_abort(c(
       "The {.pkg cmdstanr} package is not installed in this R.",
-      "i" = "Run {.code bash install.sh}, which installs cmdstanr and then CmdStan, which cmdstanr needs."
+      "i" = "Run bash install.sh, which installs cmdstanr and then CmdStan, which cmdstanr needs."
     ), class = "rTFT_needs_cmdstanr")
   if (!.cmdstan_found())
     cli::cli_abort(c(
       "{.pkg cmdstanr} cannot find CmdStan, which compiles the models.",
-      "i" = "Run {.code bash install.sh}, which compiles CmdStan; it can take 10 to 20 minutes. If the login node stops it, run {.code bash install.sh --job}."
+      "i" = "Run bash install.sh, which compiles CmdStan; it can take 10 to 20 minutes. If the login node stops it, run it as a job instead:",
+      " " = "bash install.sh --job"
     ), class = "rTFT_no_cmdstan")
 
   # every model as it will be fitted
@@ -640,7 +643,8 @@ check_hpc_bundle <- function(dir = ".") {
     "v" = "Every file of the bundle is as it was written ({length(found)} file{?s}).",
     "v" = "rTFT {installed}, the version that wrote the bundle; brms {brms}; CmdStan found.",
     "v" = "{nrow(models)} model{?s} assembled{refits}.",
-    "i" = "Submit the tasks with {.code bash submit.sh}."
+    "i" = "To submit the tasks:",
+    " " = "bash submit.sh"
   ), class = "rTFT_bundle_checked")
   invisible(TRUE)
 }
@@ -802,7 +806,7 @@ check_hpc_bundle <- function(dir = ".") {
       !identical(record$bundle, id) || !file.exists(file))
     cli::cli_abort(c(
       "The refits of {.val {row$model}} start from its fit, task {j} of the fits, which has not ended well.",
-      "i" = "Run that task first; {.code bash submit.sh --fit {j} --kfold {row$task}} submits the two, the refit to start when the fit has ended."
+      "i" = "Run that task first; bash submit.sh --fit {j} --kfold {row$task} submits the two, the refit to start when the fit has ended."
     ), class = "rTFT_fit_not_ready")
   fit   <- readRDS(file)$fit
   setup <- withCallingHandlers(
@@ -948,7 +952,7 @@ run_hpc_task <- function(dir = ".", stage = "fit",
     cli::cli_abort(c(
       "Task {label} failed.",
       "x" = "{record$message}",
-      "i" = "The reason is kept in {.file results/}, and {.code bash status.sh} lists every task that failed."
+      "i" = "The reason is kept in {.file results/}, and bash status.sh lists every task that failed."
     ), class = "rTFT_task_failed")
   cli::cli_inform(c("v" = "Task {label} ended well, in {(.duration(seconds))}."),
                   class = "rTFT_task_done")
@@ -1389,7 +1393,7 @@ collect_hpc <- function(dir = ".") {
   if (length(absent))
     cli::cli_warn(c(
       "!" = "{length(absent)} of the {n} model{?s} {cli::qty(length(absent))}{?has/have} no result yet: {.val {absent}}.",
-      "i" = "{.code bash status.sh}, on the cluster, says why; copy {.file results/} back again when {cli::qty(length(absent))}{?it is/they are} done."
+      "i" = "bash status.sh, on the cluster, says why; copy {.file results/} back again when {cli::qty(length(absent))}{?it is/they are} done."
     ), class = "rTFT_tasks_missing")
   .report_models(out$summary, rule$rhat, rule$ess, rule$divergent, kfold)
   refitted <- if (kfold)
