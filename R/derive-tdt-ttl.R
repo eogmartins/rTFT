@@ -192,12 +192,12 @@ H0inv_of <- function(baseline) {
   # missing one would otherwise fail later with an unhelpful "object not found", and
   # a short one would be silently reused across the draws, shrinking the spread of
   # the result.
-  pars    <- c(m_spec$dpars, .costressor_dpars(costressors))
-  draws   <- as.list(draws)
-  missing <- setdiff(pars, names(draws))
-  if (length(missing))
+  pars        <- c(m_spec$dpars, .costressor_dpars(costressors))
+  draws       <- as.list(draws)
+  absent_pars <- setdiff(pars, names(draws))
+  if (length(absent_pars))
     cli::cli_abort(c(
-      "{.arg draws} has no draws for {.val {missing}}.",
+      "{.arg draws} has no draws for {.val {absent_pars}}.",
       "i" = "{.val {m_form}} with these co-stressors needs {.val {pars}}."
     ), class = "rTFT_missing_draws")
   n_draws <- lengths(draws[pars])
@@ -515,11 +515,11 @@ H0inv_of <- function(baseline) {
     terms <- .rhs_terms(fit$formula$pforms[[p]])
     unlist(purrr::map(terms[!vapply(terms, .is_bar, logical(1))], all.vars))
   })))
-  missing <- setdiff(covariates, names(newdata))
-  if (length(missing))
+  absent_covariates <- setdiff(covariates, names(newdata))
+  if (length(absent_covariates))
     cli::cli_abort(c(
-      "{.arg newdata} has no column for {.val {missing}}.",
-      "i" = "The fitted model uses {cli::qty(length(missing))}{?it/them} in its parameters' formulas; give the value{?s} to report at."
+      "{.arg newdata} has no column for {.val {absent_covariates}}.",
+      "i" = "The fitted model uses {cli::qty(length(absent_covariates))}{?it/them} in its parameters' formulas; give the value{?s} to report at."
     ), class = "rTFT_missing_covariates")
   for (col in setdiff(names(fit$data), names(newdata)))
     newdata[[col]] <- fit$data[[col]][1]
