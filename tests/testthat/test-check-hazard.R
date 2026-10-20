@@ -151,7 +151,9 @@ test_that("check_survival refuses bad arguments", {
 test_that("hazard_residuals gives one residual per individual, with what it carries", {
   set.seed(1)
   res <- hazard_residuals(fit_exp, n_draws = 200)
-  expect_named(res, c("id", "path_id", "mass", "time", "Ta", "event", "residual"))
+  expect_named(res, c("id", "path_id", "mass", "time", "Ta", "event", "randomisation",
+                      "residual"))
+  expect_true(all(res$randomisation == 1))
   expect_equal(nrow(res), 40L)
   rec <- .fit_record(fit_exp)
   expect_equal(res$id, rec$individuals$id)
@@ -206,6 +208,41 @@ test_that("the residuals are the same again under the same seed, and uniform for
   # the fixture was simulated from the model fitted to it
   expect_gt(stats::ks.test(a$residual, "punif")$p.value, 0.05)
   expect_error(hazard_residuals(list()), class = "rTFT_not_brmsfit")
+})
+
+
+test_that("the residuals can be drawn several times, the first as a single draw gives it", {
+  set.seed(5); one   <- hazard_residuals(fit_exp, n_draws = 200)
+  set.seed(5); three <- hazard_residuals(fit_exp, n_draws = 200, n_randomisations = 3)
+  # every individual once in each randomisation, with what it carries
+  expect_equal(nrow(three), 3L * nrow(one))
+  expect_equal(three$randomisation, rep(1:3, each = nrow(one)))
+  for (k in 1:3) {
+    of_k <- three[three$randomisation == k, ]
+    expect_equal(of_k[setdiff(names(of_k), c("randomisation", "residual"))],
+                 one[setdiff(names(one), c("randomisation", "residual"))])
+  }
+  # under the same seed, the first randomisation is the single one
+  expect_equal(three$residual[three$randomisation == 1], one$residual)
+  # failures known only to an interval are drawn again in each randomisation
+  r <- matrix(three$residual, ncol = 3)
+  expect_true(all(r[, 1] != r[, 2] & r[, 2] != r[, 3]))
+  # a failure at a known time is the same in every randomisation, and a survivor is
+  # drawn again
+  rec <- .fit_record(fit_exp)
+  exact <- fit_exp
+  exact$rtft$observation <- "continuous"
+  exact$data$failed[rec$individuals$last[1:5]] <- 0L
+  set.seed(5)
+  r <- matrix(hazard_residuals(exact, n_draws = 200, n_randomisations = 3)$residual,
+              ncol = 3)
+  expect_equal(r[-(1:5), 1], r[-(1:5), 2])
+  expect_equal(r[-(1:5), 1], r[-(1:5), 3])
+  expect_true(all(r[1:5, 1] != r[1:5, 2]))
+  # the number of randomisations is a whole number, 1 or more
+  for (bad in list(0, 1.5, NA_real_, Inf, c(1, 2), "2"))
+    expect_error(hazard_residuals(fit_exp, n_randomisations = bad),
+                 class = "rTFT_bad_n_randomisations")
 })
 
 

@@ -4,19 +4,24 @@
 \alias{hazard_residuals}
 \title{Residuals of a fitted model, one per individual}
 \usage{
-hazard_residuals(fit, n_draws = 400)
+hazard_residuals(fit, n_draws = 400, n_randomisations = 1)
 }
 \arguments{
 \item{fit}{A \code{brmsfit}, a model fitted with \code{\link[=fit_hazard]{fit_hazard()}}.}
 
 \item{n_draws}{A single number, the number of posterior draws to average the
 predicted survival over, evenly spaced through the posterior. Defaults to 400.}
+
+\item{n_randomisations}{A single whole number, the number of times the residuals
+are drawn, each time for every individual. Defaults to 1. Under the same seed,
+the first randomisation is the one a call with the default gives.}
 }
 \value{
-A tibble with one row per individual: \code{id}; \code{path_id}; the variables of
-the model that have one value per individual (covariates and groupings);
-\code{time}, the time at which it failed or was last observed; \code{Ta}, the temperature
-at that time; \code{event}, 1 for a failure and 0 for a survivor; and \code{residual}.
+A tibble with one row per individual and randomisation: \code{id}; \code{path_id};
+the variables of the model that have one value per individual (covariates and
+groupings); \code{time}, the time at which it failed or was last observed; \code{Ta}, the
+temperature at that time; \code{event}, 1 for a failure and 0 for a survivor;
+\code{randomisation}, from 1 to \code{n_randomisations}; and \code{residual}.
 }
 \description{
 Computes a randomised residual for each individual, in the manner of the
@@ -40,9 +45,21 @@ that fraction at the start of the interval and at its end;
 drawn uniformly between that fraction at its last observation and 1.
 }
 
-The draws are random: call \code{\link[=set.seed]{set.seed()}} first for the same residuals again. One
-residual per individual is used, and not one per interval, because the intervals
-of an individual are slices of one exposure and are not separate observations.
+One residual per individual is used, and not one per interval, because the
+intervals of an individual are slices of one exposure and are not separate
+observations.
+
+The draws are random, and a seed only makes them repeat: call \code{\link[=set.seed]{set.seed()}} first
+for the same residuals again, but what the residuals show under one seed may not
+hold under another. How far a residual can move from one draw to the next is set
+by what was observed of the individual: not at all for a failure at a known time;
+across the fraction predicted to fail during its interval, for a failure known
+only to an interval; and from the fraction predicted to have failed by its last
+observation up to 1, for a survivor. The residuals are therefore least settled
+when the checks are far apart or many individuals survive, and under interval
+observation every residual is drawn. With \code{n_randomisations} above 1 the draws
+are repeated, each time for every individual, so that a pattern can be told apart
+from the luck of one draw: a pattern of the data appears in every randomisation.
 
 The residuals are to be examined against what was set before the outcome was
 known: a covariate, a treatment, a trial. They should not be examined against the

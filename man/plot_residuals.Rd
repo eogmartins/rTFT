@@ -26,6 +26,14 @@ body mass, and boxes for a grouping, such as the trial or the treatment. A
 horizontal line marks 0.5, the middle of the residuals under the model; residuals
 below it are individuals that failed earlier than the model predicts. The time
 of failure is not a variable to draw them against (see \code{\link[=hazard_residuals]{hazard_residuals()}}).
+}
+\details{
+With several randomisations (\code{n_randomisations} of \code{\link[=hazard_residuals]{hazard_residuals()}}), each
+is drawn faintly: against the uniform distribution as a line of its own, so that
+the spread of the lines shows how much the verdict owes to one draw; against a
+variable as points over one another, and for a grouping with one box over all of
+them. A pattern of the data is one that every randomisation shows.
+
 The result is a ggplot object, which can be refined by the user with further
 ggplot2 layers, scales, labels and themes.
 }
@@ -46,5 +54,8 @@ res <- hazard_residuals(fit)
 plot_residuals(res)
 plot_residuals(res, against = "mass")
 plot_residuals(res, against = "trial")
+
+# twenty randomisations, to see how much a verdict owes to one draw
+plot_residuals(hazard_residuals(fit, n_randomisations = 20))
 }
 }

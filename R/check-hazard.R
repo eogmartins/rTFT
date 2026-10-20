@@ -232,9 +232,21 @@ check_survival <- function(fit, by = NULL, prob = 0.95, n_draws = 200) {
 #' * a survivor, known only to have outlasted its last observation, has a residual
 #'   drawn uniformly between that fraction at its last observation and 1.
 #'
-#' The draws are random: call [set.seed()] first for the same residuals again. One
-#' residual per individual is used, and not one per interval, because the intervals
-#' of an individual are slices of one exposure and are not separate observations.
+#' One residual per individual is used, and not one per interval, because the
+#' intervals of an individual are slices of one exposure and are not separate
+#' observations.
+#'
+#' The draws are random, and a seed only makes them repeat: call [set.seed()] first
+#' for the same residuals again, but what the residuals show under one seed may not
+#' hold under another. How far a residual can move from one draw to the next is set
+#' by what was observed of the individual: not at all for a failure at a known time;
+#' across the fraction predicted to fail during its interval, for a failure known
+#' only to an interval; and from the fraction predicted to have failed by its last
+#' observation up to 1, for a survivor. The residuals are therefore least settled
+#' when the checks are far apart or many individuals survive, and under interval
+#' observation every residual is drawn. With `n_randomisations` above 1 the draws
+#' are repeated, each time for every individual, so that a pattern can be told apart
+#' from the luck of one draw: a pattern of the data appears in every randomisation.
 #'
 #' The residuals are to be examined against what was set before the outcome was
 #' known: a covariate, a treatment, a trial. They should not be examined against the
@@ -246,10 +258,14 @@ check_survival <- function(fit, by = NULL, prob = 0.95, n_draws = 200) {
 #' @param fit A `brmsfit`, a model fitted with [fit_hazard()].
 #' @param n_draws A single number, the number of posterior draws to average the
 #'   predicted survival over, evenly spaced through the posterior. Defaults to 400.
-#' @return A tibble with one row per individual: `id`; `path_id`; the variables of
-#'   the model that have one value per individual (covariates and groupings);
-#'   `time`, the time at which it failed or was last observed; `Ta`, the temperature
-#'   at that time; `event`, 1 for a failure and 0 for a survivor; and `residual`.
+#' @param n_randomisations A single whole number, the number of times the residuals
+#'   are drawn, each time for every individual. Defaults to 1. Under the same seed,
+#'   the first randomisation is the one a call with the default gives.
+#' @return A tibble with one row per individual and randomisation: `id`; `path_id`;
+#'   the variables of the model that have one value per individual (covariates and
+#'   groupings); `time`, the time at which it failed or was last observed; `Ta`, the
+#'   temperature at that time; `event`, 1 for a failure and 0 for a survivor;
+#'   `randomisation`, from 1 to `n_randomisations`; and `residual`.
 #' @references
 #' Hartig, F. (2024). DHARMa: Residual diagnostics for hierarchical (multi-level /
 #' mixed) regression models. R package version 0.4.7.
@@ -275,7 +291,14 @@ check_survival <- function(fit, by = NULL, prob = 0.95, n_draws = 200) {
 #' plot_residuals(res, against = "trial")   # by trial
 #' }
 #' @export
-hazard_residuals <- function(fit, n_draws = 400) {
+hazard_residuals <- function(fit, n_draws = 400, n_randomisations = 1) {
+  if (!is.numeric(n_randomisations) || length(n_randomisations) != 1L ||
+      !is.finite(n_randomisations) || n_randomisations < 1 ||
+      n_randomisations != round(n_randomisations))
+    cli::cli_abort(c(
+      "{.arg n_randomisations} must be a single whole number, 1 or more.",
+      "x" = "You supplied {.val {n_randomisations}}."
+    ), class = "rTFT_bad_n_randomisations")
   rec  <- .fit_record(fit)
   data <- rec$data
   ind  <- rec$individuals
@@ -297,9 +320,14 @@ hazard_residuals <- function(fit, n_draws = 400) {
     interval   = rep(FALSE, nrow(ind)),
     continuous = rep(TRUE, nrow(ind)),
     mixed      = data$exact[ind$last] == 1)
-  u <- stats::runif(nrow(ind))
-  residual <- ifelse(ind$event == 0, F_end + u * (1 - F_end),
-              ifelse(exact, F_end, F_start + u * (F_end - F_start)))
+  # One uniform per individual and randomisation, every individual of the first
+  # randomisation before the second, so that the first is what a single one gives.
+  n_ind <- nrow(ind)
+  each  <- rep(seq_len(n_ind), times = n_randomisations)
+  u     <- stats::runif(length(each))
+  residual <- ifelse(ind$event[each] == 0, F_end[each] + u * (1 - F_end[each]),
+              ifelse(exact[each], F_end[each],
+                     F_start[each] + u * (F_end[each] - F_start[each])))
 
   # The variables to carry over: those with one value per individual, less the
   # model's own columns and any term brms stored under its expression, such as
@@ -309,8 +337,10 @@ hazard_residuals <- function(fit, n_draws = 400) {
                               "exposure", "log_exposure"))
   per_individual <- per_individual[make.names(per_individual) == per_individual]
   dplyr::bind_cols(
-    ind[c("id", "path_id")],
-    tibble::as_tibble(data[ind$last, per_individual, drop = FALSE]),
-    tibble::tibble(time = ind$time, Ta = data$Ta[ind$last], event = ind$event,
+    ind[each, c("id", "path_id")],
+    tibble::as_tibble(data[ind$last[each], per_individual, drop = FALSE]),
+    tibble::tibble(time = ind$time[each], Ta = data$Ta[ind$last[each]],
+                   event = ind$event[each],
+                   randomisation = rep(seq_len(n_randomisations), each = n_ind),
                    residual = residual))
 }

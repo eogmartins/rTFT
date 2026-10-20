@@ -19,6 +19,13 @@ res_tbl <- function() {
                  Ta = 21:28, event = c(1, 1, 1, 1, 1, 1, 1, 0),
                  residual = c(0.9, 0.2, 0.7, 0.5, 0.35, 0.6, 0.1, 0.05))
 }
+# The same individuals with three randomisations, each with its own residuals.
+res_tbl_3 <- function() {
+  one <- dplyr::select(res_tbl(), -"residual")
+  r   <- res_tbl()$residual
+  dplyr::bind_rows(lapply(1:3, \(k) dplyr::mutate(
+    one, randomisation = k, residual = r[(seq_len(8) + k - 2) %% 8 + 1] * (1 - k / 10))))
+}
 
 
 # ===========================================================================
@@ -81,6 +88,38 @@ test_that("plot_residuals draws the residuals against a variable", {
 })
 
 
+test_that("plot_residuals draws each of several randomisations faintly", {
+  x <- res_tbl_3()
+  # against the uniform: a line for each randomisation, of its own sorted residuals
+  g <- plot_residuals(x)
+  expect_equal(geoms(g), c("GeomAbline", "GeomLine"))
+  lines <- ggplot2::ggplot_build(g)$data[[2]]
+  expect_equal(length(unique(lines$group)), 3L)
+  for (k in 1:3) {
+    of_k <- lines[lines$group == k, ]
+    expect_equal(of_k$y, sort(x$residual[x$randomisation == k]))
+    expect_equal(of_k$x, (1:8 - 0.5) / 8)
+  }
+  expect_true(all(lines$alpha == 0.25))
+  # against a variable: every randomisation's points, faintly
+  pts <- ggplot2::ggplot_build(plot_residuals(x, against = "mass"))$data[[2]]
+  expect_equal(nrow(pts), 24L)
+  expect_true(all(pts$alpha == 0.25))
+  by_trial <- plot_residuals(x, against = "trial")
+  expect_equal(geoms(by_trial), c("GeomHline", "GeomBoxplot", "GeomPoint"))
+  expect_equal(nrow(ggplot2::ggplot_build(by_trial)$data[[2]]), 2L)   # a box per trial
+  # one randomisation, with or without the column, is drawn in points as before
+  one <- dplyr::mutate(res_tbl(), randomisation = 1L, .before = "residual")
+  expect_equal(geoms(plot_residuals(one)), c("GeomAbline", "GeomPoint"))
+  expect_equal(ggplot2::ggplot_build(plot_residuals(one))$data[[2]]$y,
+               sort(res_tbl()$residual))
+  pts <- ggplot2::ggplot_build(plot_residuals(one, against = "mass"))$data[[2]]
+  expect_true(all(pts$alpha == 1))
+  # the randomisation is not a variable to draw the residuals against
+  expect_error(plot_residuals(x, against = "randomisation"), class = "rTFT_bad_against")
+})
+
+
 test_that("plot_residuals refuses what it cannot draw", {
   expect_error(plot_residuals(check_tbl()), class = "rTFT_bad_plot_input")
   expect_error(plot_residuals(res_tbl(), against = "sex"), class = "rTFT_bad_against")
@@ -96,4 +135,7 @@ test_that("plot_residuals draws what hazard_residuals returns", {
   res <- hazard_residuals(fit, n_draws = 50)
   expect_no_error(ggplot2::ggplot_build(plot_residuals(res)))
   expect_no_error(ggplot2::ggplot_build(plot_residuals(res, against = "trial")))
+  res <- hazard_residuals(fit, n_draws = 50, n_randomisations = 4)
+  lines <- ggplot2::ggplot_build(plot_residuals(res))$data[[2]]
+  expect_equal(length(unique(lines$group)), 4L)
 })

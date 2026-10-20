@@ -50,6 +50,18 @@
   bundle it was computed from, so it is never assembled with another; models
   and folds without a result are named.
 
+## Checking a fitted model
+
+* `hazard_residuals()` draws the residuals several times with
+  `n_randomisations`, so that a pattern can be told apart from the luck of one
+  draw. Under the same seed the first randomisation is the one a single draw
+  gives. The output gains a column, `randomisation`. The help says how far each
+  kind of residual can move between draws: not at all for a failure at a known
+  time, within its interval for a failure known to an interval, and up to 1 for
+  a survivor.
+* `plot_residuals()` draws several randomisations faintly, against the uniform
+  distribution as a line each.
+
 ## Bug fixes
 
 * A failure-rate function or a baseline given as a factor was read by its

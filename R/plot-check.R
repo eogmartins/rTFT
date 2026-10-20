@@ -76,6 +76,13 @@ plot_check <- function(x, time_unit = NULL) {
 #' horizontal line marks 0.5, the middle of the residuals under the model; residuals
 #' below it are individuals that failed earlier than the model predicts. The time
 #' of failure is not a variable to draw them against (see [hazard_residuals()]).
+#'
+#' With several randomisations (`n_randomisations` of [hazard_residuals()]), each
+#' is drawn faintly: against the uniform distribution as a line of its own, so that
+#' the spread of the lines shows how much the verdict owes to one draw; against a
+#' variable as points over one another, and for a grouping with one box over all of
+#' them. A pattern of the data is one that every randomisation shows.
+#'
 #' The result is a ggplot object, which can be refined by the user with further
 #' ggplot2 layers, scales, labels and themes.
 #'
@@ -101,41 +108,55 @@ plot_check <- function(x, time_unit = NULL) {
 #' plot_residuals(res)
 #' plot_residuals(res, against = "mass")
 #' plot_residuals(res, against = "trial")
+#'
+#' # twenty randomisations, to see how much a verdict owes to one draw
+#' plot_residuals(hazard_residuals(fit, n_randomisations = 20))
 #' }
 #' @export
 plot_residuals <- function(x, against = NULL) {
   if (!is.data.frame(x) || !"residual" %in% names(x))
     cli::cli_abort("{.arg x} must be the output of {.fn hazard_residuals}.",
                    class = "rTFT_bad_plot_input")
+  drawn <- setdiff(names(x), c("residual", "randomisation"))
   if (!is.null(against) &&
-      !(is.character(against) && length(against) == 1L && against %in% names(x) &&
-        against != "residual"))
+      !(is.character(against) && length(against) == 1L && against %in% drawn))
     cli::cli_abort(c(
       "{.arg against} must name one column of {.arg x} to draw the residuals against.",
       "x" = "You supplied {.val {against}}.",
-      "i" = "The columns are {.val {setdiff(names(x), 'residual')}}."
+      "i" = "The columns are {.val {drawn}}."
     ), class = "rTFT_bad_against")
+  # A table without the column, as hazard_residuals() gave before it could draw the
+  # residuals more than once, holds a single randomisation.
+  if (!"randomisation" %in% names(x)) x$randomisation <- 1L
+  several <- length(unique(x$randomisation)) > 1L
+  faint   <- if (several) 0.25 else 1
 
   if (is.null(against)) {
-    n <- nrow(x)
-    qq <- tibble::tibble(expected = (seq_len(n) - 0.5) / n, residual = sort(x$residual))
-    return(
-      ggplot2::ggplot(qq, ggplot2::aes(x = .data$expected, y = .data$residual)) +
-        ggplot2::geom_abline(intercept = 0, slope = 1, colour = "grey50",
-                             linetype = "dashed") +
-        ggplot2::geom_point(colour = "#225EA8") +
-        ggplot2::coord_equal(xlim = c(0, 1), ylim = c(0, 1)) +
-        ggplot2::labs(x = "Expected under the model", y = "Residual") +
-        .plot_theme())
+    qq <- dplyr::mutate(dplyr::group_by(x, .data$randomisation),
+                        expected = (rank(.data$residual, ties.method = "first") - 0.5) /
+                          dplyr::n())
+    qq <- dplyr::arrange(dplyr::ungroup(qq), .data$randomisation, .data$expected)
+    g <- ggplot2::ggplot(qq, ggplot2::aes(x = .data$expected, y = .data$residual)) +
+      ggplot2::geom_abline(intercept = 0, slope = 1, colour = "grey50",
+                           linetype = "dashed")
+    g <- if (several) {
+      g + ggplot2::geom_line(ggplot2::aes(group = .data$randomisation),
+                             colour = "#225EA8", alpha = faint)
+    } else {
+      g + ggplot2::geom_point(colour = "#225EA8")
+    }
+    return(g + ggplot2::coord_equal(xlim = c(0, 1), ylim = c(0, 1)) +
+             ggplot2::labs(x = "Expected under the model", y = "Residual") +
+             .plot_theme())
   }
   g <- ggplot2::ggplot(x, ggplot2::aes(x = .data[[against]], y = .data$residual)) +
     ggplot2::geom_hline(yintercept = 0.5, colour = "grey50", linetype = "dashed")
   g <- if (is.numeric(x[[against]])) {
-    g + ggplot2::geom_point(colour = "#225EA8")
+    g + ggplot2::geom_point(colour = "#225EA8", alpha = faint)
   } else {
     g + ggplot2::geom_boxplot(fill = "#225EA8", alpha = 0.2, colour = "grey20",
                               outlier.shape = NA) +
-      ggplot2::geom_point(colour = "#225EA8",
+      ggplot2::geom_point(colour = "#225EA8", alpha = faint,
                           position = ggplot2::position_jitter(width = 0.15, height = 0))
   }
   g + ggplot2::scale_y_continuous(limits = c(0, 1)) +
