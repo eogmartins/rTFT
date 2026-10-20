@@ -141,7 +141,9 @@ midpoint, is then understated by about (b dT)^2 / 24, that is by 0.1\% over a
 tenth of a degree and by 3\% over half a degree, an error that grows with the
 square of the change in temperature. So any interval over which temperature
 changes by more than \code{grid_dT} is divided into equal parts, each with its own
-row, and a message says how many rows resulted.
+row; a part that still changes by more, where the path bends within the interval
+(a logged record, or a ramp held and then resumed), is divided again; and a
+message says how many rows resulted.
 
 Two cases are treated apart. A failure at a known time needs the hazard at the
 moment it happened, and the midpoint of the interval it fell in is earlier and,

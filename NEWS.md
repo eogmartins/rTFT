@@ -93,6 +93,14 @@
   climbed steadily instead of jumping, with only a warning from base R. A path
   must now have one reading at each time, and a sudden change is written as two
   readings a moment apart.
+* Where a temperature path bends within an interval at risk (a logged record, or
+  a ramp held and then resumed, checked less often than it was logged),
+  `build_hazard_data()` cut the interval into equal parts sized from its whole
+  span, so the parts over the steep stretch could change by more than
+  `grid_dT`, by over a degree in an example with a short steep climb. A part
+  that still changes by more than `grid_dT` is now cut again. Paths that are
+  straight between checks, such as those of the vignettes, give the same table
+  as before.
 
 # rTFT 0.1.1
 

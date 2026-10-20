@@ -892,6 +892,28 @@ costressor <- function(name, column, ref, scale, direction,
   list(ts = ts_r + k * step_r, te = ts_r + (k + 1) * step_r)
 }
 
+# Cut the intervals from `ts` to `te` until temperature, read from `f` with the
+# readings of the path at `knots`, changes by at most `grid_dT` within each, and
+# return the starts and ends of all the parts in order. Each interval still too wide
+# is cut into equal parts sized from its span, and any part that still changes by
+# more, as where the path bends within it, is cut again in the same way. The
+# intervals marked in `keep` are left whole. A path has one reading at each time, so
+# it has no jump and every part comes within `grid_dT` after a few rounds.
+.split_by_temp <- function(f, knots, ts, te, grid_dT, keep = rep(FALSE, length(ts))) {
+  for (pass in seq_len(.max_split_passes)) {
+    parts <- pmax(1L, ceiling(.temp_span(f, knots, ts, te) / grid_dT - 1e-9))
+    parts[keep] <- 1L
+    if (all(parts == 1L)) return(list(ts = ts, te = te))
+    keep <- rep(keep, parts)
+    cut  <- .subdivide(ts, te, parts)
+    ts   <- cut$ts; te <- cut$te
+  }
+  cli::cli_abort(c(
+    "The intervals at risk could not be cut so that temperature changes by at most {grid_dT} degree{?s} within each.",
+    "i" = "This should not happen with a path of one reading at each time; please report it, with the path."
+  ), class = "rTFT_grid_not_reached")
+}
+
 # The least number of intervals a known-time individual is followed over when
 # neither checks nor a grid is given; the length of the interval that closes a
 # known-time failure, as a fraction of its time of failure; and the temperature
@@ -900,6 +922,11 @@ costressor <- function(name, column, ref, scale, direction,
 .min_intervals     <- 20L
 .closing_fraction  <- 1e-4
 .wide_failure_span <- 0.5
+
+# The most rounds of cutting .split_by_temp() makes before it gives up. Each round at
+# least halves every part still too wide, and a path that bends at a reading needs
+# one or two.
+.max_split_passes  <- 50L
 
 # The median time at which failures were observed in a row-per-interval table, the
 # time of each failure being the end of the interval it fell in: the check at which
@@ -936,7 +963,9 @@ costressor <- function(name, column, ref, scale, direction,
 #' tenth of a degree and by 3% over half a degree, an error that grows with the
 #' square of the change in temperature. So any interval over which temperature
 #' changes by more than `grid_dT` is divided into equal parts, each with its own
-#' row, and a message says how many rows resulted.
+#' row; a part that still changes by more, where the path bends within the interval
+#' (a logged record, or a ramp held and then resumed), is divided again; and a
+#' message says how many rows resulted.
 #'
 #' Two cases are treated apart. A failure at a known time needs the hazard at the
 #' moment it happened, and the midpoint of the interval it fell in is earlier and,
@@ -1267,9 +1296,10 @@ build_hazard_data <- function(ind, path, observation = c("interval", "continuous
 
     # The hazard is taken as constant within an interval, at its midpoint, which is
     # accurate only while temperature changes little within it. Each interval is cut
-    # into as many equal parts as keep the change within `grid_dT`. The interval in
-    # which a failure was found between two checks stays whole: where in it the
-    # individual failed is not known, so it cannot be cut into parts.
+    # into as many equal parts as keep the change within `grid_dT`, and a part that
+    # still changes by more, where the path bends within the interval, is cut again.
+    # The interval in which a failure was found between two checks stays whole: where
+    # in it the individual failed is not known, so it cannot be cut into parts.
     span  <- .temp_span(f, knots_of[[pid]], ts, te)
     parts <- pmax(1L, ceiling(span / grid_dT - 1e-9))
     whole <- type == "interval" && failed
@@ -1281,6 +1311,11 @@ build_hazard_data <- function(ind, path, observation = c("interval", "continuous
       parts <- pmax(parts, ceiling(.min_intervals / n_given))
     cut <- .subdivide(ts, te, parts)
     ts  <- cut$ts; te <- cut$te
+    if (is.finite(grid_dT)) {
+      cut <- .split_by_temp(f, knots_of[[pid]], ts, te, grid_dT,
+                            keep = whole & seq_along(ts) == length(ts))
+      ts  <- cut$ts; te <- cut$te
+    }
 
     # A failure at a known time: the hazard at the failure is that of the moment it
     # happened, so the last interval is closed with a very short one ending there.

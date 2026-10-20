@@ -579,6 +579,49 @@ test_that("with no checks and no grid, a known-time trajectory is still followed
 })
 
 
+test_that("where the path bends within an interval, the parts over the steep stretch are cut again", {
+  # flat to minute 10, two minutes of a steep climb, then nearly flat: an interval
+  # cut into equal parts sized from its whole span leaves parts on the climb that
+  # change by more than a degree
+  bent <- data.frame(path_id = "A", time = c(0, 10, 12, 40), temp = c(20, 20.5, 30, 31))
+  f    <- stats::approxfun(bent$time, bent$temp)
+  span <- function(out) .temp_span(f, bent$time, out$tau - out$exposure / 2,
+                                   out$tau + out$exposure / 2)
+  ind  <- data.frame(id = 1:3, path_id = "A", event = c(1, 1, 0), t_event = c(11.5, 25, 40))
+  out  <- suppressMessages(build_hazard_data(ind, bent, "continuous", grid_dt = 30))
+  expect_true(all(span(out) <= 0.1 + 1e-9))
+  # every individual is still followed from 0 to its time, with no gap or overlap
+  for (k in 1:3) {
+    mine <- out[out$id == k, ]
+    ends <- mine$tau + mine$exposure / 2
+    starts <- mine$tau - mine$exposure / 2
+    expect_equal(starts[-1], ends[-nrow(mine)])
+    expect_equal(c(starts[1], ends[nrow(mine)]), c(0, ind$t_event[k]))
+  }
+  # checked at 0, 15, 30 and 40 min: the survived intervals are cut until no part
+  # changes by more than 0.1 degC, and the interval of the failure stays whole
+  ind_i  <- data.frame(id = 1:2, path_id = "A", event = c(1, 0), t_upper = c(30, 40))
+  checks <- data.frame(path_id = "A", time = c(0, 15, 30, 40))
+  out_i  <- suppressMessages(build_hazard_data(ind_i, bent, "interval", checks = checks))
+  expect_true(all(span(out_i)[out_i$failed == 0] <= 0.1 + 1e-9))
+  expect_equal(out_i$exposure[out_i$failed == 1], 15)
+})
+
+
+test_that(".split_by_temp leaves a straight interval as it is, and gives up on a jump", {
+  ramp <- stats::approxfun(c(0, 60), c(20, 35))
+  # an interval already within the step is not cut
+  expect_equal(.split_by_temp(ramp, c(0, 60), 0, 0.4, 0.1), list(ts = 0, te = 0.4))
+  # one marked to be kept is not cut, however wide
+  expect_equal(.split_by_temp(ramp, c(0, 60), c(0, 30), c(30, 60), 0.1, c(FALSE, TRUE))$te,
+               c(seq(0.4, 30, by = 0.4), 60), tolerance = 1e-9)
+  # a jump, which a path of one reading at each time cannot have, is never within
+  # the step: the cutting stops with an error rather than going on forever
+  jump <- function(t) ifelse(t < 10, 20, 30)
+  expect_error(.split_by_temp(jump, c(0, 20), 0, 20, 0.1), class = "rTFT_grid_not_reached")
+})
+
+
 test_that("grid_dT sets the step, and Inf keeps the intervals as given", {
   ind <- data.frame(id = 1:2, path_id = "A", event = c(1, 0), t_upper = c(30, 60))
   # as given: one row per interval between checks, and nothing said
