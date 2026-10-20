@@ -171,6 +171,35 @@ test_that(".loo_units keeps its relative efficiency where a unit's likelihood un
 })
 
 
+test_that(".loo_units asks loo for one core, whatever mc.cores says", {
+  set.seed(1)
+  steady <- matrix(stats::rnorm(600 * 4, -2, 0.05), ncol = 4)
+  chain  <- rep(1:2, each = 300)
+  # With more than one core loo copies the process with forks, which hung for good
+  # on a cluster once a sampler's threads were running. The cores asked for in the
+  # first call to each of loo's functions, the one rTFT makes, are recorded on the
+  # way; loo's own later calls pass through.
+  asked <- new.env()
+  relative_eff <- loo::relative_eff
+  psis_loo     <- loo::loo
+  local_mocked_bindings(
+    relative_eff = function(x, ..., cores = getOption("mc.cores", 1)) {
+      if (is.null(asked$relative_eff)) asked$relative_eff <- cores
+      relative_eff(x, ..., cores = cores)
+    },
+    loo = function(x, ..., cores = getOption("mc.cores", 1)) {
+      if (is.null(asked$loo)) asked$loo <- cores
+      psis_loo(x, ..., cores = cores)
+    },
+    .package = "loo")
+  withr::local_options(mc.cores = 4)
+  out <- .loo_units(steady, chain, "trial")
+  expect_equal(asked$relative_eff, 1)
+  expect_equal(asked$loo, 1)
+  expect_s3_class(out, "loo")
+})
+
+
 # ===========================================================================
 # 2. Leave-one-unit-out for a fitted model (loo_hazard)
 # ===========================================================================

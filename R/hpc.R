@@ -912,9 +912,11 @@ run_hpc_task <- function(dir = ".", stage = "fit",
   cli::cli_inform("Running task {label}, on {host}.", class = "rTFT_task_progress")
 
   # Each model is compiled into the folder stan/ of the bundle, where its refits find
-  # it: cmdstanr reuses a compiled program whose code is the same.
-  old <- options(cmdstanr_write_stan_file_dir = normalizePath(file.path(dir, "stan")),
-                 mc.cores = settings$chains)
+  # it: cmdstanr reuses a compiled program whose code is the same. The chains are
+  # given their cores directly, and mc.cores is left alone: set, it would make
+  # other functions copy this process with forks, which can hang for good once the
+  # threads of a loaded sampler are running (seen on Nibi, 2026-10-19).
+  old <- options(cmdstanr_write_stan_file_dir = normalizePath(file.path(dir, "stan")))
   on.exit(options(old), add = TRUE)
   begun <- proc.time()[["elapsed"]]
   # The version is checked here, among what the task records, so that a task stopped

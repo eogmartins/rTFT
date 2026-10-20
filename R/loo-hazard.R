@@ -175,9 +175,12 @@
   # log-likelihood can lie below about -745, where exp() is zero in double
   # precision, so each unit's values are centred on their largest first: the
   # efficiency is a ratio, which a constant factor per unit leaves unchanged.
+  # Both on one core, whatever `mc.cores` says: with more, loo copies the process
+  # with forks, which can hang for good once the threads of a loaded sampler are
+  # running, and a matrix of one column per unit is quick on one core anyway.
   centred <- sweep(ll_unit, 2, apply(ll_unit, 2, max))
-  r_eff   <- loo::relative_eff(exp(centred), chain_id = chain_id)
-  out     <- suppressWarnings(loo::loo(ll_unit, r_eff = r_eff))
+  r_eff   <- loo::relative_eff(exp(centred), chain_id = chain_id, cores = 1)
+  out     <- suppressWarnings(loo::loo(ll_unit, r_eff = r_eff, cores = 1))
   limit <- .k_threshold(nrow(ll_unit))
   high  <- sum(out$diagnostics$pareto_k > limit)
   if (high)

@@ -52,6 +52,11 @@
   the catalogue could be fitted without an error. `fit_hazard()` and the other
   functions that take `m_form` or `baseline` now refuse anything but a single
   character string.
+* `loo_hazard()`, and `fit_hazard_models()` through it, could hang for good
+  where the option `mc.cores` was set above 1, as is common with brms: the loo
+  package then copied the R process to work on several cores, and a copy made
+  once a sampler's threads were running could wait forever. It now asks the
+  loo package for one core; a matrix of one column per unit is quick on one.
 
 # rTFT 0.1.1
 

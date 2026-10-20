@@ -690,6 +690,22 @@ test_that("run_hpc_task fits the model of its task as fit_hazard_models() does, 
 })
 
 
+test_that("a task leaves mc.cores as it found it", {
+  # Set, mc.cores makes other functions copy the process with forks, which hung
+  # for good on Nibi once the sampler's threads were running.
+  seen <- NULL
+  local_mocked_bindings(fit_hazard = function(...) {
+    seen <<- getOption("mc.cores")
+    fit_trials
+  })
+  dir <- trial_bundle()
+  withr::local_options(mc.cores = 7)
+  run_quietly(dir, "fit", 1)
+  expect_identical(seen, 7)                  # not the number of chains, 2
+  expect_identical(getOption("mc.cores"), 7)
+})
+
+
 test_that("a task that has ended well is not run again, and one that failed is", {
   record <- new_record()
   local_mocked_bindings(fit_hazard = stand_in_fit(record))
