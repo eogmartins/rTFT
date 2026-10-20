@@ -61,6 +61,11 @@
   a survivor.
 * `plot_residuals()` draws several randomisations faintly, against the uniform
   distribution as a line each.
+* `check_survival()` warns when a group holds fewer than five individuals, as
+  every group does when each individual has a temperature trajectory of its
+  own. In a group that small the band of simulated proportions is wide, often
+  from 0 to 1, and a model wrong for every individual can pass; the residuals,
+  which pool every individual, are then the check to judge by.
 
 ## Bug fixes
 

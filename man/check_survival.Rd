@@ -46,6 +46,18 @@ any individual on that trajectory was observed, with its own covariates and the
 group-level effects estimated for its groups. The band therefore includes the
 variation expected among samples of this size, which is wide for a group of ten.
 The simulation is random: call \code{\link[=set.seed]{set.seed()}} first for the same result again.
+
+The smaller the group, the less the check can see. With fewer than about five
+individuals the band runs from 0 to 1 at many of the times, and an individual
+falls outside it only if it failed far earlier, or lasted far longer, than the
+model predicts; a model that is wrong in the same direction for every individual
+can then pass. The function warns when a group holds fewer than five individuals,
+as every group does when each individual has a temperature trajectory of its own
+(its own logged temperatures, in the laboratory or in the field) or when \code{by}
+splits the groups finely. The residuals of \code{\link[=hazard_residuals]{hazard_residuals()}} pool every
+individual whatever the groups, and are then the check to judge the model by. In
+groups of any size, the band is read at every time of the group, so even under a
+model that describes the data a group leaves it at some time now and then.
 }
 \examples{
 \dontrun{

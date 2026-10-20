@@ -96,6 +96,29 @@
   alive
 }
 
+# .warn_small_groups() ---------------------------------------------------------
+
+# Warn when any group of the check holds fewer than `min_n` individuals, given
+# `sizes`, the number of individuals in each group. Below five, the band of simulated
+# proportions runs from 0 to 1 at many times and a misfit shared by every individual
+# passes more often than not (a simulation on the design of the stored exponential
+# fit, 2026-10-20); the residuals, which pool every individual, are then the check to
+# judge by.
+.warn_small_groups <- function(sizes, min_n = 5L) {
+  small <- sizes[sizes < min_n]
+  if (!length(small)) return(invisible())
+  which_groups <- if (length(small) == length(sizes)) {
+    "Every group of the check holds fewer than {min_n} individuals"
+  } else {
+    "{length(small)} of the {length(sizes)} groups of the check hold fewer than {min_n} individuals"
+  }
+  cli::cli_warn(c(
+    paste0(which_groups, " (the smallest: {min(small)})."),
+    "i" = "In a group that small the band of simulated proportions is wide, often from 0 to 1, and a model wrong for every individual can pass.",
+    "i" = "Judge the fit by {.fn hazard_residuals}, whose residuals pool every individual."
+  ), class = "rTFT_small_groups")
+}
+
 # check_survival() -------------------------------------------------------------
 
 #' Check a fitted model against the survival observed in each group
@@ -118,6 +141,18 @@
 #' group-level effects estimated for its groups. The band therefore includes the
 #' variation expected among samples of this size, which is wide for a group of ten.
 #' The simulation is random: call [set.seed()] first for the same result again.
+#'
+#' The smaller the group, the less the check can see. With fewer than about five
+#' individuals the band runs from 0 to 1 at many of the times, and an individual
+#' falls outside it only if it failed far earlier, or lasted far longer, than the
+#' model predicts; a model that is wrong in the same direction for every individual
+#' can then pass. The function warns when a group holds fewer than five individuals,
+#' as every group does when each individual has a temperature trajectory of its own
+#' (its own logged temperatures, in the laboratory or in the field) or when `by`
+#' splits the groups finely. The residuals of [hazard_residuals()] pool every
+#' individual whatever the groups, and are then the check to judge the model by. In
+#' groups of any size, the band is read at every time of the group, so even under a
+#' model that describes the data a group leaves it at some time now and then.
 #'
 #' @param fit A `brmsfit`, a model fitted with [fit_hazard()].
 #' @param by An optional character string naming a variable of the fitted model
@@ -167,6 +202,7 @@ check_survival <- function(fit, by = NULL, prob = 0.95, n_draws = 200) {
       "i" = "Those in this model: {.val {setdiff(per_individual, c('Tr', 'tau_ref', 'Ta', 'tau', 'log_tau', 'exposure', 'log_exposure'))}}."
     ), class = "rTFT_bad_by")
   ind$.by <- if (is.null(by)) "" else as.character(data[[by]][ind$last])
+  .warn_small_groups(lengths(split(ind$id, list(ind$path_id, ind$.by), drop = TRUE)))
   ids <- .thin_ids(brms::ndraws(fit), n_draws)
   probs <- c(0.5, (1 - prob) / 2, 1 - (1 - prob) / 2)
 

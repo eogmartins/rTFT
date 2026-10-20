@@ -135,6 +135,39 @@ test_that("by splits the individuals of a trajectory into groups", {
 })
 
 
+test_that("check_survival warns when its groups are too small to show a misfit", {
+  # one trajectory of 40, and eight trials of 6: no warning
+  expect_no_warning(check_survival(fit_exp, n_draws = 20), class = "rTFT_small_groups")
+  expect_no_warning(check_survival(fit_trials, by = "trial", n_draws = 20),
+                    class = "rTFT_small_groups")
+  # each individual on a trajectory of its own: every group holds one
+  own <- fit_exp
+  own$rtft$path_id <- paste0("p", fit_exp$rtft$id)
+  said <- NULL
+  chk <- withCallingHandlers(check_survival(own, n_draws = 20),
+    rTFT_small_groups = function(w) {
+      said <<- cli::ansi_strip(conditionMessage(w))
+      invokeRestart("muffleWarning")
+    })
+  expect_true(all(chk$n == 1))
+  expect_match(said, "Every group of the check holds fewer than 5", fixed = TRUE)
+  expect_match(said, "hazard_residuals()", fixed = TRUE)
+  # three on trajectories of their own and the rest together: three of four groups
+  some <- fit_exp
+  some$rtft$path_id <- ifelse(fit_exp$rtft$id %in% 1:3, paste0("p", fit_exp$rtft$id),
+                              "ramp")
+  said <- tryCatch(check_survival(some, n_draws = 20),
+                   rTFT_small_groups = function(w) cli::ansi_strip(conditionMessage(w)))
+  expect_match(said, "3 of the 4 groups", fixed = TRUE)
+  # `by` can split a trajectory as finely: one group per value of body mass
+  expect_warning(check_survival(fit_exp, by = "mass", n_draws = 20),
+                 class = "rTFT_small_groups")
+  # five individuals are enough, four are not
+  expect_no_warning(.warn_small_groups(c(a = 5L, b = 40L)))
+  expect_warning(.warn_small_groups(c(a = 4L, b = 40L)), class = "rTFT_small_groups")
+})
+
+
 test_that("check_survival refuses bad arguments", {
   expect_error(check_survival(fit_exp, by = "sex"), class = "rTFT_bad_by")
   expect_error(check_survival(fit_exp, by = "Ta"), class = "rTFT_bad_by")     # changes in time
