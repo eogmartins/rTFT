@@ -302,7 +302,7 @@
 }
 
 
-# .check_rtft_source() / .check_new_dir() -------------------------------------
+# .check_rtft_source() / .check_new_dir() / .check_round_version() ------------
 
 # Return where the cluster installs rTFT from: `rtft_source` when given, or else where
 # the installed rTFT came from, as .rtft_source() reads it. Neither, or a source that
@@ -336,6 +336,23 @@
   invisible(TRUE)
 }
 
+# Check that the installed rTFT is the one that wrote the bundle whose `settings` are
+# given, by version and, where both are known, by commit, and return TRUE invisibly.
+# Every round of a bundle must fit its models with the same code.
+.check_round_version <- function(settings) {
+  installed <- .installed_rtft_version()
+  have  <- .installed_rtft_commit()
+  wrote <- if (is.null(settings$rtft_commit)) NA_character_ else settings$rtft_commit
+  if (!identical(installed, settings$rtft_version) ||
+      (!is.na(have) && !is.na(wrote) && !identical(have, wrote)))
+    cli::cli_abort(c(
+      "The bundle was written by rTFT {settings$rtft_version}{if (!is.na(wrote)) paste0(' (commit ', substr(wrote, 1, 7), ')')}, and this is rTFT {installed}{if (!is.na(have)) paste0(' (commit ', substr(have, 1, 7), ')')}.",
+      "i" = "Every round of a bundle is written by the rTFT that wrote the first, so that the rounds fit their models with the same code. Install that version, or write a new bundle with {.fn write_hpc_bundle}."
+    ), class = "rTFT_round_version_differs")
+  invisible(TRUE)
+}
+
+
 # .write_bundle() --------------------------------------------------------------
 
 # Write a bundle into `dir`: the table `models`; the data, from `data`, a table of
@@ -346,8 +363,9 @@
 # as `fit` and `kfold` in a list, invisibly.
 .write_bundle <- function(dir, models, data, settings, rtft_source, remote,
                           template_dir) {
-  kfold <- isTRUE(settings$kfold)
-  folds <- settings$folds
+  kfold    <- isTRUE(settings$kfold)
+  folds    <- settings$folds
+  of_round <- settings$round
   # the tasks, as tables to read: one per model, and one per model and fold
   tasks_fit <- data.frame(task = seq_len(nrow(models)), model = models$model,
                           m_form = models$m_form, baseline = models$baseline)
@@ -372,13 +390,18 @@
   plural   <- function(n, word) paste(n, if (n == 1) word else paste0(word, "s"))
   n_refits <- if (kfold) nrow(tasks_kfold) else 0
   contents <- paste0(
+    if (!is.null(of_round))
+      paste0("It is round ", of_round$number, " of the bundle in ", of_round$first_dir,
+             if (of_round$number > 2) paste0(", after ", of_round$previous_dir), ". "),
     "It holds ", plural(nrow(models), "model"), " to fit, as ",
     plural(nrow(tasks_fit), "task"), ", ",
     if (kfold)
       paste("and", plural(n_refits, "refit"), "for cross-validation by refitting")
     else "without cross-validation by refitting", ".")
+  written_by <- if (is.null(of_round)) "rTFT::write_hpc_bundle()" else
+    "rTFT::next_hpc_round()"
   values <- list(
-    created = settings$created, account = slurm$account,
+    written_by = written_by, created = settings$created, account = slurm$account,
     email = if (is.null(slurm$email)) "" else slurm$email,
     time = slurm$time, mem_per_cpu = slurm$mem_per_cpu,
     cpus_per_task = slurm$cpus_per_task,
@@ -607,6 +630,148 @@ write_hpc_bundle <- function(models, long, dir, account,
     " " = "bash check.sh"
   ), class = "rTFT_bundle_written")
   invisible(normalizePath(dir))
+}
+
+
+# next_hpc_round() -------------------------------------------------------------
+
+#' Write the next round of a bundle, for some of its models
+#'
+#' Writes a new bundle that fits again some of the models of a bundle written by
+#' [write_hpc_bundle()] (or of an earlier round), with new settings of the sampler
+#' and of the jobs: typically the models that did not meet the convergence rule, given
+#' more draws or a smaller step. The round is a bundle of its own, in a new folder,
+#' copied to the cluster and run with the same scripts as the first.
+#'
+#' Everything that makes the results of the rounds comparable is copied from the
+#' bundle before, never chosen again: the data (the file itself), the unit left out
+#' in cross-validation, the folds, the observation mode and the convergence rule, as
+#' well as the account, the modules and the R library of the cluster. With
+#' cross-validation by refitting, each model of the round is refitted on the same
+#' folds, starting from its new fit. [collect_hpc()], given the folders of every
+#' round, keeps for each model the result of its latest round.
+#'
+#' Only the settings of the sampler and of the jobs can change, since anything else
+#' would make another model: `chains`, `iter`, `warmup`, `thin`, `seed`, `control`
+#' and `init` in `...`, and `time`, `mem_per_cpu` and `email`. A setting not given is
+#' kept from the bundle before; `control` is merged into the bundle's own, so that
+#' `control = list(adapt_delta = 0.99)` keeps a `max_treedepth` given before. To
+#' change a prior, write a new bundle with [write_hpc_bundle()].
+#'
+#' The round must be written by the version of rTFT that wrote the first bundle
+#' (and, between releases, from the same commit), so that every round fits the
+#' models with the same code.
+#'
+#' @param dir A character string, the folder of the bundle the round follows: the
+#'   first bundle, or the latest round.
+#' @param models A character vector, the names of the models to fit again, as in the
+#'   column `model` of the bundle's table of models.
+#' @param new_dir An optional character string, the folder to write the round into.
+#'   It is created if it does not exist, and must be empty if it does. `NULL` (the
+#'   default) writes it beside `dir`, named after the first bundle and the number of
+#'   the round: round 2 of `"my-run"` into `"my-run-round-2"`, and round 3, written
+#'   from that, into `"my-run-round-3"`.
+#' @param ... The settings of the sampler that change, among `chains`, `iter`,
+#'   `warmup`, `thin`, `seed`, `control` and `init`.
+#' @param time,mem_per_cpu,email Optional settings of the jobs that change, as in
+#'   [write_hpc_bundle()]. `NULL` (the default) keeps those of the bundle before.
+#' @param remote An optional character string, where on the cluster to copy the
+#'   round, as in [write_hpc_bundle()].
+#' @param rtft_source An optional character string, where the cluster installs rTFT
+#'   from, as in [write_hpc_bundle()].
+#' @param template A character string, the scripts of the round, as in
+#'   [write_hpc_bundle()].
+#' @return The path of the round, invisibly. A message says what was written and
+#'   what to do next.
+#' @seealso [write_hpc_bundle()], which writes the first bundle, and
+#'   [collect_hpc()], which assembles the results of every round.
+#' @examples
+#' \dontrun{
+#' # the model "exp_weibull" of the bundle "my-run" did not meet the convergence
+#' # rule: fit it again with more draws and a smaller step, and longer jobs
+#' # (written into the folder "my-run-round-2", beside "my-run")
+#' next_hpc_round("my-run", "exp_weibull", iter = 4000,
+#'                control = list(adapt_delta = 0.99), time = "24:00:00")
+#'
+#' # once the results of both are copied back
+#' out <- collect_hpc(c("my-run", "my-run-round-2"))
+#' }
+#' @export
+next_hpc_round <- function(dir, models, new_dir = NULL, ..., time = NULL,
+                           mem_per_cpu = NULL,
+                           email = NULL, remote = NULL, rtft_source = NULL,
+                           template = "alliance") {
+  if (!is.character(dir) || length(dir) != 1L || is.na(dir) || !nzchar(dir))
+    cli::cli_abort("{.arg dir} must be a single character string, a folder.",
+                   class = "rTFT_bad_dir")
+  .verify_bundle(dir)
+  before    <- readRDS(file.path(dir, "bundle", "settings.rds"))
+  all_models <- readRDS(file.path(dir, "bundle", "models.rds"))
+  dots <- list(...)
+  sampler <- c("chains", "iter", "warmup", "thin", "seed", "control", "init")
+  other   <- setdiff(names(dots), sampler)
+  if (length(dots) && (is.null(names(dots)) || any(!nzchar(names(dots)))))
+    other <- c(other, "an unnamed argument")
+  if (length(other))
+    cli::cli_abort(c(
+      "A round changes only the settings of the sampler, not {.arg {other}}.",
+      "i" = "Those it can change: {.arg {sampler}}. Any other change makes another model: write a new bundle with {.fn write_hpc_bundle}."
+    ), class = "rTFT_not_sampler_setting")
+  if (!is.character(models) || !length(models) || anyNA(models) ||
+      anyDuplicated(models) || !all(models %in% all_models$model))
+    cli::cli_abort(c(
+      "{.arg models} must name models of the bundle, each once.",
+      "x" = "You supplied {.val {models}}.",
+      "i" = "The models of {.path {dir}}: {.val {all_models$model}}."
+    ), class = "rTFT_bad_round_models")
+  .check_round_version(before)
+  slurm <- before$slurm
+  if (!is.null(time)) slurm$time <- time
+  if (!is.null(mem_per_cpu)) slurm$mem_per_cpu <- mem_per_cpu
+  if (!is.null(email)) slurm$email <- email
+  .check_hpc_settings(slurm$account, slurm$time, slurm$mem_per_cpu, slurm$email,
+                      slurm$modules, slurm$r_library, remote)
+  template_dir <- .template_dir(template)
+  rtft_source  <- .check_rtft_source(rtft_source)
+  # the round's place in the chain of rounds: its number, and the first bundle and
+  # the one before, by identity and by folder
+  id       <- .bundle_id(dir)
+  here     <- normalizePath(dir, winslash = "/")
+  first    <- before$round
+  number   <- if (is.null(first)) 2L else first$number + 1L
+  of_round <- list(number = number,
+                   first = if (is.null(first)) id else first$first, previous = id,
+                   first_dir = if (is.null(first)) here else first$first_dir,
+                   previous_dir = here)
+  if (is.null(new_dir))
+    new_dir <- file.path(dirname(here),
+                         paste0(basename(of_round$first_dir), "-round-", number))
+  .check_new_dir(new_dir, "new_dir")
+
+  # the settings of the bundle before, with the sampler's changed and the round's
+  # place in the chain of rounds: its number, the first bundle and the one before
+  # modifyList() merges a list within the list, so a `control` given merges into
+  # the bundle's own
+  settings <- before
+  settings$dots <- utils::modifyList(before$dots, dots)
+  if (!is.null(dots$chains)) settings$chains <- dots$chains
+  slurm$cpus_per_task <- settings$chains
+  settings$slurm <- slurm
+  settings$created <- format(Sys.time(), "%Y-%m-%d %H:%M %Z")
+  settings$brms_version <- as.character(utils::packageVersion("brms"))
+  settings$round <- of_round
+  round_models <- all_models[all_models$model %in% models, ]
+  n <- .write_bundle(new_dir, round_models, file.path(dir, "bundle", "data.rds"),
+                     settings, rtft_source, remote, template_dir)
+
+  refits <- if (isTRUE(settings$kfold))
+    paste(" and", n$kfold, "refits for cross-validation") else ""
+  cli::cli_inform(c(
+    "v" = "Wrote round {of_round$number} of the bundle {.path {here}} to {.path {normalizePath(new_dir)}}: {n$fit} fit{?s}{refits}, of {.val {models}}.",
+    "i" = "Copy it to the cluster with the command in step 1 of its {.file README.txt}, and run it as you ran the first.",
+    "i" = "Then assemble the results of every round with {.code collect_hpc(c(...))}, giving the folders of the rounds."
+  ), class = "rTFT_round_written")
+  invisible(normalizePath(new_dir))
 }
 
 
@@ -1351,6 +1516,53 @@ hpc_status <- function(dir = ".") {
 }
 
 
+# .read_rounds() ---------------------------------------------------------------
+
+# Read the bundles in the folders `dirs`, each checked against its checksums, and
+# check that they are one bundle and rounds of it written by next_hpc_round(): the
+# first bundle is among them, each round follows a bundle among them, no two share a
+# number, and all hold the same data. Return a list with an element per bundle, in
+# the order of their rounds, each holding its folder (`dir`), identity (`id`),
+# settings, models and round number (`number`, 1 for the first bundle).
+.read_rounds <- function(dirs) {
+  if (!is.character(dirs) || !length(dirs) || anyNA(dirs) || any(!nzchar(dirs)))
+    cli::cli_abort(c(
+      "{.arg dir} must be the folder of a bundle, or the folders of a bundle and its rounds.",
+      "x" = "You supplied {.val {dirs}}."
+    ), class = "rTFT_bad_dir")
+  bundles <- purrr::map(dirs, \(d) {
+    .verify_bundle(d)
+    settings <- readRDS(file.path(d, "bundle", "settings.rds"))
+    id <- .bundle_id(d)
+    list(dir = d, id = id, settings = settings,
+         models   = readRDS(file.path(d, "bundle", "models.rds")),
+         number   = if (is.null(settings$round)) 1L else settings$round$number,
+         first    = if (is.null(settings$round)) id else settings$round$first,
+         previous = settings$round$previous,
+         data     = unname(tools::md5sum(file.path(d, "bundle", "data.rds"))))
+  })
+  if (length(bundles) == 1L) return(bundles)
+  ids     <- vapply(bundles, `[[`, character(1), "id")
+  numbers <- vapply(bundles, `[[`, integer(1), "number")
+  firsts  <- vapply(bundles, `[[`, character(1), "first")
+  not_chain <- function(why) cli::cli_abort(c(
+    "The folders are not a bundle and its rounds: {why}.",
+    "i" = "Give the folder of the bundle written by {.fn write_hpc_bundle} and of each round written from it by {.fn next_hpc_round}, every round from the second to the last."
+  ), class = "rTFT_rounds_not_a_chain")
+  if (anyDuplicated(ids))
+    not_chain("a folder is given twice, or two hold the same bundle")
+  if (length(unique(firsts)) > 1L)
+    not_chain("they come from more than one first bundle")
+  if (!1L %in% numbers) not_chain("the first bundle is not among them")
+  if (anyDuplicated(numbers)) not_chain("two of them are the same round")
+  for (b in bundles[numbers > 1L])
+    if (!b$previous %in% ids)
+      not_chain(sprintf("the bundle round %d follows is not among them", b$number))
+  if (length(unique(vapply(bundles, `[[`, character(1), "data"))) > 1L)
+    not_chain("they do not hold the same data")
+  bundles[order(numbers)]
+}
+
 # collect_hpc() ----------------------------------------------------------------
 
 #' Assemble the results of a bundle run on a cluster
@@ -1360,6 +1572,13 @@ hpc_status <- function(dir = ".") {
 #' [fit_hazard_models()] returns: the fits, their cross-validation results and a
 #' summary of one row per model, ready for [hazard_weights()] and the functions that
 #' average models.
+#'
+#' Given the folders of a bundle and of its rounds, written by [next_hpc_round()],
+#' it assembles each model from its latest round, the round that fitted it last,
+#' whether the result of that round is there, failed or missing, so that a model
+#' fitted again is never given its earlier fit without a word. The folders must
+#' be the first bundle and every round from the second to the last, all holding the
+#' same data, and can be given in any order.
 #'
 #' Nothing is assembled from a bundle whose files have changed since it was written,
 #' or with a result computed from another bundle: the files are checked against their
@@ -1375,12 +1594,14 @@ hpc_status <- function(dir = ".") {
 #' summary. A density of zero, a log predictive density of `-Inf`, is kept, as
 #' [kfold_hazard()] keeps it.
 #'
-#' @param dir A character string, the folder of the bundle, on your own computer,
-#'   with the folder `results/` copied back into it. Defaults to the working folder.
+#' @param dir A character vector, the folder of the bundle, on your own computer,
+#'   with the folder `results/` copied back into it, or the folders of the bundle and
+#'   of its rounds. Defaults to the working folder.
 #' @return A list with the four elements that [fit_hazard_models()] returns: `fits`,
-#'   `loo`, `kfold` and `summary`. In `summary`, `status` is `"fitted"`, `"failed"` or
-#'   `"missing"`, and `seconds` is the time each fit and its cross-validation took on
-#'   the cluster.
+#'   `loo`, `kfold` and `summary`. In `summary`, `round` is the round each model's
+#'   result comes from (1 for the first bundle), `status` is `"fitted"`, `"failed"`
+#'   or `"missing"`, and `seconds` is the time each fit and its cross-validation took
+#'   on the cluster.
 #' @seealso [write_hpc_bundle()], which writes the bundle, and [hpc_status()], which
 #'   says what each task has done.
 #' @examples
@@ -1389,30 +1610,40 @@ hpc_status <- function(dir = ".") {
 #' out <- collect_hpc("my-run")
 #' out$summary
 #' weights <- hazard_weights(out$kfold)
+#'
+#' # with the round written by next_hpc_round() for a model that did not converge
+#' out <- collect_hpc(c("my-run", "my-run-round-2"))
 #' }
 #' @export
 collect_hpc <- function(dir = ".") {
-  .verify_bundle(dir)
-  id       <- .bundle_id(dir)
-  settings <- readRDS(file.path(dir, "bundle", "settings.rds"))
-  models   <- readRDS(file.path(dir, "bundle", "models.rds"))
-  tasks    <- .read_tasks(dir, "fit")
+  bundles  <- .read_rounds(dir)
+  first    <- bundles[[1]]
+  settings <- first$settings
+  models   <- first$models
   rule     <- settings$rule
   kfold    <- isTRUE(settings$kfold)
   .say_other_version(settings)
 
+  # each model from the latest round that fitted it
   n <- nrow(models)
+  from <- vapply(models$model, \(m)
+    max(which(vapply(bundles, \(b) m %in% b$models$model, logical(1)))), integer(1),
+    USE.NAMES = FALSE)
   results <- vector("list", n)
   rows    <- vector("list", n)
   for (i in seq_len(n)) {
-    res <- .read_result(dir, "fit", tasks$task[tasks$model == models$model[i]], id)
+    b     <- bundles[[from[i]]]
+    tasks <- .read_tasks(b$dir, "fit")
+    task  <- tasks$task[tasks$model == models$model[i]]
+    res   <- .read_result(b$dir, "fit", task, b$id)
     no_result <- is.null(res)
     if (no_result)
       res <- simpleError("No result: its task did not run, or has not finished.")
     seconds <- if (is.null(res$seconds)) NA_real_ else res$seconds
     results[[i]] <- res
-    rows[[i]] <- .model_row(models[i, ], res, seconds, rule$rhat, rule$ess,
-                            rule$divergent)
+    rows[[i]] <- tibble::add_column(
+      .model_row(models[i, ], res, seconds, rule$rhat, rule$ess, rule$divergent),
+      round = b$number, .after = "model")
     if (no_result) rows[[i]]$status <- "missing"
   }
   model_summary <- purrr::list_rbind(rows)
@@ -1423,9 +1654,16 @@ collect_hpc <- function(dir = ".") {
               summary = model_summary)
 
   if (kfold) {
-    cv <- .collect_kfold(dir, settings, names(out$fits), id)
-    out$kfold   <- cv$kfold
-    out$summary <- .kfold_columns(out$summary, cv$kfold, cv$errors)
+    # the refits of each model, from the round of its fit
+    cv <- list(kfold = list(), errors = character(0))
+    for (k in unique(from[fitted])) {
+      b <- bundles[[k]]
+      of_k <- .collect_kfold(b$dir, b$settings, models$model[fitted & from == k], b$id)
+      cv$kfold  <- c(cv$kfold, of_k$kfold)
+      cv$errors <- c(cv$errors, of_k$errors)
+    }
+    out$kfold   <- cv$kfold[intersect(models$model, names(cv$kfold))]
+    out$summary <- .kfold_columns(out$summary, out$kfold, cv$errors)
   }
   absent <- model_summary$model[model_summary$status == "missing"]
   if (length(absent))
@@ -1436,8 +1674,10 @@ collect_hpc <- function(dir = ".") {
   .report_models(out$summary, rule$rhat, rule$ess, rule$divergent, kfold)
   refitted <- if (kfold)
     paste0(", ", length(out$kfold), " cross-validated by refitting") else ""
+  of_rounds <- if (length(bundles) > 1L)
+    paste0(", from ", length(bundles), " rounds") else ""
   cli::cli_inform(c(
-    "v" = "Collected {sum(fitted)} of the {n} model{?s}{refitted}."
+    "v" = "Collected {sum(fitted)} of the {n} model{?s}{refitted}{of_rounds}."
   ), class = "rTFT_hpc_collected")
   out
 }

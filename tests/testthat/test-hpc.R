@@ -501,6 +501,174 @@ test_that("a template of one's own is used, and one that cannot be filled is ref
 })
 
 
+# Write the next round of the bundle in `dir`, without its messages, into a new
+# temporary folder, and return the folder.
+round_quietly <- function(dir, models, ..., env = parent.frame()) {
+  new_dir <- file.path(withr::local_tempdir(.local_envir = env), "round")
+  suppressMessages(next_hpc_round(dir, models, new_dir, rtft_source = src, ...))
+  new_dir
+}
+
+
+test_that("next_hpc_round copies what makes the rounds comparable, and changes the sampler", {
+  dir <- trial_bundle()
+  first <- readRDS(file.path(dir, "bundle", "settings.rds"))
+  expect_message(
+    next_hpc_round(dir, "exp_weibull", file.path(withr::local_tempdir(), "round"),
+                   iter = 4000, rtft_source = src),
+    class = "rTFT_round_written")
+  round <- round_quietly(dir, "exp_weibull", iter = 4000,
+                         control = list(adapt_delta = 0.99), time = "24:00:00")
+  # a bundle of its own, laid out as the first
+  expect_equal(bundle_files(round), bundle_files(dir)[!grepl("^results/|^logs/",
+                                                              bundle_files(dir))])
+  # the data file itself, not written again
+  expect_equal(unname(tools::md5sum(file.path(round, "bundle", "data.rds"))),
+               unname(tools::md5sum(file.path(dir, "bundle", "data.rds"))))
+  # the models named, and only those
+  expect_equal(readRDS(file.path(round, "bundle", "models.rds"))$model, "exp_weibull")
+  # copied: the unit, the folds, the rule, the observation, the account and modules
+  settings <- readRDS(file.path(round, "bundle", "settings.rds"))
+  for (what in c("observation", "unit", "units", "kfold", "K", "folds", "rule",
+                 "rtft_version"))
+    expect_identical(settings[[what]], first[[what]])
+  expect_identical(settings$slurm[c("account", "modules", "r_library", "mem_per_cpu")],
+                   first$slurm[c("account", "modules", "r_library", "mem_per_cpu")])
+  # changed: the sampler and the time; the prior of the first bundle is kept
+  expect_equal(settings$dots$iter, 4000)
+  expect_equal(settings$dots$control$adapt_delta, 0.99)
+  expect_equal(settings$dots$seed, first$dots$seed)
+  expect_equal(settings$dots$sd_prior, "exponential(1)")
+  expect_equal(settings$slurm$time, "24:00:00")
+  # its scripts say what wrote them
+  here <- normalizePath(dir, winslash = "/")
+  readme <- readLines(file.path(round, "README.txt"))
+  expect_match(readme[4], "Written by rTFT::next_hpc_round() on", fixed = TRUE)
+  expect_match(paste(readme[5:8], collapse = " "),
+               paste0("It is round 2 of the bundle in ", here, ". It holds"),
+               fixed = TRUE)
+  expect_match(readLines(file.path(dir, "README.txt"))[4], "write_hpc_bundle()",
+               fixed = TRUE)
+  # its place in the chain of rounds
+  expect_equal(settings$round, list(number = 2L, first = .bundle_id(dir),
+                                    previous = .bundle_id(dir), first_dir = here,
+                                    previous_dir = here))
+  # the refits of the model, on the folds of the first bundle
+  tasks <- .read_tasks(round, "kfold")
+  of_first <- .read_tasks(dir, "kfold")
+  expect_equal(tasks$units, of_first$units[of_first$model == "exp_weibull"])
+  expect_true(all(tasks$model == "exp_weibull"))
+})
+
+
+test_that("a round merges control into the bundle's, and changes the chains with the cores", {
+  dir <- trial_bundle()
+  first <- readRDS(file.path(dir, "bundle", "settings.rds"))
+  first$dots$control <- list(max_treedepth = 12)
+  saveRDS(first, file.path(dir, "bundle", "settings.rds"))
+  sums <- .bundle_checksums(dir)
+  .write_lines_lf(paste(sums, names(sums), sep = "  "),
+                  file.path(dir, "bundle", "checksums.txt"))
+  round <- round_quietly(dir, "exp_mem", chains = 4, control = list(adapt_delta = 0.99))
+  settings <- readRDS(file.path(round, "bundle", "settings.rds"))
+  expect_equal(settings$dots$control, list(max_treedepth = 12, adapt_delta = 0.99))
+  expect_equal(settings$chains, 4)
+  expect_equal(settings$slurm$cpus_per_task, 4)
+  expect_match(readLines(file.path(round, "settings.sh")), 'CPUS_PER_TASK="4"',
+               fixed = TRUE, all = FALSE)
+})
+
+
+test_that("each round follows the one before, and counts from the first bundle", {
+  dir <- trial_bundle()
+  two   <- round_quietly(dir, c("exp_mem", "exp_weibull"), iter = 3000)
+  three <- round_quietly(two, "exp_weibull", iter = 6000)
+  settings <- readRDS(file.path(three, "bundle", "settings.rds"))
+  expect_equal(settings$round, list(
+    number = 3L, first = .bundle_id(dir), previous = .bundle_id(two),
+    first_dir = normalizePath(dir, winslash = "/"),
+    previous_dir = normalizePath(two, winslash = "/")))
+  expect_equal(settings$dots$iter, 6000)
+  readme <- paste(readLines(file.path(three, "README.txt"))[5:9], collapse = " ")
+  expect_match(readme, paste0("It is round 3 of the bundle in ",
+                              normalizePath(dir, winslash = "/"), ", after ",
+                              normalizePath(two, winslash = "/"), "."), fixed = TRUE)
+  # a model left out of a round cannot come back in the next
+  only_one <- round_quietly(dir, "exp_weibull")
+  expect_error(round_quietly(only_one, "exp_mem"), class = "rTFT_bad_round_models")
+})
+
+
+test_that("a round is written beside the bundle by default, named after the first", {
+  dir <- trial_bundle()
+  two <- suppressMessages(next_hpc_round(dir, "exp_mem", rtft_source = src))
+  expect_equal(two, normalizePath(file.path(dirname(dir), "run-round-2")))
+  three <- suppressMessages(next_hpc_round(two, "exp_mem", rtft_source = src))
+  expect_equal(three, normalizePath(file.path(dirname(dir), "run-round-3")))
+  # the folder of a round is refused when it holds something, as any other
+  expect_error(suppressMessages(next_hpc_round(dir, "exp_mem", rtft_source = src)),
+               class = "rTFT_dir_not_empty")
+  # a folder that is not a string is refused by the name of its argument
+  said <- tryCatch(next_hpc_round(dir, "exp_mem", 1, rtft_source = src),
+                   rTFT_bad_dir = function(e) cli::ansi_strip(conditionMessage(e)))
+  expect_match(said, "`new_dir` must be", fixed = TRUE)
+  expect_error(next_hpc_round(NULL, "exp_mem"), class = "rTFT_bad_dir")
+})
+
+
+test_that("next_hpc_round refuses what would make another model or another run", {
+  dir <- trial_bundle()
+  # anything but the sampler
+  expect_error(round_quietly(dir, "exp_mem", sd_prior = "exponential(2)"),
+               class = "rTFT_not_sampler_setting")
+  expect_error(round_quietly(dir, "exp_mem", k_sw = 5),
+               class = "rTFT_not_sampler_setting")
+  expect_error(round_quietly(dir, "exp_mem", backend = "rstan"),
+               class = "rTFT_not_sampler_setting")
+  expect_error(round_quietly(dir, "exp_mem", 4000), class = "rTFT_not_sampler_setting")
+  # models that are not the bundle's, each once
+  for (bad in list("exp_gompertz", character(0), c("exp_mem", "exp_mem"), NA, 1))
+    expect_error(round_quietly(dir, bad), class = "rTFT_bad_round_models")
+  # another version of rTFT
+  local({
+    local_mocked_bindings(.installed_rtft_version = function() "0.0.1")
+    expect_error(round_quietly(dir, "exp_mem"), class = "rTFT_round_version_differs")
+  })
+  # settings of the jobs that Slurm cannot take
+  expect_error(round_quietly(dir, "exp_mem", time = "a day"),
+               class = "rTFT_bad_hpc_setting")
+  # a folder that holds something already
+  full <- withr::local_tempdir()
+  writeLines("x", file.path(full, "note.txt"))
+  expect_error(
+    suppressMessages(next_hpc_round(dir, "exp_mem", full, rtft_source = src)),
+    class = "rTFT_dir_not_empty")
+  # a bundle changed since it was written
+  writeLines("x", file.path(dir, "bundle", "extra.csv"))
+  expect_error(round_quietly(dir, "exp_mem"), class = "rTFT_bundle_changed")
+})
+
+
+test_that("the tasks of a round fit with its own settings, and refit from its own fit", {
+  record <- new_record()
+  refits <- new_record()
+  local_mocked_bindings(fit_hazard = stand_in_fit(record),
+                        .refit_fold = stand_in_refit(refits))
+  with_cmdstan()
+  dir   <- trial_bundle()
+  round <- round_quietly(dir, "exp_weibull", iter = 4000)
+  expect_true(suppressMessages(check_hpc_bundle(round)))
+  run_quietly(round, "fit", 1)
+  expect_equal(record$calls[[1]]$baseline, "weibull")
+  expect_equal(record$calls[[1]]$args$iter, 4000)
+  expect_equal(record$calls[[1]]$args$sd_prior, "exponential(1)")
+  run_quietly(round, "kfold", 1)
+  expect_equal(refits$calls[[1]]$args$iter, 4000)
+  first_fold <- .read_tasks(dir, "kfold")$units[1]
+  expect_setequal(refits$calls[[1]]$held, strsplit(first_fold, ";")[[1]])
+})
+
+
 # ===========================================================================
 # 3. Checking the bundle (check_hpc_bundle)
 # ===========================================================================
@@ -1078,8 +1246,11 @@ test_that("collect_hpc returns what fit_hazard_models() returns for the same run
   expect_identical(names(out$fits), c("exp_mem", "exp_weibull"))
   expect_equal(out$fits$exp_mem, ref$fits$exp_mem)
   expect_equal(out$loo, ref$loo)
-  expect_equal(names(out$summary), names(ref$summary))
-  expect_equal(dplyr::select(out$summary, -"seconds"), dplyr::select(ref$summary, -"seconds"))
+  # the same summary, with the round each model comes from: here, the first bundle
+  expect_equal(names(out$summary), append(names(ref$summary), "round", after = 1))
+  expect_equal(out$summary$round, c(1L, 1L))
+  expect_equal(dplyr::select(out$summary, -"seconds", -"round"),
+               dplyr::select(ref$summary, -"seconds"))
   expect_false(anyNA(out$summary$seconds))
   # the refits are scored on the folds of the bundle, unit by unit
   settings <- readRDS(file.path(dir, "bundle", "settings.rds"))
@@ -1240,6 +1411,102 @@ test_that("results are never assembled with a bundle other than their own", {
   # nor with a bundle whose files changed after the run
   writeLines("x", file.path(other, "bundle", "extra.csv"))
   expect_error(collect_hpc(other), class = "rTFT_bundle_changed")
+})
+
+
+test_that("collect_hpc takes each model from its latest round", {
+  local_mocked_bindings(fit_hazard = stand_in_fit(new_record()),
+                        .refit_fold = stand_in_refit(new_record()))
+  dir <- trial_bundle()
+  run_all(dir)
+  two <- round_quietly(dir, "exp_weibull", iter = 4000)
+  # the refits of the first bundle for exp_weibull are taken out: those of its
+  # round must be the ones collected
+  of_weibull <- .read_tasks(dir, "kfold")$task[.read_tasks(dir, "kfold")$model ==
+                                                  "exp_weibull"]
+  for (j in of_weibull)
+    file.remove(.task_file(dir, "kfold", j, c("csv", "rds")))
+  for (stage in c("fit", "kfold"))
+    for (j in .read_tasks(two, stage)$task) run_quietly(two, stage, j)
+  expect_message(out <- suppressWarnings(collect_hpc(c(dir, two))),
+                 "from 2 rounds", class = "rTFT_hpc_collected")
+  expect_equal(out$summary$model, c("exp_mem", "exp_weibull"))
+  expect_equal(out$summary$round, c(1L, 2L))
+  expect_equal(out$summary$status, c("fitted", "fitted"))
+  expect_named(out$kfold, c("exp_mem", "exp_weibull"))
+  expect_false(anyNA(out$summary$elpd_kfold))
+  # the folds of every round are the first bundle's, so the models can be weighted
+  expect_equal(out$kfold$exp_weibull$folds, out$kfold$exp_mem$folds)
+  expect_no_error(suppressMessages(hazard_weights(out$kfold)))
+  # in any order
+  again <- suppressMessages(suppressWarnings(collect_hpc(c(two, dir))))
+  expect_equal(dplyr::select(again$summary, -"seconds"),
+               dplyr::select(out$summary, -"seconds"))
+  # a round alone holds only its own models
+  alone <- suppressMessages(suppressWarnings(collect_hpc(two)))
+  expect_equal(alone$summary$model, "exp_weibull")
+  expect_equal(alone$summary$round, 2L)
+})
+
+
+test_that("a model's latest round counts even when it failed or has no result", {
+  record <- new_record()
+  local_mocked_bindings(fit_hazard = stand_in_fit(record))
+  dir <- trial_bundle(kfold = FALSE)
+  for (i in 1:2) run_quietly(dir, "fit", i)
+  two <- round_quietly(dir, "exp_weibull", iter = 4000)
+  # the round has not run: the model is missing, not taken from the first bundle
+  expect_warning(
+    out <- suppressMessages(suppressWarnings(collect_hpc(c(dir, two)),
+                                             classes = "rTFT_models_failed")),
+    class = "rTFT_tasks_missing")
+  expect_equal(out$summary$status, c("fitted", "missing"))
+  expect_equal(out$summary$round, c(1L, 2L))
+  expect_named(out$fits, "exp_mem")
+  # the round failed: the model failed, with its reason
+  record$fail <- TRUE
+  expect_error(run_quietly(two, "fit", 1), class = "rTFT_task_failed")
+  out <- suppressMessages(suppressWarnings(collect_hpc(c(dir, two))))
+  expect_equal(out$summary$status, c("fitted", "failed"))
+  expect_match(out$summary$message[2], "the sampler stopped", fixed = TRUE)
+  expect_named(out$fits, "exp_mem")
+})
+
+
+test_that("collect_hpc refuses folders that are not a bundle and its rounds", {
+  dir   <- trial_bundle(kfold = FALSE)
+  two   <- round_quietly(dir, "exp_weibull")
+  three <- round_quietly(two, "exp_weibull")
+  other <- trial_bundle(kfold = FALSE, seed = 2)
+  of_other <- round_quietly(other, "exp_mem")
+  also_two <- round_quietly(dir, "exp_mem")
+  # refused, with the reason given in the message
+  not_chain <- function(dirs, why) {
+    said <- tryCatch(suppressWarnings(collect_hpc(dirs)),
+                     rTFT_rounds_not_a_chain = function(e) conditionMessage(e))
+    expect_match(said, why, fixed = TRUE)
+  }
+  not_chain(c(dir, dir), "given twice")
+  not_chain(c(two, three), "first bundle is not among them")
+  not_chain(c(dir, three), "the bundle round 3 follows is not among them")
+  not_chain(c(dir, two, of_other), "more than one first bundle")
+  not_chain(c(dir, other), "more than one first bundle")
+  not_chain(c(dir, two, also_two), "two of them are the same round")
+  # a round whose data were changed, with its checksums written again
+  saveRDS(long_trials[-1, ], file.path(two, "bundle", "data.rds"))
+  sums <- .bundle_checksums(two)
+  .write_lines_lf(paste(sums, names(sums), sep = "  "),
+                  file.path(two, "bundle", "checksums.txt"))
+  settings <- readRDS(file.path(three, "bundle", "settings.rds"))
+  settings$round$previous <- .bundle_id(two)
+  saveRDS(settings, file.path(three, "bundle", "settings.rds"))
+  sums <- .bundle_checksums(three)
+  .write_lines_lf(paste(sums, names(sums), sep = "  "),
+                  file.path(three, "bundle", "checksums.txt"))
+  not_chain(c(dir, two, three), "do not hold the same data")
+  # and what is not a folder
+  for (bad in list(character(0), NA_character_, 1))
+    expect_error(collect_hpc(bad), class = "rTFT_bad_dir")
 })
 
 

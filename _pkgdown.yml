@@ -81,6 +81,7 @@ reference:
   - run_hpc_task
   - hpc_status
   - collect_hpc
+  - next_hpc_round
 - title: Predicting survival
   contents:
   - predict_survival

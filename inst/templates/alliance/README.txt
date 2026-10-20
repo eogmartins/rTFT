@@ -1,7 +1,7 @@
 A bundle of models to fit on a cluster
 ======================================
 
-Written by rTFT::write_hpc_bundle() on {{created}}, with rTFT {{rtft_version}}.
+Written by {{written_by}} on {{created}}, with rTFT {{rtft_version}}.
 {{contents}}
 
 What is in it

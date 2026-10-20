@@ -1,6 +1,6 @@
 # settings.sh - the one file where the settings of this bundle are written
 #
-# Written by rTFT::write_hpc_bundle() on {{created}}, for the clusters of the
+# Written by {{written_by}} on {{created}}, for the clusters of the
 # Digital Research Alliance of Canada. Every script of the bundle reads this file,
 # so a value changed here changes for all of them. Make sure to change it here and
 # nowhere else. Change the time or the memory here when a task ran out of either,

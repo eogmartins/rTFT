@@ -7,14 +7,16 @@
 collect_hpc(dir = ".")
 }
 \arguments{
-\item{dir}{A character string, the folder of the bundle, on your own computer,
-with the folder \verb{results/} copied back into it. Defaults to the working folder.}
+\item{dir}{A character vector, the folder of the bundle, on your own computer,
+with the folder \verb{results/} copied back into it, or the folders of the bundle and
+of its rounds. Defaults to the working folder.}
 }
 \value{
 A list with the four elements that \code{\link[=fit_hazard_models]{fit_hazard_models()}} returns: \code{fits},
-\code{loo}, \code{kfold} and \code{summary}. In \code{summary}, \code{status} is \code{"fitted"}, \code{"failed"} or
-\code{"missing"}, and \code{seconds} is the time each fit and its cross-validation took on
-the cluster.
+\code{loo}, \code{kfold} and \code{summary}. In \code{summary}, \code{round} is the round each model's
+result comes from (1 for the first bundle), \code{status} is \code{"fitted"}, \code{"failed"}
+or \code{"missing"}, and \code{seconds} is the time each fit and its cross-validation took
+on the cluster.
 }
 \description{
 Assembles the results of the tasks of a bundle written by \code{\link[=write_hpc_bundle]{write_hpc_bundle()}},
@@ -24,6 +26,13 @@ summary of one row per model, ready for \code{\link[=hazard_weights]{hazard_weig
 average models.
 }
 \details{
+Given the folders of a bundle and of its rounds, written by \code{\link[=next_hpc_round]{next_hpc_round()}},
+it assembles each model from its latest round, the round that fitted it last,
+whether the result of that round is there, failed or missing, so that a model
+fitted again is never given its earlier fit without a word. The folders must
+be the first bundle and every round from the second to the last, all holding the
+same data, and can be given in any order.
+
 Nothing is assembled from a bundle whose files have changed since it was written,
 or with a result computed from another bundle: the files are checked against their
 checksums, and each result against the stamp of the bundle that computed it.
@@ -44,6 +53,9 @@ summary. A density of zero, a log predictive density of \code{-Inf}, is kept, as
 out <- collect_hpc("my-run")
 out$summary
 weights <- hazard_weights(out$kfold)
+
+# with the round written by next_hpc_round() for a model that did not converge
+out <- collect_hpc(c("my-run", "my-run-round-2"))
 }
 }
 \seealso{

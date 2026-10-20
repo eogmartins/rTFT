@@ -49,6 +49,14 @@
   what `fit_hazard_models()` returns. Each result carries the checksums of the
   bundle it was computed from, so it is never assembled with another; models
   and folds without a result are named.
+* `next_hpc_round()` writes the next round of a bundle for some of its models,
+  typically those that did not converge, with new settings of the sampler and
+  of the jobs. The data, the unit, the folds and the convergence rule are
+  copied from the bundle, never chosen again, and a change that would make
+  another model, such as a prior, is refused. `collect_hpc()`, given the
+  folders of a bundle and of its rounds, takes each model from its latest
+  round, even when that round failed or has no result yet, and says which round
+  in a new column of the summary, `round`.
 
 ## Checking a fitted model
 
