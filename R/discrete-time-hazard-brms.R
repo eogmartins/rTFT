@@ -969,16 +969,17 @@ costressor <- function(name, column, ref, scale, direction,
 #' @param path A data frame giving the temperature trajectory for each path.
 #'   Required columns: `path_id`, `time`, `temp`. The function interpolates these
 #'   points linearly in time, so a minimal two-point path (start and end) encodes a
-#'   linear ramp. Interpolation uses the full series, so a temperature data logger
-#'   whose records are finer than the checks still supplies the true temperature at
-#'   each interval midpoint (never a check-to-check straight line); the checks control
-#'   only the integration grid, not the temperature. Temperatures outside the recorded
-#'   time range are held flat at the nearest endpoint rather than returned as `NA`,
-#'   because the at-risk grid (the checks, the exact failure time, and the `t = 0`
-#'   start) need not sit strictly inside the logged times: a check or failure time
-#'   can fall just past the last reading, or the first interval can begin before the
-#'   first reading, and an `NA` temperature there would propagate into `Ta` and the
-#'   linear predictor.
+#'   linear ramp, and each path has one reading at each time: a sudden change is
+#'   written as two readings a moment apart (e.g., at 10 and 10.01). Interpolation uses
+#'   the full series, so a temperature data logger whose records are finer than the
+#'   checks still supplies the true temperature at each interval midpoint (never a
+#'   check-to-check straight line); the checks control only the integration grid, not
+#'   the temperature. Temperatures outside the recorded time range are held flat at
+#'   the nearest endpoint rather than returned as `NA`, because the at-risk grid (the
+#'   checks, the exact failure time, and the `t = 0` start) need not sit strictly inside
+#'   the logged times: a check or failure time can fall just past the last reading, or
+#'   the first interval can begin before the first reading, and an `NA` temperature
+#'   there would propagate into `Ta` and the linear predictor.
 #' @param observation How each failure time was observed. One of `"interval"`
 #'   (every failure known only to fall within a censoring interval), `"continuous"`
 #'   (every failure observed at a known time), or `"mixed"` (both kinds in one table,
@@ -1128,6 +1129,20 @@ build_hazard_data <- function(ind, path, observation = c("interval", "continuous
       "{.arg ind} must have one row per individual, with a distinct {.field id}.",
       "x" = "Repeated: {.val {unique(ind$id[duplicated(ind$id)])}}."
     ), class = "rTFT_duplicate_id")
+
+  # Each path has one reading at each time. Temperature between readings is read off
+  # the straight line joining them, and two readings at one time have no such line:
+  # the interpolation would replace them by their mean and follow a path that was
+  # never given, as when a sudden change is written as two readings at one time.
+  repeated <- duplicated(path[c("path_id", "time")])
+  if (any(repeated)) {
+    where <- unique(paste0(path$path_id[repeated], " at ", path$time[repeated]))
+    cli::cli_abort(c(
+      "{.arg path} must have one reading at each time of a path.",
+      "x" = "More than one reading: {.val {where}}.",
+      "i" = "A sudden change of temperature is two readings a moment apart (e.g., at 10 and 10.01), not two at the same time."
+    ), class = "rTFT_path_repeated_time")
+  }
 
   # The event indicator is 1 for a failure and 0 for a survivor, nothing else.
   if (!all(ind$event %in% c(0, 1)))

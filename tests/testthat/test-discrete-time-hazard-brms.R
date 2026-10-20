@@ -722,6 +722,31 @@ test_that("build_hazard_data errors loudly, with cli condition classes, on malfo
 })
 
 
+test_that("a path with two readings at one time is refused, and one a moment apart is not", {
+  # a sudden change from 20 to 30 degC at minute 10, written as two readings at once:
+  # the interpolation would average them into a path that climbs steadily
+  jump <- data.frame(path_id = "A", time = c(0, 10, 10, 20), temp = c(20, 20, 30, 30))
+  one  <- data.frame(id = 1, path_id = "A", event = 1, t_event = 15)
+  said <- tryCatch(build_hazard_data(one, jump, "continuous"),
+                   rTFT_path_repeated_time = function(e) cli::ansi_strip(conditionMessage(e)))
+  expect_match(said, "A at 10", fixed = TRUE)
+  # even the same reading twice, as two joined downloads of a logger can give
+  twice <- data.frame(path_id = "A", time = c(0, 10, 10, 20), temp = c(20, 25, 25, 30))
+  expect_error(build_hazard_data(one, twice, "continuous"),
+               class = "rTFT_path_repeated_time")
+  # the same time on two paths is no repeat
+  two_paths <- data.frame(path_id = rep(c("A", "B"), each = 2), time = c(0, 20, 0, 20),
+                          temp = c(20, 30, 22, 32))
+  expect_no_error(suppressMessages(build_hazard_data(one, two_paths, "continuous")))
+  # a moment apart, the change is followed: the fish that failed at minute 15 spent
+  # its last five minutes at 30 degC
+  step <- data.frame(path_id = "A", time = c(0, 10, 10.01, 20), temp = c(20, 20, 30, 30))
+  long <- suppressMessages(build_hazard_data(one, step, "continuous"))
+  expect_equal(max(long$Ta), 30)
+  expect_equal(min(long$Ta[long$tau > 10.01]), 30)
+})
+
+
 test_that("a repeated id, an event other than 0 or 1, and a time of zero or less are refused", {
   # two rows for one individual would copy every interval row once per repeat
   dup <- data.frame(id = c(1, 1), path_id = "A", event = c(1, 0), t_upper = c(30, 60),

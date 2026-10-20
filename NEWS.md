@@ -87,6 +87,12 @@
   package then copied the R process to work on several cores, and a copy made
   once a sampler's threads were running could wait forever. It now asks the
   loo package for one core; a matrix of one column per unit is quick on one.
+* A temperature path with two readings at one time, as when a sudden change is
+  written as two readings at the moment of the change, was accepted:
+  `build_hazard_data()` replaced the two by their mean and followed a path that
+  climbed steadily instead of jumping, with only a warning from base R. A path
+  must now have one reading at each time, and a sudden change is written as two
+  readings a moment apart.
 
 # rTFT 0.1.1
 
