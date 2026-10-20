@@ -3,7 +3,7 @@ test-discrete-time-hazard-brms.R,530
 test-derive-tdt-ttl.R,248
 test-plot-tdt-ttl.R,154
 test-loo-hazard.R,123
-test-average-tdt-ttl.R,106
+test-average-tdt-ttl.R,113
 test-predict-survival.R,147
 test-plot-survival.R,84
 test-check-hazard.R,83

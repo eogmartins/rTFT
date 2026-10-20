@@ -12,6 +12,11 @@
   same folds for every model. A model that fails does not stop the others. It
   returns the fits and the cross-validation results as `hazard_weights()` and
   the `average_*()` functions read them, with a summary of one row per model.
+* `hazard_weights()` names a model that gives some unit left out no chance at
+  all (a log predictive density of -Inf), as a model with a threshold can for a
+  unit whose failures it places below the threshold. Pseudo-BMA gives such a
+  model a weight of zero; stacking can still weight it, even the most, when
+  other models predict that unit, and the message and the help say why.
 
 ## Running on a cluster
 

@@ -12,7 +12,7 @@
 # 1. Model weights
 # ===========================================================================
 
-# .pointwise_elpd() / .cv_weights() --------------------------------------------
+# .pointwise_elpd() / .cv_weights() / .say_zero_density() ----------------------
 
 # The log predictive density of each unit from a cross-validation result, named by
 # unit, whether the result is from loo_hazard() or kfold_hazard().
@@ -32,6 +32,24 @@
     stacking  = loo::stacking_weights(lpd),
     pseudobma = loo::pseudobma_weights(lpd)))
 }
+
+# Say, as a message, which models of `lpd`, a units-by-models matrix of log
+# predictive densities, give some unit a density of zero (-Inf), and what `method`
+# does with them; return nothing. Such a model is likely wrong where it does so, and
+# stacking can still weight it.
+.say_zero_density <- function(lpd, method) {
+  zero <- colnames(lpd)[apply(lpd, 2, \(x) any(x == -Inf, na.rm = TRUE))]
+  if (!length(zero)) return(invisible(NULL))
+  cli::cli_inform(c(
+    "!" = "{length(zero)} model{?s} {?gives/give} some unit left out no chance at all, a log predictive density of -Inf: {.val {zero}}.",
+    "i" = if (method == "stacking")
+      "Stacking can still weight {cli::qty(length(zero))}{?it/them}, since other models predict those units; a model that rules out an observed unit is likely wrong where it does so."
+    else
+      "Pseudo-BMA gives {cli::qty(length(zero))}{?it/them} a weight of zero."
+  ), class = "rTFT_zero_density")
+  invisible(NULL)
+}
+
 
 # hazard_weights() -------------------------------------------------------------
 
@@ -62,6 +80,14 @@
 #' The weights rest on one value per unit left out, so they are less certain the
 #' fewer units there are, as when the unit is one of a handful of trials. A message
 #' says how many units there were.
+#'
+#' A model can give a unit left out no chance at all, a log predictive density of
+#' `-Inf`: in practice a model with a threshold, for a unit whose failures it places
+#' below the threshold in every posterior draw. A message names such a model, since
+#' it is likely wrong where it does so. Pseudo-BMA gives it a weight of zero, its
+#' summed density being `-Inf`. Stacking can still give it weight, even the most, as
+#' long as other models predict the unit: the combination then takes that unit's
+#' prediction from them, and the model's weight from how well it predicts the rest.
 #'
 #' Results from [loo_hazard()] and [kfold_hazard()] can be mixed, as when the
 #' leave-one-out approximation is unreliable for one model and that model alone is
@@ -146,6 +172,7 @@ hazard_weights <- function(cv, method = c("stacking", "pseudobma"), min_weight =
       "i" = "Stacking and pseudo-BMA weights need the predictions of at least two units."
     ), class = "rTFT_too_few_units")
   lpd <- vapply(elpd, \(e) e[names(elpd[[1]])], numeric(n_units))
+  .say_zero_density(lpd, method)
 
   weight_all <- .cv_weights(lpd, method)
   ranked <- order(weight_all, decreasing = TRUE)

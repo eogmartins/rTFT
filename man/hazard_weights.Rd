@@ -52,6 +52,14 @@ The weights rest on one value per unit left out, so they are less certain the
 fewer units there are, as when the unit is one of a handful of trials. A message
 says how many units there were.
 
+A model can give a unit left out no chance at all, a log predictive density of
+\code{-Inf}: in practice a model with a threshold, for a unit whose failures it places
+below the threshold in every posterior draw. A message names such a model, since
+it is likely wrong where it does so. Pseudo-BMA gives it a weight of zero, its
+summed density being \code{-Inf}. Stacking can still give it weight, even the most, as
+long as other models predict the unit: the combination then takes that unit's
+prediction from them, and the model's weight from how well it predicts the rest.
+
 Results from \code{\link[=loo_hazard]{loo_hazard()}} and \code{\link[=kfold_hazard]{kfold_hazard()}} can be mixed, as when the
 leave-one-out approximation is unreliable for one model and that model alone is
 cross-validated by refitting. The two agree in what they estimate when each fold

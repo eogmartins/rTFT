@@ -131,6 +131,34 @@ test_that("hazard_weights weighs fitted models, by PSIS or by refitting", {
 })
 
 
+test_that("a model that gives a unit no chance at all is named, and weighted by the method", {
+  # `edgy` is better than `a` by 1 on five of six units, and gives the sixth none
+  six  <- paste0("t", 1:6)
+  a    <- make_cv(stats::setNames(c(-10, -12, -9, -11, -10, -12), six))
+  edgy <- make_cv(stats::setNames(c(-9, -11, -8, -10, -9, -Inf), six))
+  cv   <- list(a = a, edgy = edgy)
+  said <- function(method) {
+    out <- NULL
+    suppressMessages(withCallingHandlers(hazard_weights(cv, method = method),
+      rTFT_zero_density = function(m) out <<- cli::ansi_strip(conditionMessage(m))))
+    out
+  }
+  # the other messages silenced, never this one
+  others <- function(expr) suppressMessages(expr, classes = "rTFT_weights")
+  expect_message(others(hazard_weights(cv)), class = "rTFT_zero_density")
+  # stacking still weights it, since `a` predicts the sixth unit: here the most
+  expect_match(said("stacking"), '"edgy"', fixed = TRUE)
+  expect_match(said("stacking"), "Stacking can still weight it", fixed = TRUE)
+  stacked <- quietly(hazard_weights(cv))
+  expect_equal(stacked$model[1], "edgy")
+  # pseudo-BMA gives it none
+  expect_match(said("pseudobma"), "weight of zero", fixed = TRUE)
+  expect_equal(quietly(hazard_weights(cv, method = "pseudobma"))$weight_all[2], 0)
+  # a set of models without such a unit says nothing of it
+  expect_no_message(others(hazard_weights(cv3)), class = "rTFT_zero_density")
+})
+
+
 test_that("models cross-validated with fewer folds than the others are named", {
   with_K <- function(x, K) { x$K <- K; x }
   k_fold <- purrr::map(cv3, \(x) make_cv(x$pointwise[, 1], column = "elpd_kfold"))
