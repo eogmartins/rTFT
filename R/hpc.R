@@ -302,6 +302,127 @@
 }
 
 
+# .check_rtft_source() / .check_new_dir() -------------------------------------
+
+# Return where the cluster installs rTFT from: `rtft_source` when given, or else where
+# the installed rTFT came from, as .rtft_source() reads it. Neither, or a source that
+# is not a single string, is an error, since install.sh could not be written.
+.check_rtft_source <- function(rtft_source) {
+  given <- !is.null(rtft_source)
+  if (!given) rtft_source <- .rtft_source()
+  if (!is.character(rtft_source) || length(rtft_source) != 1L || is.na(rtft_source) ||
+      !nzchar(rtft_source))
+    cli::cli_abort(c(
+      "The cluster cannot be told where to install this version of rTFT from.",
+      "x" = if (given) "You supplied {.val {rtft_source}}."
+            else "It is the development version {.val {(.installed_rtft_version())}}, installed from a copy on this machine.",
+      "i" = "Give {.arg rtft_source}, as {.fn remotes::install_github} takes it, such as {.val eogmartins/rTFT@dev-0.2.0}. The branch must be on GitHub."
+    ), class = "rTFT_no_rtft_source")
+  rtft_source
+}
+
+# Check that `dir` names a folder a bundle can be written into, one that does not
+# exist yet or is empty, and return TRUE invisibly; `arg` is the name of the argument
+# that gave it, for the message. A bundle is never written over another.
+.check_new_dir <- function(dir, arg = "dir") {
+  if (!is.character(dir) || length(dir) != 1L || is.na(dir) || !nzchar(dir))
+    cli::cli_abort("{.arg {arg}} must be a single character string, a folder.",
+                   class = "rTFT_bad_dir")
+  if (dir.exists(dir) && length(list.files(dir, all.files = TRUE, no.. = TRUE)))
+    cli::cli_abort(c(
+      "{.path {dir}} is not empty.",
+      "i" = "Give a new folder, or an empty one: a bundle is never written over another."
+    ), class = "rTFT_dir_not_empty")
+  invisible(TRUE)
+}
+
+# .write_bundle() --------------------------------------------------------------
+
+# Write a bundle into `dir`: the table `models`; the data, from `data`, a table of
+# intervals at risk or the path of a bundle's data.rds to copy as it is; the run's
+# `settings`; the tasks, as tables to read; the checksums; and the scripts of the
+# template in `template_dir`, filled in with `settings`, `rtft_source` and the place
+# `remote` on the cluster. Return the number of tasks of the fits and of the refits,
+# as `fit` and `kfold` in a list, invisibly.
+.write_bundle <- function(dir, models, data, settings, rtft_source, remote,
+                          template_dir) {
+  kfold <- isTRUE(settings$kfold)
+  folds <- settings$folds
+  # the tasks, as tables to read: one per model, and one per model and fold
+  tasks_fit <- data.frame(task = seq_len(nrow(models)), model = models$model,
+                          m_form = models$m_form, baseline = models$baseline)
+  tasks_kfold <- if (kfold) {
+    grid <- expand.grid(fold = seq_len(settings$K), model = models$model,
+                        stringsAsFactors = FALSE)
+    of_fold <- \(k) paste(names(folds)[folds == k], collapse = ";")
+    data.frame(task = seq_len(nrow(grid)), model = grid$model, fold = grid$fold,
+               units = vapply(grid$fold, of_fold, character(1)))
+  }
+
+  # the scripts, filled in from the template
+  slurm <- settings$slurm
+  ssh_target    <- if (is.null(remote)) "<user>@<cluster>" else sub(":.*$", "", remote)
+  remote_folder <- if (is.null(remote)) "<folder>" else sub("^[^:]*:", "", remote)
+  # the folder does not exist yet, so its full path is read from the folder above it
+  local_path    <- file.path(normalizePath(dirname(dir), winslash = "/",
+                                           mustWork = FALSE), basename(dir))
+  copy <- .copy_command(local_path, ssh_target, remote_folder, .on_windows())
+  copy_back <- .copy_back_command(local_path, ssh_target, remote_folder, .on_windows())
+  # what the bundle holds, as a sentence with its plurals, for README.txt
+  plural   <- function(n, word) paste(n, if (n == 1) word else paste0(word, "s"))
+  n_refits <- if (kfold) nrow(tasks_kfold) else 0
+  contents <- paste0(
+    "It holds ", plural(nrow(models), "model"), " to fit, as ",
+    plural(nrow(tasks_fit), "task"), ", ",
+    if (kfold)
+      paste("and", plural(n_refits, "refit"), "for cross-validation by refitting")
+    else "without cross-validation by refitting", ".")
+  values <- list(
+    created = settings$created, account = slurm$account,
+    email = if (is.null(slurm$email)) "" else slurm$email,
+    time = slurm$time, mem_per_cpu = slurm$mem_per_cpu,
+    cpus_per_task = slurm$cpus_per_task,
+    modules = paste(slurm$modules, collapse = " "),
+    r_library = if (is.null(slurm$r_library)) "" else slurm$r_library,
+    rtft_version = settings$rtft_version, rtft_source = rtft_source,
+    rtft_commit = if (is.na(settings$rtft_commit)) "" else settings$rtft_commit,
+    contents = paste(strwrap(contents, width = 80), collapse = "\n"),
+    n_models = nrow(models), n_fit_tasks = nrow(tasks_fit),
+    n_kfold_tasks = n_refits,
+    copy_command = paste(copy$command, collapse = "\n       "),
+    copy_note = paste(strwrap(copy$note, width = 74), collapse = "\n     "),
+    copy_back_command = paste(copy_back, collapse = "\n       "),
+    local_path = local_path,
+    ssh_target = ssh_target, remote_folder = remote_folder)
+  # Filled before anything is written, so that a template that cannot be filled
+  # leaves no half-written bundle behind. A plain loop, so that its error reaches
+  # the user as it was raised and not wrapped in the error of a mapping function.
+  scripts <- list()
+  for (file in .script_files)
+    scripts[[file]] <- .fill_template(readLines(file.path(template_dir, file)), values)
+
+  # the bundle itself
+  for (folder in c("bundle", "stan", "results", "logs"))
+    dir.create(file.path(dir, folder), recursive = TRUE, showWarnings = FALSE)
+  if (is.character(data)) {
+    file.copy(data, file.path(dir, "bundle", "data.rds"))
+  } else {
+    saveRDS(data, file.path(dir, "bundle", "data.rds"))
+  }
+  saveRDS(models, file.path(dir, "bundle", "models.rds"))
+  saveRDS(settings, file.path(dir, "bundle", "settings.rds"))
+  .write_csv_lf(tasks_fit, file.path(dir, "bundle", "tasks-fit.csv"))
+  if (kfold)
+    .write_csv_lf(tasks_kfold, file.path(dir, "bundle", "tasks-kfold.csv"))
+  sums <- .bundle_checksums(dir)
+  .write_lines_lf(paste(sums, names(sums), sep = "  "),
+                  file.path(dir, "bundle", "checksums.txt"))
+
+  for (file in .script_files) .write_lines_lf(scripts[[file]], file.path(dir, file))
+  invisible(list(fit = nrow(tasks_fit), kfold = n_refits))
+}
+
+
 # ===========================================================================
 # 2. Writing the bundle
 # ===========================================================================
@@ -449,25 +570,8 @@ write_hpc_bundle <- function(models, long, dir, account,
   if (missing(account)) account <- NULL
   .check_hpc_settings(account, time, mem_per_cpu, email, modules, r_library, remote)
   template_dir <- .template_dir(template)
-  installed <- .installed_rtft_version()
-  given     <- !is.null(rtft_source)
-  if (!given) rtft_source <- .rtft_source()
-  if (!is.character(rtft_source) || length(rtft_source) != 1L || is.na(rtft_source) ||
-      !nzchar(rtft_source))
-    cli::cli_abort(c(
-      "The cluster cannot be told where to install this version of rTFT from.",
-      "x" = if (given) "You supplied {.val {rtft_source}}."
-            else "It is the development version {.val {installed}}, installed from a copy on this machine.",
-      "i" = "Give {.arg rtft_source}, as {.fn remotes::install_github} takes it, such as {.val eogmartins/rTFT@dev-0.2.0}. The branch must be on GitHub."
-    ), class = "rTFT_no_rtft_source")
-  if (!is.character(dir) || length(dir) != 1L || !nzchar(dir))
-    cli::cli_abort("{.arg dir} must be a single character string, a folder.",
-                   class = "rTFT_bad_dir")
-  if (dir.exists(dir) && length(list.files(dir, all.files = TRUE, no.. = TRUE)))
-    cli::cli_abort(c(
-      "{.path {dir}} is not empty.",
-      "i" = "Give a new folder, or an empty one: a bundle is never written over another."
-    ), class = "rTFT_dir_not_empty")
+  rtft_source  <- .check_rtft_source(rtft_source)
+  .check_new_dir(dir)
   # the run itself, checked last, since it also chooses the unit and says so
   plan <- .models_plan(models, long, observation, unit, kfold, K, rhat, ess, divergent,
                        dots)
@@ -481,7 +585,7 @@ write_hpc_bundle <- function(models, long, dir, account,
   }
   dots$backend <- "cmdstanr"
   settings <- list(
-    rtft_version = installed, rtft_commit = .installed_rtft_commit(),
+    rtft_version = .installed_rtft_version(), rtft_commit = .installed_rtft_commit(),
     brms_version = as.character(utils::packageVersion("brms")),
     created      = format(Sys.time(), "%Y-%m-%d %H:%M %Z"),
     observation  = plan$observation, unit = plan$unit, units = plan$units,
@@ -491,78 +595,12 @@ write_hpc_bundle <- function(models, long, dir, account,
     slurm = list(account = account, time = time, mem_per_cpu = mem_per_cpu,
                  cpus_per_task = plan$chains, email = email, modules = modules,
                  r_library = r_library))
+  n <- .write_bundle(dir, models, long, settings, rtft_source, remote, template_dir)
 
-  # the tasks, as tables to read: one per model, and one per model and fold
-  tasks_fit <- data.frame(task = seq_len(nrow(models)), model = models$model,
-                          m_form = models$m_form, baseline = models$baseline)
-  tasks_kfold <- if (kfold) {
-    grid <- expand.grid(fold = seq_len(K), model = models$model,
-                        stringsAsFactors = FALSE)
-    of_fold <- \(k) paste(names(folds)[folds == k], collapse = ";")
-    data.frame(task = seq_len(nrow(grid)), model = grid$model, fold = grid$fold,
-               units = vapply(grid$fold, of_fold, character(1)))
-  }
-
-  # the scripts, filled in from the template
-  ssh_target    <- if (is.null(remote)) "<user>@<cluster>" else sub(":.*$", "", remote)
-  remote_folder <- if (is.null(remote)) "<folder>" else sub("^[^:]*:", "", remote)
-  # the folder does not exist yet, so its full path is read from the folder above it
-  local_path    <- file.path(normalizePath(dirname(dir), winslash = "/",
-                                           mustWork = FALSE), basename(dir))
-  copy <- .copy_command(local_path, ssh_target, remote_folder, .on_windows())
-  copy_back <- .copy_back_command(local_path, ssh_target, remote_folder, .on_windows())
-  # what the bundle holds, as a sentence with its plurals, for README.txt
-  plural   <- function(n, word) paste(n, if (n == 1) word else paste0(word, "s"))
-  n_refits <- if (kfold) nrow(tasks_kfold) else 0
-  contents <- paste0(
-    "It holds ", plural(nrow(models), "model"), " to fit, as ",
-    plural(nrow(tasks_fit), "task"), ", ",
-    if (kfold)
-      paste("and", plural(n_refits, "refit"), "for cross-validation by refitting")
-    else "without cross-validation by refitting", ".")
-  values <- list(
-    created = settings$created, account = account,
-    email = if (is.null(email)) "" else email,
-    time = time, mem_per_cpu = mem_per_cpu, cpus_per_task = plan$chains,
-    modules = paste(modules, collapse = " "),
-    r_library = if (is.null(r_library)) "" else r_library,
-    rtft_version = settings$rtft_version, rtft_source = rtft_source,
-    rtft_commit = if (is.na(settings$rtft_commit)) "" else settings$rtft_commit,
-    contents = paste(strwrap(contents, width = 80), collapse = "\n"),
-    n_models = nrow(models), n_fit_tasks = nrow(tasks_fit),
-    n_kfold_tasks = n_refits,
-    copy_command = paste(copy$command, collapse = "\n       "),
-    copy_note = paste(strwrap(copy$note, width = 74), collapse = "\n     "),
-    copy_back_command = paste(copy_back, collapse = "\n       "),
-    local_path = local_path,
-    ssh_target = ssh_target, remote_folder = remote_folder)
-  # Filled before anything is written, so that a template that cannot be filled
-  # leaves no half-written bundle behind. A plain loop, so that its error reaches
-  # the user as it was raised and not wrapped in the error of a mapping function.
-  scripts <- list()
-  for (file in .script_files)
-    scripts[[file]] <- .fill_template(readLines(file.path(template_dir, file)), values)
-
-  # the bundle itself
-  for (folder in c("bundle", "stan", "results", "logs"))
-    dir.create(file.path(dir, folder), recursive = TRUE, showWarnings = FALSE)
-  saveRDS(long, file.path(dir, "bundle", "data.rds"))
-  saveRDS(models, file.path(dir, "bundle", "models.rds"))
-  saveRDS(settings, file.path(dir, "bundle", "settings.rds"))
-  .write_csv_lf(tasks_fit, file.path(dir, "bundle", "tasks-fit.csv"))
-  if (kfold)
-    .write_csv_lf(tasks_kfold, file.path(dir, "bundle", "tasks-kfold.csv"))
-  sums <- .bundle_checksums(dir)
-  .write_lines_lf(paste(sums, names(sums), sep = "  "),
-                  file.path(dir, "bundle", "checksums.txt"))
-
-  for (file in .script_files) .write_lines_lf(scripts[[file]], file.path(dir, file))
-
-  refits <- if (kfold)
-    paste(" and", nrow(tasks_kfold), "refits for cross-validation") else ""
+  refits <- if (kfold) paste(" and", n$kfold, "refits for cross-validation") else ""
   label  <- if (plan$unit == "id") "individual" else plan$unit
   cli::cli_inform(c(
-    "v" = "Wrote a bundle of {nrow(models)} model{?s} to {.path {dir}}: {nrow(tasks_fit)} fit{?s}{refits}, leaving out one {label} at a time.",
+    "v" = "Wrote a bundle of {nrow(models)} model{?s} to {.path {dir}}: {n$fit} fit{?s}{refits}, leaving out one {label} at a time.",
     "i" = "Copy it to the cluster with the command in step 1 of {.file README.txt}, in that folder.",
     "i" = "Then, on the cluster, in that folder, run these two (the first once on each cluster):",
     " " = "bash install.sh",
