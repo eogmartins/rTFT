@@ -967,6 +967,14 @@ costressor <- function(name, column, ref, scale, direction,
 #' (a logged record, or a ramp held and then resumed), is divided again; and a
 #' message says how many rows resulted.
 #'
+#' The error left by the default step grows with the square of b. In simulations of
+#' large ramping assays fitted by maximum likelihood, the default of 0.1 degrees
+#' raised b and the Weibull shape by about 0.1% at b = 1.7 and by about 1% at b =
+#' 4.7, and sCTmax by 0.007 degrees at b = 4.7; dCTmax was not affected. Those are
+#' small against the uncertainty of an assay of a hundred or so individuals. Where
+#' the fitted b is above about 3, a step of 0.05 makes them five times smaller, at
+#' the cost of twice the rows and about twice the time to fit.
+#'
 #' Two cases are treated apart. A failure at a known time needs the hazard at the
 #' moment it happened, and the midpoint of the interval it fell in is earlier and,
 #' in a ramp, cooler; so that interval is closed with a very short one ending at the
@@ -975,9 +983,17 @@ costressor <- function(name, column, ref, scale, direction,
 #' simulation of eight large assays, and with it b was recovered whatever the
 #' length of the intervals. A failure known only to the interval between two
 #' checks keeps that interval whole, since where in it the individual failed is
-#' not known, and its contribution is the probability of failing anywhere in it. A
-#' warning is given when temperature changes by more than half a degree within
-#' such an interval, so that the estimates can be interpreted with that in mind.
+#' not known, and its contribution is the probability of failing anywhere in it.
+#' Its hazard is still taken at its midpoint, and on a ramp checked at long
+#' intervals that is the largest error of all, because the grid cannot reduce it:
+#' in simulations of ramps of 0.1 to 0.3 degrees per minute checked every 3 minutes
+#' (failure intervals of 0.3 to 0.9 degrees), b was 3% low and sCTmax 0.07 degrees
+#' low at b = 1.7, and 20% and 0.23 degrees low at b = 4.7, whatever the step. A
+#' warning is given when temperature changes by more than half a degree within such
+#' an interval. On a ramp, check often enough that temperature changes by a few
+#' tenths of a degree at most between checks, the fewer the higher b, or record the
+#' time of each failure. A static assay is not affected, since temperature does not
+#' change within its intervals.
 #'
 #' When neither `checks` nor `grid_dt` is given for failures at known times, the
 #' intervals are those between the readings of `path`, divided as above, and into
@@ -1356,7 +1372,8 @@ build_hazard_data <- function(ind, path, observation = c("interval", "continuous
   if (is.finite(grid_dT) && any(failure_span > .wide_failure_span))
     cli::cli_warn(c(
       "!" = "For {sum(failure_span > .wide_failure_span)} individual{?s}, temperature changes by up to {round(max(failure_span), 2)} degrees within the interval in which failure was found.",
-      "i" = "That interval cannot be divided, since where in it the individual failed is not known, and the hazard is taken at its midpoint, so the estimates may be somewhat biased."
+      "i" = "That interval cannot be divided, since where in it the individual failed is not known, and its hazard is taken at its midpoint. On a ramp this biases b and sCTmax low, the more so the wider the interval and the higher b: in simulations with intervals of up to 0.9 degrees, b was 3% low at b = 1.7 and 20% low at b = 4.7.",
+      "i" = "See the section {.emph The time grid} of the help, ?build_hazard_data."
     ), class = "rTFT_wide_failure_interval")
 
   # The reference temperature defaults to the median temperature at which failures

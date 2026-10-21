@@ -102,6 +102,15 @@
   straight between checks, such as those of the vignettes, give the same table
   as before.
 
+## Other changes
+
+* The help of `build_hazard_data()` says what the default time grid costs at a
+  high thermal sensitivity (about 1% in b at b = 4.7, from simulations), and
+  advises a step of 0.05 where b is above about 3. Its warning for a failure
+  interval that spans more than half a degree now says how large the bias can
+  be on a ramp checked at long intervals (b 20% low at b = 4.7 with intervals
+  of up to 0.9 degrees), and the help advises checking more often.
+
 # rTFT 0.1.1
 
 ## Bug fixes
