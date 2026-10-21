@@ -242,6 +242,8 @@ res <- hazard_residuals(fit)
 #| label: residuals-load
 #| include: false
 res <- results$residuals
+# the fish that outlasted their ramp, the only ones whose residual is drawn at random
+n_survived <- sum(res$event == 0)
 ```
 
 ```{r}
@@ -258,7 +260,7 @@ plot_residuals(res, against = "trial") +
   theme(axis.text.x = element_text(angle = 90, vjust = 0.5))
 ```
 
-In each of the three ramps, the observed proportion was within the simulated band (@fig-check). Both proportions remained at 1 for most of the exposure, because fish rarely fail while the water is still well below the temperatures at which failures were observed, and decreased steeply towards the end of the ramp. The residuals followed the uniform distribution closely and showed no trial whose fish consistently failed earlier or later than predicted (@fig-residuals). As in a static assay, the residuals should not be examined against the time of failure. In a ramping assay the same applies to the temperature at failure (i.e., the CTmax of each fish), which is the time of failure expressed on another scale (see `?hazard_residuals`).
+In each of the three ramps, the observed proportion was within the simulated band (@fig-check). Both proportions remained at 1 for most of the exposure, because fish rarely fail while the water is still well below the temperatures at which failures were observed, and decreased steeply towards the end of the ramp. The residuals followed the uniform distribution closely and showed no trial whose fish consistently failed earlier or later than predicted (@fig-residuals). Every failure here was seen at its time, so only the `r n_survived` of the `r nrow(res)` fish that outlasted their ramp have residuals drawn at random, and a single draw is nearly the whole answer; in the static assay of the vignette [*Getting started with rTFT*](getting-started.html), where every failure is known only to the interval between two checks, every residual is drawn, and the residuals are drawn 20 times. As in a static assay, the residuals should not be examined against the time of failure. In a ramping assay the same applies to the temperature at failure (i.e., the CTmax of each fish), which is the time of failure expressed on another scale (see `?hazard_residuals`).
 
 ## Thermal tolerance derived from the fit
 
