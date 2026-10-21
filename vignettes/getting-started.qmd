@@ -216,22 +216,36 @@ At each check, the observed proportion was within the simulated band at the thre
 
 The second check, `hazard_residuals()`, gives one residual for each fish: the fraction of fish that the model predicts to have failed by the time that fish did. A residual near 0 is a fish that failed earlier than the model predicts, and a residual near 1 is a fish that lasted longer. When the model describes the data, the residuals are uniformly distributed between 0 and 1 (as are the residuals of the `DHARMa` package ([Hartig 2024](https://doi.org/10.32614/CRAN.package.DHARMa){target="_blank"}), on which they are modelled).
 
+Most residuals are drawn at random within what was observed of the fish. A fish found to have failed at a check failed at some time in the interval since the check before, so its residual is drawn between the fractions the model predicts to have failed at the start and at the end of that interval, and a fish that outlasted the trial has its residual drawn between the fraction predicted to have failed by its last check and 1. Only a fish whose failure was seen at the moment it happened has a single residual, which no draw changes, so when every failure is seen at its time (as in a ramping assay watched throughout; see the vignette [*Ramping assays*](ramping-assays.html)) only the fish that outlasted the trial are drawn, and one draw is nearly the whole answer. A seed makes the draw repeat, but not hold: a pattern seen in one draw may be absent from another. The residuals are therefore drawn several times (here 20, with `n_randomisations`), and a pattern of the data is one that every draw shows.
+
 ```{r}
 #| label: residuals-code
 #| eval: false
 set.seed(20261006)
-res <- hazard_residuals(fit)
+res <- hazard_residuals(fit, n_randomisations = 20)
 ```
 
 ```{r}
 #| label: residuals-load
 #| include: false
 res <- results$residuals
+n_randomisations <- length(unique(res$randomisation))
+# A Kolmogorov-Smirnov test of each randomisation against the uniform distribution,
+# and the quartiles of each trial's residuals over all randomisations.
+ks <- lapply(split(res$residual, res$randomisation),
+             \(x) suppressWarnings(stats::ks.test(x, "punif")))
+ks_D <- vapply(ks, \(x) unname(x$statistic), numeric(1))
+ks_P <- vapply(ks, \(x) x$p.value, numeric(1))
+trial_q <- t(vapply(split(res$residual, res$trial), stats::quantile, numeric(3),
+                    probs = c(0.25, 0.5, 0.75)))
+stopifnot("the residuals depart from the uniform in some randomisation" = all(ks_P > 0.05),
+          "a trial's residuals sit to one side of 0.5" =
+            all(trial_q[, 1] < 0.5 & trial_q[, 3] > 0.5))
 ```
 
 ```{r}
 #| label: fig-residuals
-#| fig-cap: "Residuals of the fitted model. (a) Residuals against the values expected of a uniform distribution, with the dashed line showing equality. (b) Residuals by trial, with the dashed line at 0.5."
+#| fig-cap: "Residuals of the fitted model, drawn 20 times. (a) Residuals against the values expected of a uniform distribution, one faint line for each draw, with the dashed line showing equality. (b) Residuals by trial, over all the draws, with the dashed line at 0.5."
 #| fig-subcap:
 #|   - ""
 #|   - ""
@@ -243,7 +257,7 @@ plot_residuals(res, against = "trial") +
   theme(axis.text.x = element_text(angle = 90, vjust = 0.5))
 ```
 
-The residuals followed the uniform distribution closely and showed no trial whose fish consistently failed earlier or later than predicted (@fig-residuals). Residuals should be examined against variables that were set before the outcome was known (e.g., a covariate, a treatment or a trial), and not against the time of failure, with which they increase under any model (see `?hazard_residuals`).
+In each of the `r n_randomisations` draws the residuals followed the uniform distribution closely (Kolmogorov–Smirnov tests against the uniform distribution: D from `r sprintf("%.3f", min(ks_D))` to `r sprintf("%.3f", max(ks_D))`, n = `r nrow(res) / n_randomisations`, P ≥ `r sprintf("%.2f", min(ks_P))`), and no trial's fish consistently failed earlier or later than predicted: the middle half of every trial's residuals included 0.5 (@fig-residuals). Residuals should be examined against variables that were set before the outcome was known (e.g., a covariate, a treatment or a trial), and not against the time of failure, with which they increase under any model (see `?hazard_residuals`).
 
 ## Thermal tolerance derived from the fit
 
@@ -578,7 +592,7 @@ The remaining vignettes cover ramping assays ([*Ramping assays*](ramping-assays.
 ::: {.callout-note}
 ## Precomputed results
 
-The model in this vignette was fitted on `r results$stamp$date` with the development version of `rTFT` that became 0.1.0 (`r results$stamp$version`), by the script `vignettes/_precompute.R` in the package's repository. The vignette displays the saved summaries, and all other code runs when the vignette is built.
+The model in this vignette was fitted on `r results$stamp$date` with the development version `r results$stamp$version` of `rTFT`, by the script `vignettes/_precompute.R` in the package's repository. The vignette displays the saved summaries, and all other code runs when the vignette is built.
 :::
 
 ## References

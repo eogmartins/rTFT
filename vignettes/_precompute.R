@@ -136,10 +136,13 @@ if (1 %in% vignettes) {
   invisible(check_fit(fit_static_mem))
 
   # The checks and the prediction draw random numbers, so the seed is set before each.
+  # The residuals are drawn 20 times, so the vignette can show how much what they
+  # show owes to one draw; under the same seed the first draw is the one a single
+  # draw gives.
   set.seed(seed)
   check_static <- check_survival(fit_static)
   set.seed(seed)
-  residuals_static <- hazard_residuals(fit_static)
+  residuals_static <- hazard_residuals(fit_static, n_randomisations = 20)
 
   results_01 <- list(
     stamp       = stamp,
