@@ -53,10 +53,11 @@
   typically those that did not converge, with new settings of the sampler and
   of the jobs. The data, the unit, the folds and the convergence rule are
   copied from the bundle, never chosen again, and a change that would make
-  another model, such as a prior, is refused. `collect_hpc()`, given the
-  folders of a bundle and of its rounds, takes each model from its latest
-  round, even when that round failed or has no result yet, and says which round
-  in a new column of the summary, `round`.
+  another model, such as a prior, is refused. A round can name any model of the
+  first bundle, so a model left out of one round can be fitted again in a later
+  one. `collect_hpc()`, given the folders of a bundle and of its rounds, takes
+  each model from its latest round, even when that round failed or has no
+  result yet, and says which round in a new column of the summary, `round`.
 
 ## Checking a fitted model
 

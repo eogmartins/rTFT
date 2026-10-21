@@ -357,20 +357,23 @@
 
 # Write a bundle into `dir`: the table `models`; the data, from `data`, a table of
 # intervals at risk or the path of a bundle's data.rds to copy as it is; the run's
-# `settings`; the tasks, as tables to read; the checksums; and the scripts of the
-# template in `template_dir`, filled in with `settings`, `rtft_source` and the place
-# `remote` on the cluster. Return the number of tasks of the fits and of the refits,
-# as `fit` and `kfold` in a list, invisibly.
+# `settings`; the tasks, as tables to read, for the models named in `to_fit` (all of
+# them unless a round names some); the checksums; and the scripts of the template in
+# `template_dir`, filled in with `settings`, `rtft_source` and the place `remote` on
+# the cluster. Return the number of tasks of the fits and of the refits, as `fit` and
+# `kfold` in a list, invisibly.
 .write_bundle <- function(dir, models, data, settings, rtft_source, remote,
-                          template_dir) {
+                          template_dir, to_fit = models$model) {
   kfold    <- isTRUE(settings$kfold)
   folds    <- settings$folds
   of_round <- settings$round
-  # the tasks, as tables to read: one per model, and one per model and fold
-  tasks_fit <- data.frame(task = seq_len(nrow(models)), model = models$model,
-                          m_form = models$m_form, baseline = models$baseline)
+  # the tasks, as tables to read: one per model to fit, and one per such model and
+  # fold
+  fitted <- models[models$model %in% to_fit, ]
+  tasks_fit <- data.frame(task = seq_len(nrow(fitted)), model = fitted$model,
+                          m_form = fitted$m_form, baseline = fitted$baseline)
   tasks_kfold <- if (kfold) {
-    grid <- expand.grid(fold = seq_len(settings$K), model = models$model,
+    grid <- expand.grid(fold = seq_len(settings$K), model = fitted$model,
                         stringsAsFactors = FALSE)
     of_fold <- \(k) paste(names(folds)[folds == k], collapse = ";")
     data.frame(task = seq_len(nrow(grid)), model = grid$model, fold = grid$fold,
@@ -393,7 +396,7 @@
     if (!is.null(of_round))
       paste0("It is round ", of_round$number, " of the bundle in ", of_round$first_dir,
              if (of_round$number > 2) paste0(", after ", of_round$previous_dir), ". "),
-    "It holds ", plural(nrow(models), "model"), " to fit, as ",
+    "It holds ", plural(nrow(fitted), "model"), " to fit, as ",
     plural(nrow(tasks_fit), "task"), ", ",
     if (kfold)
       paste("and", plural(n_refits, "refit"), "for cross-validation by refitting")
@@ -410,7 +413,7 @@
     rtft_version = settings$rtft_version, rtft_source = rtft_source,
     rtft_commit = if (is.na(settings$rtft_commit)) "" else settings$rtft_commit,
     contents = paste(strwrap(contents, width = 80), collapse = "\n"),
-    n_models = nrow(models), n_fit_tasks = nrow(tasks_fit),
+    n_models = nrow(fitted), n_fit_tasks = nrow(tasks_fit),
     n_kfold_tasks = n_refits,
     copy_command = paste(copy$command, collapse = "\n       "),
     copy_note = paste(strwrap(copy$note, width = 74), collapse = "\n     "),
@@ -651,6 +654,11 @@ write_hpc_bundle <- function(models, long, dir, account,
 #' folds, starting from its new fit. [collect_hpc()], given the folders of every
 #' round, keeps for each model the result of its latest round.
 #'
+#' Every round holds the whole table of models of the first bundle, and fits those
+#' named in `models`, so a model left out of one round can be fitted again in a
+#' later one: a round can name any model of the first bundle, whichever round it is
+#' written from.
+#'
 #' Only the settings of the sampler and of the jobs can change, since anything else
 #' would make another model: `chains`, `iter`, `warmup`, `thin`, `seed`, `control`
 #' and `init` in `...`, and `time`, `mem_per_cpu` and `email`. A setting not given is
@@ -665,7 +673,7 @@ write_hpc_bundle <- function(models, long, dir, account,
 #' @param dir A character string, the folder of the bundle the round follows: the
 #'   first bundle, or the latest round.
 #' @param models A character vector, the names of the models to fit again, as in the
-#'   column `model` of the bundle's table of models.
+#'   column `model` of the first bundle's table of models.
 #' @param new_dir An optional character string, the folder to write the round into.
 #'   It is created if it does not exist, and must be empty if it does. `NULL` (the
 #'   default) writes it beside `dir`, named after the first bundle and the number of
@@ -760,9 +768,8 @@ next_hpc_round <- function(dir, models, new_dir = NULL, ..., time = NULL,
   settings$created <- format(Sys.time(), "%Y-%m-%d %H:%M %Z")
   settings$brms_version <- as.character(utils::packageVersion("brms"))
   settings$round <- of_round
-  round_models <- all_models[all_models$model %in% models, ]
-  n <- .write_bundle(new_dir, round_models, file.path(dir, "bundle", "data.rds"),
-                     settings, rtft_source, remote, template_dir)
+  n <- .write_bundle(new_dir, all_models, file.path(dir, "bundle", "data.rds"),
+                     settings, rtft_source, remote, template_dir, to_fit = models)
 
   refits <- if (isTRUE(settings$kfold))
     paste(" and", n$kfold, "refits for cross-validation") else ""
@@ -819,6 +826,8 @@ check_hpc_bundle <- function(dir = ".") {
   found <- .verify_bundle(dir)
   settings <- readRDS(file.path(dir, "bundle", "settings.rds"))
   models   <- readRDS(file.path(dir, "bundle", "models.rds"))
+  # a round holds the whole table, and fits only the models with a task
+  models   <- models[models$model %in% .read_tasks(dir, "fit")$model, ]
 
   # the software that will fit the models
   installed <- .check_rtft_version(settings)
@@ -1523,7 +1532,8 @@ hpc_status <- function(dir = ".") {
 # first bundle is among them, each round follows a bundle among them, no two share a
 # number, and all hold the same data. Return a list with an element per bundle, in
 # the order of their rounds, each holding its folder (`dir`), identity (`id`),
-# settings, models and round number (`number`, 1 for the first bundle).
+# settings, models, the models it fits (`to_fit`) and round number (`number`, 1 for
+# the first bundle).
 .read_rounds <- function(dirs) {
   if (!is.character(dirs) || !length(dirs) || anyNA(dirs) || any(!nzchar(dirs)))
     cli::cli_abort(c(
@@ -1536,6 +1546,7 @@ hpc_status <- function(dir = ".") {
     id <- .bundle_id(d)
     list(dir = d, id = id, settings = settings,
          models   = readRDS(file.path(d, "bundle", "models.rds")),
+         to_fit   = .read_tasks(d, "fit")$model,
          number   = if (is.null(settings$round)) 1L else settings$round$number,
          first    = if (is.null(settings$round)) id else settings$round$first,
          previous = settings$round$previous,
@@ -1574,7 +1585,7 @@ hpc_status <- function(dir = ".") {
 #' average models.
 #'
 #' Given the folders of a bundle and of its rounds, written by [next_hpc_round()],
-#' it assembles each model from its latest round, the round that fitted it last,
+#' it assembles each model from its latest round, the last round that fitted it,
 #' whether the result of that round is there, failed or missing, so that a model
 #' fitted again is never given its earlier fit without a word. The folders must
 #' be the first bundle and every round from the second to the last, all holding the
@@ -1619,15 +1630,18 @@ collect_hpc <- function(dir = ".") {
   bundles  <- .read_rounds(dir)
   first    <- bundles[[1]]
   settings <- first$settings
-  models   <- first$models
+  # the models fitted in at least one of the folders given: every model, unless a
+  # round is collected without the first bundle
+  fitted_somewhere <- unique(unlist(lapply(bundles, `[[`, "to_fit")))
+  models   <- first$models[first$models$model %in% fitted_somewhere, ]
   rule     <- settings$rule
   kfold    <- isTRUE(settings$kfold)
   .say_other_version(settings)
 
-  # each model from the latest round that fitted it
+  # each model from the latest round with a task for it
   n <- nrow(models)
   from <- vapply(models$model, \(m)
-    max(which(vapply(bundles, \(b) m %in% b$models$model, logical(1)))), integer(1),
+    max(which(vapply(bundles, \(b) m %in% b$to_fit, logical(1)))), integer(1),
     USE.NAMES = FALSE)
   results <- vector("list", n)
   rows    <- vector("list", n)

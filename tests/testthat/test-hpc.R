@@ -525,8 +525,10 @@ test_that("next_hpc_round copies what makes the rounds comparable, and changes t
   # the data file itself, not written again
   expect_equal(unname(tools::md5sum(file.path(round, "bundle", "data.rds"))),
                unname(tools::md5sum(file.path(dir, "bundle", "data.rds"))))
-  # the models named, and only those
-  expect_equal(readRDS(file.path(round, "bundle", "models.rds"))$model, "exp_weibull")
+  # the whole table of models, and tasks for the models named, and only those
+  expect_equal(readRDS(file.path(round, "bundle", "models.rds"))$model,
+               c("exp_mem", "exp_weibull"))
+  expect_equal(.read_tasks(round, "fit")$model, "exp_weibull")
   # copied: the unit, the folds, the rule, the observation, the account and modules
   settings <- readRDS(file.path(round, "bundle", "settings.rds"))
   for (what in c("observation", "unit", "units", "kfold", "K", "folds", "rule",
@@ -593,9 +595,11 @@ test_that("each round follows the one before, and counts from the first bundle",
   expect_match(readme, paste0("It is round 3 of the bundle in ",
                               normalizePath(dir, winslash = "/"), ", after ",
                               normalizePath(two, winslash = "/"), "."), fixed = TRUE)
-  # a model left out of a round cannot come back in the next
+  # a model left out of a round can be fitted again in the next
   only_one <- round_quietly(dir, "exp_weibull")
-  expect_error(round_quietly(only_one, "exp_mem"), class = "rTFT_bad_round_models")
+  back <- round_quietly(only_one, "exp_mem")
+  expect_equal(.read_tasks(back, "fit")$model, "exp_mem")
+  expect_equal(readRDS(file.path(back, "bundle", "settings.rds"))$round$number, 3L)
 })
 
 
@@ -658,6 +662,9 @@ test_that("the tasks of a round fit with its own settings, and refit from its ow
   dir   <- trial_bundle()
   round <- round_quietly(dir, "exp_weibull", iter = 4000)
   expect_true(suppressMessages(check_hpc_bundle(round)))
+  # it assembles the model the round fits, not the whole table it holds
+  expect_match(message_of(check_hpc_bundle(round), "rTFT_bundle_checked"),
+               "1 model assembled", fixed = TRUE)
   run_quietly(round, "fit", 1)
   expect_equal(record$calls[[1]]$baseline, "weibull")
   expect_equal(record$calls[[1]]$args$iter, 4000)
@@ -1446,6 +1453,25 @@ test_that("collect_hpc takes each model from its latest round", {
   alone <- suppressMessages(suppressWarnings(collect_hpc(two)))
   expect_equal(alone$summary$model, "exp_weibull")
   expect_equal(alone$summary$round, 2L)
+})
+
+
+test_that("a model left out of a round is collected from the round that fitted it last", {
+  local_mocked_bindings(fit_hazard = stand_in_fit(new_record()))
+  dir <- trial_bundle(kfold = FALSE)
+  for (i in 1:2) run_quietly(dir, "fit", i)
+  two <- round_quietly(dir, "exp_weibull", iter = 4000)
+  run_quietly(two, "fit", 1)
+  three <- round_quietly(two, "exp_mem", iter = 4000)
+  run_quietly(three, "fit", 1)
+  out <- suppressMessages(suppressWarnings(collect_hpc(c(dir, two, three))))
+  expect_equal(out$summary$model, c("exp_mem", "exp_weibull"))
+  expect_equal(out$summary$round, c(3L, 2L))
+  expect_equal(out$summary$status, c("fitted", "fitted"))
+  # a round collected alone holds only the model it fits, though its table holds both
+  alone <- suppressMessages(suppressWarnings(collect_hpc(three)))
+  expect_equal(alone$summary$model, "exp_mem")
+  expect_equal(alone$summary$round, 3L)
 })
 
 

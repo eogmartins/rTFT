@@ -27,7 +27,7 @@ average models.
 }
 \details{
 Given the folders of a bundle and of its rounds, written by \code{\link[=next_hpc_round]{next_hpc_round()}},
-it assembles each model from its latest round, the round that fitted it last,
+it assembles each model from its latest round, the last round that fitted it,
 whether the result of that round is there, failed or missing, so that a model
 fitted again is never given its earlier fit without a word. The folders must
 be the first bundle and every round from the second to the last, all holding the

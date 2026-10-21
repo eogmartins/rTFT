@@ -22,7 +22,7 @@ next_hpc_round(
 first bundle, or the latest round.}
 
 \item{models}{A character vector, the names of the models to fit again, as in the
-column \code{model} of the bundle's table of models.}
+column \code{model} of the first bundle's table of models.}
 
 \item{new_dir}{An optional character string, the folder to write the round into.
 It is created if it does not exist, and must be empty if it does. \code{NULL} (the
@@ -64,6 +64,11 @@ well as the account, the modules and the R library of the cluster. With
 cross-validation by refitting, each model of the round is refitted on the same
 folds, starting from its new fit. \code{\link[=collect_hpc]{collect_hpc()}}, given the folders of every
 round, keeps for each model the result of its latest round.
+
+Every round holds the whole table of models of the first bundle, and fits those
+named in \code{models}, so a model left out of one round can be fitted again in a
+later one: a round can name any model of the first bundle, whichever round it is
+written from.
 
 Only the settings of the sampler and of the jobs can change, since anything else
 would make another model: \code{chains}, \code{iter}, \code{warmup}, \code{thin}, \code{seed}, \code{control}
