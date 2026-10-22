@@ -827,7 +827,7 @@ test_that("a reason is kept as one line of ASCII text, and a time in its unit", 
   made_by_cli <- tryCatch(cli::cli_abort(c("Only 1 of the {2} chains finished.",
                                            "i" = "See {.file logs/}.")),
                           error = identity)
-  expect_equal(.one_line(made_by_cli), "Only 1 of the 2 chains finished. i See 'logs/'.")
+  expect_equal(.one_line(made_by_cli), "Only 1 of the 2 chains finished. See 'logs/'.")
   # base R quotes names with curly quotes where R runs in UTF-8
   quoted <- simpleError("there is no package called \u2018brms\u2019 \u201cnow\u201d")
   expect_equal(.one_line(quoted), "there is no package called 'brms' \"now\"")
@@ -974,6 +974,10 @@ test_that("a refit starts from its model's fit and leaves out the units of its f
   err <- expect_error(run_quietly(dir, "kfold", 1), class = "rTFT_task_failed")
   expect_plain_command(said_by(err), "bash status.sh")
   expect_match(.read_record(dir, "kfold", 1)$message, "start from its fit", fixed = TRUE)
+  # and status.sh says why as a sentence, with no bullet of cli left among its words
+  said <- message_of(hpc_status(dir), "rTFT_hpc_status")
+  expect_match(said, "refit 1 (exp_mem, fold 1): failed. The refits of", fixed = TRUE)
+  expect_match(said, "not ended well. Run that task first;", fixed = TRUE)
   expect_length(refits$calls, 0)
   # once it has, each refit leaves out its own fold, and is given what brms takes
   run_quietly(dir, "fit", 1)

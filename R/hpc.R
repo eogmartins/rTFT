@@ -967,12 +967,14 @@ check_hpc_bundle <- function(dir = ".") {
 }
 
 # The message of the condition `cnd` as one line of plain ASCII text, to keep in a
-# table that may be written where R does not run in UTF-8: the bullets of cli in
-# their ASCII form, and the curly quotes of base R's messages made straight.
+# table that may be written where R does not run in UTF-8: the bullets of cli left
+# out, since on one line they would stand as stray letters among the words, and the
+# curly quotes of base R's messages made straight.
 .one_line <- function(cnd) {
   old <- options(cli.unicode = FALSE)
   on.exit(options(old))
   x <- cli::ansi_strip(conditionMessage(cnd))
+  x <- gsub("\n[ixv!*>] ", "\n", x)
   x <- gsub("[\u2018\u2019]", "'", x)
   x <- gsub("[\u201c\u201d]", "\"", x)
   gsub("[[:space:]]+", " ", trimws(x))
@@ -1363,7 +1365,11 @@ hpc_status <- function(dir = ".") {
   # against its constant pieces, and would give one empty line.
   listed <- character(0)
   if (nrow(shown)) {
-    reason <- ifelse(is.na(shown$reason), "", paste0(", ", shown$reason))
+    # a reason that is a sentence of its own, as an error's message is, follows a
+    # full stop, and one that continues the line follows a comma
+    reason <- ifelse(is.na(shown$reason), "",
+                     paste0(ifelse(grepl("^[A-Z]", shown$reason), ". ", ", "),
+                            shown$reason))
     listed <- stats::setNames(
       as_is(paste0(.task_label(shown$stage, shown), ": ", shown$status, reason)),
       # a cross for a task that failed, a warning for one that started without
