@@ -1392,8 +1392,9 @@ hpc_status <- function(dir = ".") {
 
   # Not wrapped to the width of the console, so that each command to paste is on one
   # line: wrapped, its second line would be pasted as a command of its own. The
-  # commands are plain text and not code, which cli puts between backticks where the
-  # console has no colours, and bash would run what lies between them.
+  # commands, sq among them, are plain text and not code, which cli puts between
+  # backticks where the console has no colours, and bash would run what lies between
+  # them.
   old <- options(cli.width = Inf)
   on.exit(options(old), add = TRUE)
   cli::cli_inform(c(
@@ -1402,8 +1403,8 @@ hpc_status <- function(dir = ".") {
     "v" = if (!nrow(not_done)) "Every task is done. Copy {.file results/} back to your own computer as step 8 of {.file README.txt} says, and assemble the results there with {.fn collect_hpc}.",
     "i" = if (nrow(again)) "To submit again the tasks not done, and only those:",
     " " = if (nrow(again)) "{command}",
-    "i" = if (running) "A task started without a record of its end may still be running; {.code sq} lists the tasks waiting or running.",
-    "i" = if (nrow(queued)) "A task submitted and waiting to start is not submitted again. One that {.code sq} no longer lists was cancelled before it started; to submit those:",
+    "i" = if (running) "A task started without a record of its end may still be running; the command sq lists the tasks waiting or running.",
+    "i" = if (nrow(queued)) "A task submitted and waiting to start is not submitted again. One that the command sq no longer lists was cancelled before it started; to submit those:",
     " " = if (nrow(queued)) "{if_gone}"
   ), class = "rTFT_hpc_status")
   invisible(states)

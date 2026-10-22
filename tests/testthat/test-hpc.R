@@ -1117,7 +1117,7 @@ test_that("hpc_status gives each task's state, and why it is not done", {
   expect_match(said, "bash submit.sh --fit 2 --kfold 2-3,6", fixed = TRUE)
   expect_match(said, "Refits for cross-validation: 1 of 6 done; 4 started, 1 not started.",
                fixed = TRUE)
-  expect_match(said, "sq", fixed = TRUE)
+  expect_plain_command(said, "the command sq lists")
 })
 
 
@@ -1171,6 +1171,7 @@ test_that("a task submitted again waits in the queue, and is not given to submit
   said <- message_of(hpc_status(dir), "rTFT_hpc_status")
   expect_no_match(said, "To submit again", fixed = TRUE)
   expect_match(said, "bash submit.sh --fit 2 --kfold 1-6", fixed = TRUE)   # if gone
+  expect_plain_command(said, "the command sq no longer lists")
   # a submission older than a task's files is an earlier one
   writeLines(c('"time","stage","tasks","job"', paste0(now - 7200, ',"fit","2","90"')),
              file.path(dir, "results", "submitted.csv"))
