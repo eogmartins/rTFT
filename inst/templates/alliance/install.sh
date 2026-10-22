@@ -54,6 +54,18 @@ if [ "${SLURM_JOB_NAME:-}" = "rtft-install" ] && command -v curl > /dev/null; th
   fi
 fi
 
+# R and the compilers keep their temporary files in TMPDIR, /tmp unless it is set. On
+# a login node /tmp is small and shared by everyone connected, and a first install,
+# which compiles brms and CmdStan, can fill it. In a Slurm job they go to the node's
+# own disk, which Slurm gives each job and clears when it ends; on the login node, to
+# the folder tmp/ of the bundle, on the file system that holds the bundle.
+if [ -n "${SLURM_TMPDIR:-}" ]; then
+  export TMPDIR="$SLURM_TMPDIR"
+else
+  mkdir -p tmp
+  export TMPDIR="$PWD/tmp"
+fi
+
 load_r
 export MAKEFLAGS="-j${SLURM_CPUS_PER_TASK:-2}"
 Rscript install.R

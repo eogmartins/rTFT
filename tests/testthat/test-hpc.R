@@ -1639,6 +1639,24 @@ test_that("task.sh loads R and runs the task of its stage", {
 })
 
 
+test_that("install.sh keeps its temporary files out of the login node's /tmp", {
+  skip_if(!bash_reads_files(), "this machine's bash cannot read the files R writes")
+  calls <- fake_cluster()
+  dir <- trial_bundle()
+  tmp_of <- function(line) normalizePath(sub("^TMPDIR=", "", line), mustWork = FALSE)
+  # on the login node, in a folder of the bundle
+  withr::local_envvar(SLURM_JOB_NAME = NA, SLURM_TMPDIR = NA)
+  expect_null(attr(run_script(dir, "install.sh"), "status"))
+  expect_equal(tmp_of(readLines(calls)[2]), normalizePath(file.path(dir, "tmp")))
+  expect_true(dir.exists(file.path(dir, "tmp")))
+  # in a Slurm job, on the node's own disk
+  node_disk <- withr::local_tempdir()
+  withr::local_envvar(SLURM_TMPDIR = node_disk)
+  run_script(dir, "install.sh")
+  expect_equal(tmp_of(readLines(calls)[4]), normalizePath(node_disk))
+})
+
+
 test_that("status.sh loads R and reports on the bundle", {
   skip_if(!bash_reads_files(), "this machine's bash cannot read the files R writes")
   calls <- fake_cluster()
