@@ -996,6 +996,28 @@ test_that("a refit starts from its model's fit and leaves out the units of its f
 })
 
 
+test_that("a refit run again draws the same effects for the units it leaves out", {
+  # a stand-in refit whose result is a draw of R's generator, as the effects of the
+  # units left out are
+  local_mocked_bindings(fit_hazard = stand_in_fit(new_record()),
+                        .refit_fold = function(...) list(elpd = c(u = stats::runif(1))))
+  dir <- trial_bundle()
+  settings <- readRDS(file.path(dir, "bundle", "settings.rds"))
+  tasks <- .read_tasks(dir, "kfold")
+  run_quietly(dir, "fit", 1)
+  # each in a generator seeded at random, as a new R on the cluster is
+  draw <- function(k, settings) {
+    set.seed(NULL)
+    .kfold_task(dir, settings, tasks[k, ], .bundle_id(dir))$elpd
+  }
+  expect_identical(draw(1, settings), draw(1, settings))
+  expect_false(identical(draw(1, settings), draw(2, settings)))
+  # without a seed, the generator is left alone
+  settings$dots$seed <- NULL
+  expect_false(identical(draw(1, settings), draw(1, settings)))
+})
+
+
 test_that("run_hpc_task refuses a task that is not one, before fitting anything", {
   record <- new_record()
   local_mocked_bindings(fit_hazard = stand_in_fit(record))

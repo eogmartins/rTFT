@@ -40,7 +40,10 @@ leaving out the unit settled when the bundle was written. A refit starts from th
 model's fit, read from the result of its task, so it runs only once that fit has
 ended well, and it predicts the units left out as \code{\link[=kfold_hazard]{kfold_hazard()}} does. Each
 model is compiled once, by its fit, into the folder \verb{stan/} of the bundle, where
-its refits find the compiled program.
+its refits find the compiled program. A refit draws the effects of the units it
+leaves out at random, with R's own generator; when the bundle was written with a
+\code{seed}, the refit sets R's seed from it and from the task's number, so that a
+refit run again gives the same estimate.
 
 Before anything is fitted, the files of the bundle are checked against their
 checksums and the installed rTFT against the version that wrote the bundle; a task

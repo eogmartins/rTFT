@@ -1027,6 +1027,14 @@ check_hpc_bundle <- function(dir = ".") {
     .kfold_setup(fit, settings$unit, folds = settings$folds),
     rTFT_loo_leak = function(w) invokeRestart("muffleWarning"))
   row_fold <- unname(setup$folds[as.character(setup$unit$values)])
+  # The effects of the units left out are drawn at random for each draw of the
+  # posterior, with R's own generator, which the seed given to the sampler does not
+  # reach; a task starts in a new R, whose generator is seeded at random. With a seed
+  # given, each refit seeds it from that seed and its task, so that it gives the same
+  # elpd when it is run again.
+  seed <- settings$dots$seed
+  if (is.numeric(seed) && length(seed) == 1L && !is.na(seed))
+    set.seed((seed + row$task) %% .Machine$integer.max)
   fold <- do.call(.refit_fold, c(
     list(fit, setup$data, row_fold != row$fold, setup$unit$values),
     .refit_args(settings$dots), list(cores = settings$chains)))
@@ -1049,7 +1057,10 @@ check_hpc_bundle <- function(dir = ".") {
 #' model's fit, read from the result of its task, so it runs only once that fit has
 #' ended well, and it predicts the units left out as [kfold_hazard()] does. Each
 #' model is compiled once, by its fit, into the folder `stan/` of the bundle, where
-#' its refits find the compiled program.
+#' its refits find the compiled program. A refit draws the effects of the units it
+#' leaves out at random, with R's own generator; when the bundle was written with a
+#' `seed`, the refit sets R's seed from it and from the task's number, so that a
+#' refit run again gives the same estimate.
 #'
 #' Before anything is fitted, the files of the bundle are checked against their
 #' checksums and the installed rTFT against the version that wrote the bundle; a task
