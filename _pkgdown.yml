@@ -30,6 +30,7 @@ articles:
   - ramping-assays
   - comparing-and-averaging-models
   - temperature-and-a-co-stressor
+  - fitting-models-on-a-cluster
 
 reference:
 - title: Fitting

@@ -222,7 +222,7 @@ The approximation could not be trusted for `r min(psis$n_high_k)`–`r max(psis$
 cv <- lapply(fits, kfold_hazard, cores = 4, seed = 20261006)
 ```
 
-Each model is refitted 12 times, once without each trial, which is what takes most of the time needed to run the code of this vignette. With many trials, the argument `K` of `kfold_hazard()` sets a smaller number of refits, each leaving out several trials (see `?kfold_hazard`).
+Each model is refitted 12 times, once without each trial, which is what takes most of the time needed to run the code of this vignette. With many trials, the argument `K` of `kfold_hazard()` sets a smaller number of refits, each leaving out several trials (see `?kfold_hazard`). The fits and refits can also be run side by side on a computing cluster (see the vignette [*Fitting models on a cluster*](fitting-models-on-a-cluster.html)).
 
 ```{r}
 #| label: compare-code

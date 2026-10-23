@@ -133,6 +133,10 @@ package](https://eogmartins.github.io/rTFT/).
 4. *Temperature and a co-stressor* (`vignette("temperature-and-a-co-stressor",
    package = "rTFT")`): dissolved oxygen as a second stressor, with and without
    an interaction with temperature.
+5. *Fitting models on a cluster* (`vignette("fitting-models-on-a-cluster",
+   package = "rTFT")`): the fits and refits of a comparison run side by side on
+   a cluster of the Digital Research Alliance of Canada, from the account to
+   the assembled results.
 
 ## Getting help
 

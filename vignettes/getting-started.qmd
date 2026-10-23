@@ -587,7 +587,7 @@ The 95% credible intervals include the data generating values of `r sum(covered)
 
 ## Further vignettes
 
-The remaining vignettes cover ramping assays ([*Ramping assays*](ramping-assays.html)), the comparison and averaging of models with different failure rate and baseline functions, including their predictions along a record of temperature ([*Comparing and averaging models*](comparing-and-averaging-models.html)), and a second stressor such as dissolved oxygen ([*Temperature and a co-stressor*](temperature-and-a-co-stressor.html)).
+The remaining vignettes cover ramping assays ([*Ramping assays*](ramping-assays.html)), the comparison and averaging of models with different failure rate and baseline functions, including their predictions along a record of temperature ([*Comparing and averaging models*](comparing-and-averaging-models.html)), a second stressor such as dissolved oxygen ([*Temperature and a co-stressor*](temperature-and-a-co-stressor.html)), and the fitting of models on a computing cluster ([*Fitting models on a cluster*](fitting-models-on-a-cluster.html)).
 
 ::: {.callout-note}
 ## Precomputed results
