@@ -26,8 +26,8 @@ name), \code{K}, and \code{folds} (the fold of each unit).
 }
 \description{
 Estimates how well a model fitted with \code{\link[=fit_hazard]{fit_hazard()}} predicts data it was not
-fitted to, exactly, by refitting it with each unit left out in turn and
-predicting the unit from the refit. It answers the same question as
+fitted to, by refitting it with each unit left out in turn and predicting the
+unit from the refit. It answers the same question as
 \code{\link[=loo_hazard]{loo_hazard()}}, with the same choice of unit, but without its approximation: use
 it where \code{\link[=loo_hazard]{loo_hazard()}} warns that PSIS cannot be trusted, which is typical when
 whole trials with a strong trial effect are left out.
@@ -46,6 +46,18 @@ get the same folds again. Models that are to be compared must be refitted with
 the same folds: with fewer folds than units, call \code{\link[=set.seed]{set.seed()}} with the same seed
 before each call, or use \code{\link[=fit_hazard_models]{fit_hazard_models()}}, which assigns the folds once for
 all the models.
+
+The effect of a unit whose level was left out is drawn once for each draw of the
+refit, with R's own generator, and the unit's density is averaged over those draws.
+The average rests on the few draws whose effect lands near the unit's own, so the
+estimate varies from one run to the next: in three runs of one comparison of two
+models on eight trials, it moved by about 1 in elpd for each model (standard error
+about 18), as much as the two models differed. A seed gives the same estimate again,
+but does not make it more precise: \code{\link[=set.seed]{set.seed()}} before the call fixes the folds and
+these draws, and so the estimate, on one computer. The refit keeps the priors of the
+fit it starts from, whose defaults are centred on the median failure temperature and
+time of all the data, the units left out included; they are weak, so this matters
+little, and it keeps the prior the same in every fold.
 }
 \examples{
 \dontrun{

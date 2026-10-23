@@ -2,7 +2,7 @@
 % Please edit documentation in R/hazard-models.R
 \name{fit_hazard_models}
 \alias{fit_hazard_models}
-\title{Fit, check and cross validate the models of a table}
+\title{Fit, check and cross-validate the models of a table}
 \usage{
 fit_hazard_models(
   models,
@@ -36,7 +36,8 @@ refitting, which takes one further fit per fold and model. Defaults to \code{FAL
 \item{K}{An optional single whole number, the number of folds when \code{kfold} is
 \code{TRUE}, as in \code{\link[=kfold_hazard]{kfold_hazard()}}. \code{NULL} (the default) gives one fold per unit.
 With fewer folds than units the units are assigned to folds at random, once for
-all the models; call \code{\link[=set.seed]{set.seed()}} first to get the same folds again.}
+all the models; call \code{\link[=set.seed]{set.seed()}} first to get the same folds, and the same
+estimates by refitting, again (see \code{\link[=kfold_hazard]{kfold_hazard()}}).}
 
 \item{rhat}{A single number above 1, the limit below which the Rhat of every
 parameter must lie. Defaults to 1.01.}
@@ -61,7 +62,8 @@ data frame with one row per model of the table: its name, failure-rate function 
 baseline; \code{status} (\code{"fitted"} or \code{"failed"}) and, for a model that failed, the
 reason in \code{message}; the number of \code{chains} and \code{draws}; the largest \code{rhat}, the
 smallest \code{ess_bulk} and \code{ess_tail} and the number of \code{divergent} draws;
-\code{converged}, whether the rule is met; \code{rhat_group} and \code{ess_group}, the largest
+\code{converged}, whether the rule is met (a rule met, not a verdict on the
+sampling); \code{rhat_group} and \code{ess_group}, the largest
 Rhat and the smallest bulk or tail effective sample size over the group-level
 effects, outside the rule (\code{NA} for a model without them); \code{elpd_loo} with its
 standard error \code{se_loo}, and \code{high_k}, the number of units for which importance
@@ -95,7 +97,13 @@ draws from divergent transitions. A fit that does not meet it is kept, since it
 is often the one to look at, and is marked in the summary and named in a warning.
 Whether to refit it, drop it or keep it is left to the user; zero divergent
 transitions and a rule that is met are not, by themselves, evidence that a model
-was sampled well.
+was sampled well. The limit of 400 on the effective sample sizes is 100 per chain
+for the four chains of the default (Vehtari et al. 2021); with more chains, raise
+it in proportion. The tolerance on divergent transitions exists so that a stray
+one does not fail a fit that is otherwise well sampled; a divergent transition is
+still evidence of a region the sampler could not enter, so where any remain, look
+at where those draws fall against the group-level standard deviations before
+reading the fit, and set \code{divergent = 0} to refuse any.
 
 The group-level effects themselves, such as the effect of each trial, are not
 part of the rule: a model with many levels would take its worst case over many
@@ -129,6 +137,12 @@ out$summary
 weights <- hazard_weights(out$loo)
 average_tdt_ttl(out$fits, weights, t_ref = 60)$sctmax
 }
+}
+\references{
+Vehtari, A., Gelman, A., Simpson, D., Carpenter, B. and Burkner, P.-C. (2021).
+Rank-normalization, folding, and localization: an improved Rhat for assessing
+convergence of MCMC. \emph{Bayesian Analysis} 16, 667-718.
+\doi{10.1214/20-BA1221}
 }
 \seealso{
 \code{\link[=hazard_weights]{hazard_weights()}} to weight the models, and \code{\link[=average_tdt_ttl]{average_tdt_ttl()}},

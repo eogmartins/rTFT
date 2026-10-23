@@ -75,7 +75,9 @@ would make another model: \code{chains}, \code{iter}, \code{warmup}, \code{thin}
 and \code{init} in \code{...}, and \code{time}, \code{mem_per_cpu} and \code{email}. A setting not given is
 kept from the bundle before; \code{control} is merged into the bundle's own, so that
 \code{control = list(adapt_delta = 0.99)} keeps a \code{max_treedepth} given before. To
-change a prior, write a new bundle with \code{\link[=write_hpc_bundle]{write_hpc_bundle()}}.
+change a prior, write a new bundle with \code{\link[=write_hpc_bundle]{write_hpc_bundle()}}. The settings are one
+set for every model the round names, so a model that needs more draws and one
+that needs a smaller step are two rounds.
 
 The round must be written by the version of rTFT that wrote the first bundle
 (and, between releases, from the same commit), so that every round fits the

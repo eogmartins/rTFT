@@ -76,6 +76,15 @@ refit_seconds <- seconds$seconds[seconds$stage == "kfold"]
 out_of_time   <- sacct$seconds[sacct$state == "TIMEOUT"]
 failed_refits <- sacct$seconds[sacct$state == "FAILED"]
 core_hours    <- sum(seconds$seconds) * chains / 3600
+# the core-hours by the scheduler's clock, which the allocation is charged by
+core_hours_done <- sum(sacct$seconds[sacct$state == "COMPLETED"]) * chains / 3600
+core_hours_lost <- sum(sacct$seconds[sacct$state != "COMPLETED"]) * chains / 3600
+# the packages the install's log lists in one line, against the count installed
+n_listed <- as.integer(sub("^Installing ([0-9]+) packages.*", "\\1",
+                           grep("^Installing [0-9]+ packages",
+                                readLines(file.path(vignette_dir, "cluster-output",
+                                                    "install-job-log.txt")),
+                                value = TRUE)))
 memory        <- timeout$memory
 r1 <- rounds$round_1
 r2 <- rounds$round_2
@@ -92,7 +101,9 @@ stopifnot(
   weibull(r2, "divergent") / weibull(r2, "draws") > 0.001,
   all(r3$converged), all(r3$round == 3),
   # every refit used less memory than every fit
-  max(memory$gb[memory$stage == "kfold"]) < min(memory$gb[memory$stage == "fit"])
+  max(memory$gb[memory$stage == "kfold"]) < min(memory$gb[memory$stage == "fit"]),
+  length(n_listed) == 1, n_listed < install$packages,
+  !is.null(stamp$cmdstan$date)
 )
 ```
 
@@ -112,7 +123,7 @@ library(rTFT)
 
 A cluster has two kinds of computers. The login nodes are those we connect to: they are shared by everyone connected, and are meant for copying files, installing software and short checks. The compute nodes do the work, and are reached only through the scheduler, a program (Slurm, on the clusters of the Alliance) that holds the work submitted by every user in a queue and starts each piece of work when the cores and memory it asked for become free. A piece of work submitted to the scheduler is a job. A job array is a set of similar jobs submitted at once under one number, and each of its members, an array task, runs as a job of its own, numbered by the array and its place in it (e.g., task 2 of the array 66774007 is 66774007_2); in `rTFT`, each fit and each refit is one array task. Each job states how long it may run by the clock (its wall time), how many cores it needs and how much memory per core; the scheduler stops a job that exceeds its wall time or its memory.
 
-`rTFT` includes functions that settle everything about a run on our own computer, where the data and the models are, and writes it into one folder, the **bundle**: the data, the table of models, the settings of the sampler and of the jobs, and the scripts that run it on the cluster. The bundle is copied to the cluster and run there with its scripts, and its results are copied back and assembled into what `fit_hazard_models()` returns, as if the models had been fitted on our own computer. Each fit and each refit is one array task, so the work is spread over as many cores as the cluster can give at the time.
+`rTFT` includes functions that settle everything about a run on our own computer, where the data and the models are, and write it into one folder, the **bundle**: the data, the table of models, the settings of the sampler and of the jobs, and the scripts that run it on the cluster. The bundle is copied to the cluster and run there with its scripts, and its results are copied back and assembled into what `fit_hazard_models()` returns, as if the models had been fitted on our own computer. Each fit and each refit is one array task, so the work is spread over as many cores as the cluster can give at the time.
 
 ## The account and its setup
 
@@ -159,7 +170,7 @@ models <- build_hazard_models("exp", c("mem", "weibull"),
                               dpar_formulas = list(loga = ~ 1 + (1 | trial)))
 ```
 
-The function `write_hpc_bundle()` writes the bundle. It takes what `fit_hazard_models()` takes, and the allocation, the wall time and memory of each task, and where on the cluster the bundle will be copied. Each task runs the four chains of one fit on four cores, one chain per core. We gave each task a wall time of one minute, far less than a fit needs, to show what happens when a task runs out of time; a first run should be given ample time instead (see [Time and memory](#time-and-memory)).
+The function `write_hpc_bundle()` writes the bundle. It takes what `fit_hazard_models()` takes, and the allocation, the wall time and memory of each task, and where on the cluster the bundle will be copied. Each task runs the four chains of one fit on four cores, one chain per core. We gave each task a wall time of one minute, far less than a fit needs, to show what happens when a task runs out of time; a first run should be given ample time instead (see [Time and memory](#time-and-memory)). The settings of the sampler (`r format(stamp$settings$dots$iter, big.mark = ",")` iterations per chain, at the default step) are kept low on purpose too, so that a second round is needed and can be shown below; a real run starts from the settings of the other vignettes (2,000 iterations and `adapt_delta = 0.95`).
 
 ```{r}
 #| label: bundle-shown
@@ -222,7 +233,7 @@ bash install.sh --job
 show_output("install-job-submit")
 ```
 
-The job's log ends by saying whether the install worked. A first install into an empty library installed `r install$packages` packages in `r as_time(hms_seconds(install$elapsed))`, so a first install should be expected to take an hour or more; selected lines of its log are below.
+The job's log ends by saying whether the install worked. A first install into an empty library installed `r install$packages` packages in `r as_time(hms_seconds(install$elapsed))` (the `r n_listed` that the log lists in one line below, with `remotes`, `rTFT`, `cmdstanr` and the `r install$packages - n_listed - 3` packages it needs), so a first install should be expected to take an hour or more; selected lines of its log are below.
 
 ```{r}
 #| label: install-job-log
@@ -231,7 +242,7 @@ The job's log ends by saying whether the install worked. A first install into an
 show_output("install-job-log")
 ```
 
-CmdStan had been installed by an earlier install, so this one found it. When it is missing, `install.sh` compiles it too, which ends with these lines (from a first install on the login node of Fir on `r stamp$rounds$date`):
+CmdStan had been installed by an earlier install, so this one found it. When it is missing, `install.sh` compiles it too, which ends with these lines (from an install on the login node of Fir on `r stamp$cmdstan$date`):
 
 ```{r}
 #| label: install-cmdstan
@@ -244,7 +255,7 @@ The install is needed once on each cluster, and again for a bundle written by an
 
 ### Checking the bundle
 
-`check.sh` checks that the files of the bundle are those that were written, that the installed `rTFT` is the version that wrote the bundle, and that the models can be assembled. Its first lines, printed by the cluster each time R is loaded, say which modules were loaded in place of those loaded at connection; they are not shown in the blocks that follow.
+`check.sh` checks that the files of the bundle are those that were written, that the installed `rTFT` is the version that wrote the bundle, that `cmdstanr` finds CmdStan, and that the models can be assembled. Its first lines, printed by the cluster each time R is loaded, say which modules were loaded in place of those loaded at connection; they are not shown in the blocks that follow.
 
 ```bash
 bash check.sh
@@ -304,6 +315,15 @@ bash status.sh
 show_output("status-timeout")
 ```
 
+`sq` then listed the refits alone, waiting on the fits that had ended:
+
+```{r}
+#| label: sq-after-timeout
+#| echo: false
+#| results: asis
+show_output("sq-after-timeout")
+```
+
 The refits then started, since they wait for the fits to end whether or not they ended well, and each stopped within `r as_time(max(failed_refits))`, having no fit to start from.
 
 ```{r}
@@ -353,7 +373,7 @@ show_output("status-done")
 
 ### Copying the results back
 
-The command of step 8 of `README.txt`, run in a terminal on our own computer, copies the folder `results/` back into the bundle there. It holds each fit and the predictions of each refit, which take some megabytes for these models and can take some gigabytes for larger ones. The results should be copied back as soon as the tasks are done, since scratch is purged.
+The command of step 8 of `README.txt`, run in a terminal on our own computer, copies the folder `results/` back into the bundle there. It holds each fit and, for each refit, the log predictive density of each trial of its fold, which take some megabytes for these models and can take some gigabytes for larger ones. The results should be copied back as soon as the tasks are done, since scratch is purged.
 
 ### Assembling the results
 
@@ -419,6 +439,7 @@ next_hpc_round("ramp-run-round-2", c("exp_mem", "exp_weibull"),
 #| results: asis
 show_output("rounds-round-3")
 ```
+
 The third round was copied to the cluster, checked, submitted and copied back in the same way, with the commands of its own `README.txt`. `collect_hpc()`, given the folders of every round, keeps for each model the result of its latest round.
 
 ```{r}
@@ -441,7 +462,7 @@ Both models met the rule in the third round. The Rhat of the memoryless model, p
 ```{r}
 #| label: weights
 #| eval: false
-hazard_weights(fits)
+hazard_weights(fits$kfold)
 ```
 
 ```{r}
@@ -451,15 +472,26 @@ hazard_weights(fits)
 show_output("rounds-weights")
 ```
 
+The weights should be read beside the standard errors. The two models predict the trials left out equally well (their elpd by refitting differs by `r sprintf("%.1f", abs(weibull(r3, "elpd_kfold") - mem(r3, "elpd_kfold")))`, with standard errors of about `r round(mean(c(weibull(r3, "se_kfold"), mem(r3, "se_kfold"))))`), and the estimate by refitting itself moves by about 1 between runs, because the effect of a trial left out is drawn at random (see `?kfold_hazard`). With eight trials, stacking puts nearly all of its weight on one of two near-equivalent models, where pseudo-BMA (`method = "pseudobma"`) would split it; the vignette [*Comparing and averaging models*](comparing-and-averaging-models.html) discusses both.
+
 ## Time and memory
 
-In the run above, after the wall time was raised, the two fits took `r as_time(min(fit_seconds))` and `r as_time(max(fit_seconds))` and the eight refits `r as_time(min(refit_seconds))` to `r as_time(max(refit_seconds))` each, `r sprintf("%.1f", core_hours)` core-hours in all with `r chains` cores per task. The time of a fit includes compiling its model, which its refits reuse. A larger run can be judged from a small one: the time of a fit grows roughly in proportion to the number of rows of the table of intervals at risk and to the number of iterations, and a model that converges poorly (with many steps per iteration) can take many times longer than its neighbour. A wall time of two to three times the longest fit of a small run leaves a margin; a task that asks for more waits longer in the queue, but a task that runs out of time is lost, and is run again from its start.
+In the run above, after the wall time was raised, the two fits took `r as_time(min(fit_seconds))` and `r as_time(max(fit_seconds))` and the eight refits `r as_time(min(refit_seconds))` to `r as_time(max(refit_seconds))` each, as the tasks measured them, from the start of R to the end of the cross-validation by importance sampling; the time of a fit includes compiling its model, which its refits reuse. The scheduler's clock, by which the allocation is charged, adds the loading of R and the modules to each task, as `sacct` listed for the jobs of this run (the job, its name, how it ended and how long it ran):
+
+```{r}
+#| label: sacct
+#| echo: false
+#| results: asis
+show_output("sacct")
+```
+
+The tasks that completed cost `r sprintf("%.2f", core_hours_done)` core-hours with `r chains` cores per task, and the fits that ran out of time and the refits that failed another `r sprintf("%.2f", core_hours_lost)`. A larger run can be judged from a small one: the time of a fit grows roughly in proportion to the number of rows of the table of intervals at risk and to the number of iterations, and a model that converges poorly (with many steps per iteration) can take many times longer than its neighbour. A wall time of two to three times the longest fit of a small run leaves a margin; a task that asks for more waits longer in the queue, but a task that runs out of time is lost, and is run again from its start.
 
 The fits used `r sprintf("%.1f", min(memory$gb[memory$stage == "fit"]))` and `r sprintf("%.1f", max(memory$gb[memory$stage == "fit"]))` GB and the refits about `r sprintf("%.1f", mean(memory$gb[memory$stage == "kfold"]))` GB, against the `r sprintf("%.1f", as.numeric(sub("M$", "", timeout$mem_per_cpu)) / 1024)` GB per core asked for (`MEM_PER_CPU` in `settings.sh` is `r timeout$mem_per_cpu`, in megabytes), about `r round(chains * as.numeric(sub("M$", "", timeout$mem_per_cpu)) / 1024)` GB per task. The command `seff` with the number of a finished job reports its time and memory, as the scheduler measured them. A task that runs out of memory is reported by `status.sh`, which gives the command to submit it again after `MEM_PER_CPU` is raised in `settings.sh`.
 
 ## Other clusters
 
-The bundle's scripts are written for the clusters of the Alliance, and most of what they assume holds on any cluster that runs Slurm. The table lists what we checked on Fir and Nibi clusters of the Alliance, and what to look for elsewhere.
+The bundle's scripts are written for the clusters of the Alliance, and most of what they assume holds on any cluster that runs Slurm. The table lists what we checked on Fir and Nibi, two clusters of the Alliance, and what to look for elsewhere.
 
 | | Fir | Nibi | Another cluster |
 |---|---|---|---|
@@ -478,5 +510,5 @@ The scripts themselves can be replaced: `write_hpc_bundle()` takes, in `template
 ::: {.callout-note}
 ## Captured output
 
-The output of this vignette was captured on the cluster Fir and on the computer that wrote the bundles: the run from start to end on `r stamp$timeout$date` (`rTFT` at commit `r stamp$timeout$commit` of the development version that became 0.2.0), the first install on `r stamp$install$date` (at `r stamp$install$commit`), and the rounds on `r stamp$rounds$date` (at `r stamp$rounds$commit`), from an earlier run of the same bundle, which gave the same fits, since the bundle is seeded; all with `brms` `r stamp$brms`. Five changes were made to it: (i) the user name is replaced by `someone`, (ii) the folder of the runs on that computer by `~/my-runs`, and (iii) the name of every bundle by `ramp-run`; (iv) the notice of the modules reloaded is shown once; and (v) the logs of the installs are shown by selected lines. The bundle and its `README.txt` are written when the vignette is built.
+The output of this vignette was captured on the cluster Fir and on the computer that wrote the bundles: the run from start to end on `r stamp$timeout$date` (`rTFT` at commit `r stamp$timeout$commit` of the development version that became 0.2.0), the first install on `r stamp$install$date` (at `r stamp$install$commit`), the rounds on `r stamp$rounds$date` (at `r stamp$rounds$commit`), from an earlier run of the same bundle on the same cluster, which gave the same fits (the sampler is seeded; a seed does not reproduce draws across machines) and estimates by refitting that differ by under 1 in elpd, since the effects of the trials left out were drawn with an unseeded generator in that run; and the build of CmdStan on `r stamp$cmdstan$date`, from a second install on the login node; all with `brms` `r stamp$brms`. Five changes were made to it: (i) the user name is replaced by `someone`, (ii) the folder of the runs on that computer by `~/my-runs`, and (iii) the name of every bundle by `ramp-run`; (iv) the notice of the modules reloaded is shown once; and (v) the logs of the installs are shown by selected lines. `sq` cuts the account to 12 characters, so `def-someone` in its output stands for `def-someone_cpu`. The bundle and its `README.txt` are written when the vignette is built.
 :::

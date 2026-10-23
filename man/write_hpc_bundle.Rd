@@ -59,11 +59,15 @@ call \code{\link[=set.seed]{set.seed()}} first to get the same folds again.}
 
 \item{time}{A character string, the time each task may run, as Slurm's \code{--time}
 takes it: hours, minutes and seconds (\code{"12:00:00"}, the default), or days
-first (\code{"1-12:00:00"}).}
+first (\code{"1-12:00:00"}). A task that runs past it is stopped and its work is
+lost. The allocation is charged for the time a task ran, times its cores, and
+not for the time asked; a longer time can mean a longer wait in the queue.}
 
 \item{mem_per_cpu}{A character string, the memory for each core, with its unit, as
-Slurm's \code{--mem-per-cpu} takes it. Defaults to \code{"4000M"}. Slurm reads \code{"4G"} as
-4096 M, which the clusters of the Alliance point out at each submission.}
+Slurm's \code{--mem-per-cpu} takes it. Defaults to \code{"4000M"}, about the memory per
+core of the Alliance's standard nodes, so asking it costs no more than the cores
+do; asking more is charged as more cores. Slurm reads \code{"4G"} as 4096 M, which
+the clusters of the Alliance point out at each submission.}
 
 \item{email}{An optional character string, the address Slurm writes to when a task
 fails. \code{NULL} (the default) sends no mail.}

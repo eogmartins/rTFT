@@ -116,7 +116,7 @@ plot_survival(pred, temperature = TRUE)
 
 ## Vignettes
 
-Four vignettes describe the package, and are best read in this order. They can
+Five vignettes describe the package, and are best read in this order. They can
 be read, with the help pages, on the [website of the
 package](https://eogmartins.github.io/rTFT/).
 

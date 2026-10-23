@@ -186,7 +186,7 @@
   if (high)
     cli::cli_warn(c(
       "!" = "PSIS cannot be trusted for {high} of the {ncol(ll_unit)} units left out (one {unit_label} each): Pareto k is above {round(limit, 2)}.",
-      "i" = "Leaving them out changes the fit too much to be approximated from it. Use {.fn kfold_hazard} for an exact estimate by refitting."
+      "i" = "Leaving them out changes the fit too much to be approximated from it. Use {.fn kfold_hazard} for an estimate by refitting, without the approximation."
     ), class = "rTFT_loo_unreliable")
   out$unit <- unit_name
   out
@@ -248,8 +248,8 @@
 #'
 #' Leaving out a large unit can change the posterior too much for PSIS to stand in
 #' for refitting. Where the Pareto k diagnostic of any unit is above the threshold
-#' for the number of draws, a warning says so, and [kfold_hazard()] gives an exact
-#' estimate by refitting.
+#' for the number of draws, a warning says so, and [kfold_hazard()] gives an
+#' estimate by refitting, without the approximation.
 #'
 #' Models compared with [loo::loo_compare()] must be cross-validated with the same
 #' unit.
@@ -429,8 +429,8 @@ loo_hazard <- function(fit, unit = NULL) {
 #' Cross-validation by refitting, leaving out whole individuals or groups
 #'
 #' Estimates how well a model fitted with [fit_hazard()] predicts data it was not
-#' fitted to, exactly, by refitting it with each unit left out in turn and
-#' predicting the unit from the refit. It answers the same question as
+#' fitted to, by refitting it with each unit left out in turn and predicting the
+#' unit from the refit. It answers the same question as
 #' [loo_hazard()], with the same choice of unit, but without its approximation: use
 #' it where [loo_hazard()] warns that PSIS cannot be trusted, which is typical when
 #' whole trials with a strong trial effect are left out.
@@ -448,6 +448,18 @@ loo_hazard <- function(fit, unit = NULL) {
 #' the same folds: with fewer folds than units, call [set.seed()] with the same seed
 #' before each call, or use [fit_hazard_models()], which assigns the folds once for
 #' all the models.
+#'
+#' The effect of a unit whose level was left out is drawn once for each draw of the
+#' refit, with R's own generator, and the unit's density is averaged over those draws.
+#' The average rests on the few draws whose effect lands near the unit's own, so the
+#' estimate varies from one run to the next: in three runs of one comparison of two
+#' models on eight trials, it moved by about 1 in elpd for each model (standard error
+#' about 18), as much as the two models differed. A seed gives the same estimate again,
+#' but does not make it more precise: [set.seed()] before the call fixes the folds and
+#' these draws, and so the estimate, on one computer. The refit keeps the priors of the
+#' fit it starts from, whose defaults are centred on the median failure temperature and
+#' time of all the data, the units left out included; they are weak, so this matters
+#' little, and it keeps the prior the same in every fold.
 #'
 #' @param fit A `brmsfit`, a model fitted with [fit_hazard()].
 #' @param unit An optional character string, the unit to leave out, as in

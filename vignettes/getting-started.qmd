@@ -44,6 +44,9 @@ knitr:
 #| label: setup
 #| include: false
 results <- readRDS("results-01.rds")
+# How many times the residuals were drawn, for the text and a caption before the
+# chunk that reads them.
+n_randomisations <- length(unique(results$residuals$randomisation))
 # The interactive figure embeds the plotly library in the page (about 3.5 MB). Set
 # this to FALSE to leave it out, e.g. to keep the built vignette small.
 interactive_figure <- requireNamespace("plotly", quietly = TRUE)
@@ -165,7 +168,7 @@ fit <- fit_hazard(
 )
 ```
 
-Any argument that `fit_hazard()` does not use itself is passed to `brms::brm()`. For example, we raised `adapt_delta` from its default of 0.8, which makes the sampler take smaller steps, because a trial run at the default gave a divergent transition. A single divergent transition is not a concern in itself, but divergent transitions are common in models with a group-level standard deviation that is poorly informed by the data (12 trials here), and a smaller step size usually removes them at little cost. We kept this setting for every model fitted in these vignettes. The models were fitted with the `cmdstanr` backend, which is given in the code because the default backend produces different draws for the same seed, so the results below are reproduced exactly only with it.
+Any argument that `fit_hazard()` does not use itself is passed to `brms::brm()`. For example, we raised `adapt_delta` from its default of 0.8, which makes the sampler take smaller steps, because a trial run at the default gave a divergent transition. A single divergent transition is not a concern in itself, but divergent transitions are common in models with a group-level standard deviation that is poorly informed by the data (12 trials here), and a smaller step size usually removes them at little cost. We kept this setting for every model fitted in these vignettes, except where a vignette says otherwise. The models were fitted with the `cmdstanr` backend, which is given in the code because the default backend produces different draws for the same seed, so the results below are reproduced exactly only with it.
 
 ## Convergence
 
@@ -216,7 +219,7 @@ At each check, the observed proportion was within the simulated band at the thre
 
 The second check, `hazard_residuals()`, gives one residual for each fish: the fraction of fish that the model predicts to have failed by the time that fish did. A residual near 0 is a fish that failed earlier than the model predicts, and a residual near 1 is a fish that lasted longer. When the model describes the data, the residuals are uniformly distributed between 0 and 1 (as are the residuals of the `DHARMa` package ([Hartig 2024](https://doi.org/10.32614/CRAN.package.DHARMa){target="_blank"}), on which they are modelled).
 
-Most residuals are drawn at random within what was observed of the fish. A fish found to have failed at a check failed at some time in the interval since the check before, so its residual is drawn between the fractions the model predicts to have failed at the start and at the end of that interval, and a fish that outlasted the trial has its residual drawn between the fraction predicted to have failed by its last check and 1. Only a fish whose failure was seen at the moment it happened has a single residual, which no draw changes, so when every failure is seen at its time (as in a ramping assay watched throughout; see the vignette [*Ramping assays*](ramping-assays.html)) only the fish that outlasted the trial are drawn, and one draw is nearly the whole answer. A seed makes the draw repeat, but not hold: a pattern seen in one draw may be absent from another. The residuals are therefore drawn several times (here 20, with `n_randomisations`), and a pattern of the data is one that every draw shows.
+Most residuals are drawn at random within what was observed of the fish. A fish found to have failed at a check failed at some time in the interval since the check before, so its residual is drawn between the fractions the model predicts to have failed at the start and at the end of that interval, and a fish that outlasted the trial has its residual drawn between the fraction predicted to have failed by its last check and 1. Only a fish whose failure was seen at the moment it happened has a single residual, which no draw changes, so when every failure is seen at its time (as in a ramping assay watched throughout; see the vignette [*Ramping assays*](ramping-assays.html)) only the fish that outlasted the trial are drawn, and one draw is nearly the whole answer. A seed makes the draw repeat, but not hold: a pattern seen in one draw may be absent from another. The residuals are therefore drawn several times (here `r n_randomisations`, with `n_randomisations`), and a pattern of the data persists across the draws, where one seen in a single draw is the draw's own.
 
 ```{r}
 #| label: residuals-code
@@ -229,7 +232,6 @@ res <- hazard_residuals(fit, n_randomisations = 20)
 #| label: residuals-load
 #| include: false
 res <- results$residuals
-n_randomisations <- length(unique(res$randomisation))
 # A Kolmogorov-Smirnov test of each randomisation against the uniform distribution,
 # and the quartiles of each trial's residuals over all randomisations.
 ks <- lapply(split(res$residual, res$randomisation),
@@ -245,7 +247,7 @@ stopifnot("the residuals depart from the uniform in some randomisation" = all(ks
 
 ```{r}
 #| label: fig-residuals
-#| fig-cap: "Residuals of the fitted model, drawn 20 times. (a) Residuals against the values expected of a uniform distribution, one faint line for each draw, with the dashed line showing equality. (b) Residuals by trial, over all the draws, with the dashed line at 0.5."
+#| fig-cap: "Residuals of the fitted model, drawn repeatedly. (a) Residuals against the values expected of a uniform distribution, one faint line for each draw, with the dashed line showing equality. (b) Residuals by trial, over all the draws, with the dashed line at 0.5."
 #| fig-subcap:
 #|   - ""
 #|   - ""

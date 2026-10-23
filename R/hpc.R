@@ -518,10 +518,14 @@
 #'   [fit_hazard_models()].
 #' @param time A character string, the time each task may run, as Slurm's `--time`
 #'   takes it: hours, minutes and seconds (`"12:00:00"`, the default), or days
-#'   first (`"1-12:00:00"`).
+#'   first (`"1-12:00:00"`). A task that runs past it is stopped and its work is
+#'   lost. The allocation is charged for the time a task ran, times its cores, and
+#'   not for the time asked; a longer time can mean a longer wait in the queue.
 #' @param mem_per_cpu A character string, the memory for each core, with its unit, as
-#'   Slurm's `--mem-per-cpu` takes it. Defaults to `"4000M"`. Slurm reads `"4G"` as
-#'   4096 M, which the clusters of the Alliance point out at each submission.
+#'   Slurm's `--mem-per-cpu` takes it. Defaults to `"4000M"`, about the memory per
+#'   core of the Alliance's standard nodes, so asking it costs no more than the cores
+#'   do; asking more is charged as more cores. Slurm reads `"4G"` as 4096 M, which
+#'   the clusters of the Alliance point out at each submission.
 #' @param email An optional character string, the address Slurm writes to when a task
 #'   fails. `NULL` (the default) sends no mail.
 #' @param modules A character vector, the modules that give R on the cluster. The
@@ -664,7 +668,9 @@ write_hpc_bundle <- function(models, long, dir, account,
 #' and `init` in `...`, and `time`, `mem_per_cpu` and `email`. A setting not given is
 #' kept from the bundle before; `control` is merged into the bundle's own, so that
 #' `control = list(adapt_delta = 0.99)` keeps a `max_treedepth` given before. To
-#' change a prior, write a new bundle with [write_hpc_bundle()].
+#' change a prior, write a new bundle with [write_hpc_bundle()]. The settings are one
+#' set for every model the round names, so a model that needs more draws and one
+#' that needs a smaller step are two rounds.
 #'
 #' The round must be written by the version of rTFT that wrote the first bundle
 #' (and, between releases, from the same commit), so that every round fits the

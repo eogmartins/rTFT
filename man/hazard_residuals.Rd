@@ -59,7 +59,8 @@ observation up to 1, for a survivor. The residuals are therefore least settled
 when the checks are far apart or many individuals survive, and under interval
 observation every residual is drawn. With \code{n_randomisations} above 1 the draws
 are repeated, each time for every individual, so that a pattern can be told apart
-from the luck of one draw: a pattern of the data appears in every randomisation.
+from the luck of one draw: a pattern of the data persists across the
+randomisations, and one seen in a single draw is the draw's own.
 
 The residuals are to be examined against what was set before the outcome was
 known: a covariate, a treatment, a trial. They should not be examined against the

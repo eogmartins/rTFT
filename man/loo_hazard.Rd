@@ -49,8 +49,8 @@ answers how well it predicts new families. The unit must then be given.
 
 Leaving out a large unit can change the posterior too much for PSIS to stand in
 for refitting. Where the Pareto k diagnostic of any unit is above the threshold
-for the number of draws, a warning says so, and \code{\link[=kfold_hazard]{kfold_hazard()}} gives an exact
-estimate by refitting.
+for the number of draws, a warning says so, and \code{\link[=kfold_hazard]{kfold_hazard()}} gives an
+estimate by refitting, without the approximation.
 
 Models compared with \code{\link[loo:loo_compare]{loo::loo_compare()}} must be cross-validated with the same
 unit.

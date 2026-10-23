@@ -32,7 +32,8 @@ With several randomisations (\code{n_randomisations} of \code{\link[=hazard_resi
 is drawn faintly: against the uniform distribution as a line of its own, so that
 the spread of the lines shows how much the verdict owes to one draw; against a
 variable as points over one another, and for a grouping with one box over all of
-them. A pattern of the data is one that every randomisation shows.
+them. A pattern of the data persists across the randomisations; one seen in a
+single draw is the draw's own.
 
 The result is a ggplot object, which can be refined by the user with further
 ggplot2 layers, scales, labels and themes.

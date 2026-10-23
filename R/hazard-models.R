@@ -396,8 +396,8 @@ build_hazard_models <- function(m_form, baseline = "mem", dpar_formulas = list()
 
 # fit_hazard_models() ----------------------------------------------------------
 
-#' Fit, check and cross validate the models of a table
-#' 
+#' Fit, check and cross-validate the models of a table
+#'
 #' Fits each model of a table built with [build_hazard_models()] to the same data
 #' with [fit_hazard()], checks each fit for convergence by one rule, and
 #' cross-validates each with [loo_hazard()], leaving out the same unit. With
@@ -423,7 +423,13 @@ build_hazard_models <- function(m_form, baseline = "mem", dpar_formulas = list()
 #' is often the one to look at, and is marked in the summary and named in a warning.
 #' Whether to refit it, drop it or keep it is left to the user; zero divergent
 #' transitions and a rule that is met are not, by themselves, evidence that a model
-#' was sampled well.
+#' was sampled well. The limit of 400 on the effective sample sizes is 100 per chain
+#' for the four chains of the default (Vehtari et al. 2021); with more chains, raise
+#' it in proportion. The tolerance on divergent transitions exists so that a stray
+#' one does not fail a fit that is otherwise well sampled; a divergent transition is
+#' still evidence of a region the sampler could not enter, so where any remain, look
+#' at where those draws fall against the group-level standard deviations before
+#' reading the fit, and set `divergent = 0` to refuse any.
 #'
 #' The group-level effects themselves, such as the effect of each trial, are not
 #' part of the rule: a model with many levels would take its worst case over many
@@ -446,7 +452,8 @@ build_hazard_models <- function(m_form, baseline = "mem", dpar_formulas = list()
 #' @param K An optional single whole number, the number of folds when `kfold` is
 #'   `TRUE`, as in [kfold_hazard()]. `NULL` (the default) gives one fold per unit.
 #'   With fewer folds than units the units are assigned to folds at random, once for
-#'   all the models; call [set.seed()] first to get the same folds again.
+#'   all the models; call [set.seed()] first to get the same folds, and the same
+#'   estimates by refitting, again (see [kfold_hazard()]).
 #' @param rhat A single number above 1, the limit below which the Rhat of every
 #'   parameter must lie. Defaults to 1.01.
 #' @param ess A single positive number, the limit above which the bulk and the tail
@@ -465,12 +472,18 @@ build_hazard_models <- function(m_form, baseline = "mem", dpar_formulas = list()
 #'   baseline; `status` (`"fitted"` or `"failed"`) and, for a model that failed, the
 #'   reason in `message`; the number of `chains` and `draws`; the largest `rhat`, the
 #'   smallest `ess_bulk` and `ess_tail` and the number of `divergent` draws;
-#'   `converged`, whether the rule is met; `rhat_group` and `ess_group`, the largest
+#'   `converged`, whether the rule is met (a rule met, not a verdict on the
+#'   sampling); `rhat_group` and `ess_group`, the largest
 #'   Rhat and the smallest bulk or tail effective sample size over the group-level
 #'   effects, outside the rule (`NA` for a model without them); `elpd_loo` with its
 #'   standard error `se_loo`, and `high_k`, the number of units for which importance
 #'   sampling cannot be trusted; `elpd_kfold` and `se_kfold` when `kfold` is `TRUE`; and
 #'   `seconds`, the time the fit and its cross-validation took.
+#' @references
+#' Vehtari, A., Gelman, A., Simpson, D., Carpenter, B. and Burkner, P.-C. (2021).
+#' Rank-normalization, folding, and localization: an improved Rhat for assessing
+#' convergence of MCMC. *Bayesian Analysis* 16, 667-718.
+#' \doi{10.1214/20-BA1221}
 #' @seealso [hazard_weights()] to weight the models, and [average_tdt_ttl()],
 #'   [average_dctmax()] and [average_survival()] to average them.
 #' @examples
@@ -636,7 +649,7 @@ fit_hazard_models <- function(models, long,
       "!" = "PSIS cannot be trusted for some of the units left out, in {length(high)} model{?s}: {.val {high}}.",
       "i" = "The number of such units is in {.field high_k} of the summary.",
       "i" = if (kfold) "The estimates by refitting, in {.field kfold}, do not rely on it."
-            else "Use {.code kfold = TRUE} for an exact estimate by refitting."
+            else "Use {.code kfold = TRUE} for an estimate by refitting, without the approximation."
     ), class = "rTFT_loo_unreliable")
   invisible(model_summary)
 }

@@ -968,12 +968,13 @@ costressor <- function(name, column, ref, scale, direction,
 #' message says how many rows resulted.
 #'
 #' The error left by the default step grows with the square of b. In simulations of
-#' large ramping assays fitted by maximum likelihood, the default of 0.1 degrees
+#' large ramping assays (eight assays of 3,000 individuals at three ramp rates,
+#' fitted by maximum likelihood), the default of 0.1 degrees
 #' raised b and the Weibull shape by about 0.1% at b = 1.7 and by about 1% at b =
 #' 4.7, and sCTmax by 0.007 degrees at b = 4.7; dCTmax was not affected. Those are
 #' small against the uncertainty of an assay of a hundred or so individuals. Where
-#' the fitted b is above about 3, a step of 0.05 makes them five times smaller, at
-#' the cost of twice the rows and about twice the time to fit.
+#' the fitted b is above about 3, a step of 0.05 makes them about four times
+#' smaller, at the cost of twice the rows and about twice the time to fit.
 #'
 #' Two cases are treated apart. A failure at a known time needs the hazard at the
 #' moment it happened, and the midpoint of the interval it fell in is earlier and,
@@ -1372,7 +1373,7 @@ build_hazard_data <- function(ind, path, observation = c("interval", "continuous
   if (is.finite(grid_dT) && any(failure_span > .wide_failure_span))
     cli::cli_warn(c(
       "!" = "For {sum(failure_span > .wide_failure_span)} individual{?s}, temperature changes by up to {round(max(failure_span), 2)} degrees within the interval in which failure was found.",
-      "i" = "That interval cannot be divided, since where in it the individual failed is not known, and its hazard is taken at its midpoint. On a ramp this biases b and sCTmax low, the more so the wider the interval and the higher b: in simulations with intervals of up to 0.9 degrees, b was 3% low at b = 1.7 and 20% low at b = 4.7.",
+      "i" = "That interval cannot be divided, since where in it the individual failed is not known, and its hazard is taken at its midpoint. On a ramp this biases b and sCTmax low, the more so the wider the interval and the higher b: in simulations of ramps checked every 3 minutes, with intervals of 0.3 to 0.9 degrees, b was 3% low at b = 1.7 and 20% low at b = 4.7.",
       "i" = "See the section {.emph The time grid} of the help, ?build_hazard_data."
     ), class = "rTFT_wide_failure_interval")
 

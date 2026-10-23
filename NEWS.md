@@ -35,7 +35,9 @@
   as `fit_hazard_models()` fits it, or refits one model without the units of one
   fold, starting from the model's fit. A task whose result is already there is
   not run again, and each task records how it ended, with the reason for a
-  failure.
+  failure. When the bundle was written with a `seed`, each refit seeds R from it
+  and from the task's number, so that the effects it draws for the units left
+  out, and so its estimate, are the same when it is run again.
 * The bundle's `submit.sh` submits the fits as one job array and the refits for
   cross-validation as another, queued to start when the fits have ended, and
   `task.sh` runs each task. A task that failed or ran out of time can be
@@ -58,6 +60,15 @@
   one. `collect_hpc()`, given the folders of a bundle and of its rounds, takes
   each model from its latest round, even when that round failed or has no
   result yet, and says which round in a new column of the summary, `round`.
+* The bundle's folder `inputs/` holds the data, the models, the settings and the
+  tasks with their checksums; `write_hpc_bundle()` refuses a table in which the
+  same model appears under two names, whose tasks would compile one program into
+  the same file; and `install.sh` keeps its temporary files out of the login
+  node's `/tmp`, which is small and shared.
+* A fifth vignette, *Fitting models on a cluster*, takes a user who has never
+  used a cluster from an account on the clusters of the Digital Research
+  Alliance of Canada to the assembled results of a comparison, with the output
+  of real runs on the Fir cluster.
 
 ## Checking a fitted model
 
@@ -105,6 +116,15 @@
 
 ## Other changes
 
+* The estimate by refitting is no longer called exact. The effect of each unit
+  left out is drawn at random, so two runs without a seed give different
+  estimates (they differed by about 1 in elpd in a test on a cluster), and a seed
+  gives the same estimate again without making it more precise. The help of
+  `kfold_hazard()` and `fit_hazard_models()` says so, and the help of
+  `fit_hazard_models()` says where the limits of its convergence rule come from.
+* `tools` is imported (for the checksums of a bundle), `cmdstanr` and `withr`
+  are suggested, and `Additional_repositories` names the repository of
+  `cmdstanr`, which is not on CRAN.
 * The help of `build_hazard_data()` says what the default time grid costs at a
   high thermal sensitivity (about 1% in b at b = 4.7, from simulations), and
   advises a step of 0.05 where b is above about 3. Its warning for a failure

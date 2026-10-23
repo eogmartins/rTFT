@@ -18,6 +18,7 @@ What is in it
   stan/         where the compiled Stan programs will be kept
   results/      where the tasks will write what they find
   logs/         where Slurm will write what each task printed
+  tmp/          where install.sh keeps its temporary files on a login node
 
 What to do
 
