@@ -1,0 +1,3 @@
+--- CmdStan v2.40.0 built ---
+* Finished installing CmdStan to /home/someone/.cmdstan/cmdstan-2.40.0
+CmdStan path set to: /home/someone/.cmdstan/cmdstan-2.40.0

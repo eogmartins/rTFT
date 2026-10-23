@@ -1,0 +1,6 @@
+✔ Every file of the bundle is as it was written (5 files).
+✔ rTFT 0.1.1.9000, the version that wrote the bundle; brms 2.23.0; CmdStan
+  found.
+✔ 1 model assembled, with 4 refits for cross-validation.
+ℹ To submit the tasks:
+  bash submit.sh

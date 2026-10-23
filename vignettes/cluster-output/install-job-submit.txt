@@ -1,0 +1,3 @@
+Submitted batch job 66770460
+Submitted. When the job has finished, read logs/install-<job number>.out,
+then run:  bash check.sh

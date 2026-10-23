@@ -1,0 +1,6 @@
+Submitted the fits 1-2 of 2 as job 66774007.
+Submitted the refits 1-8 of 8 as job 66774008,
+to start when the fits have ended.
+
+Follow them with:  sq               the tasks waiting (PD) and running (R)
+                   bash status.sh   what each task has done, and what to do next

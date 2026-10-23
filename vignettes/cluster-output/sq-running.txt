@@ -1,0 +1,4 @@
+          JOBID     USER      ACCOUNT           NAME  ST  TIME_LEFT NODES CPUS TRES_PER_N MIN_MEM NODELIST (REASON)
+     66774407_1 someone def-someone       rtft-fit   R      59:29     1    4        N/A   4000M fc30565 (None)
+     66774407_2 someone def-someone       rtft-fit   R      59:29     1    4        N/A   4000M fc30622 (None)
+ 66774408_[1-8] someone def-someone     rtft-kfold  PD    1:00:00     1    4        N/A   4000M  (Dependency)

@@ -1,0 +1,9 @@
+Installing into /home/someone/scratch/rtft-lib-empty
+rTFT: installing version 0.1.1.9000 from eogmartins/rTFT@3016af22758c0faf57d62cae07e19e80072c9971 (installed: none)
+Installing 72 packages: rlang, lifecycle, glue, cli, vctrs, utf8, pkgconfig, magrittr, numDeriv, generics, backports, matrixStats, distributional, pillar, tensorA, tibble, checkmate, abind, viridisLite, RColorBrewer, R6, labeling, farver, cpp11, withr, parallelly, listenv, digest, globals, future, stringi, scales, coda, stringr, Brobdingnag, mvtnorm, purrr, plyr, S7, isoband, Rcpp, quadprog, gtable, tidyselect, tidyr, reshape2, posterior, ggridges, ggplot2, ggdist, dplyr, QuickJSR, RcppParallel, desc, ps, otel, processx, callr, BH, RcppEigen, pkgbuild, loo, gridExtra, inline, StanHeaders, nleqslv, future.apply, bridgesampling, bayesplot, rstantools, rstan, brms
+* DONE (brms)
+* DONE (rTFT)
+cmdstanr: installing
+* DONE (cmdstanr)
+CmdStan is installed at /home/someone/.cmdstan/cmdstan-2.40.0
+Done. Now run:  bash check.sh

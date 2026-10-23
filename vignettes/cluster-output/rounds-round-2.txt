@@ -1,0 +1,8 @@
+✔ Wrote round 2 of the bundle
+  '~/my-runs/ramp-run' to
+  '~/my-runs/ramp-run-round-2': 1 fit and
+  4 refits for cross-validation, of "exp_weibull".
+ℹ Copy it to the cluster with the command in step 1 of its 'README.txt', and
+  run it as you ran the first.
+ℹ Then assemble the results of every round with `collect_hpc(c(...))`, giving
+  the folders of the rounds.

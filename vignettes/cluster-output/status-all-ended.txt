@@ -1,0 +1,14 @@
+• Fits: 0 of 2 done; 2 started.
+• Refits for cross-validation: 0 of 8 done; 8 failed.
+! fit 1 (exp_mem): started, it ran out of time (raise TIME in settings.sh); see logs/fit-66774007_1.out
+! fit 2 (exp_weibull): started, it ran out of time (raise TIME in settings.sh); see logs/fit-66774007_2.out
+✖ refit 1 (exp_mem, fold 1): failed. The refits of "exp_mem" start from its fit, task 1 of the fits, which has not ended well. Run that task first; bash submit.sh --fit 1 --kfold 1 submits the two, the refit to start when the fit has ended.
+✖ refit 2 (exp_mem, fold 2): failed. The refits of "exp_mem" start from its fit, task 1 of the fits, which has not ended well. Run that task first; bash submit.sh --fit 1 --kfold 2 submits the two, the refit to start when the fit has ended.
+✖ refit 3 (exp_mem, fold 3): failed. The refits of "exp_mem" start from its fit, task 1 of the fits, which has not ended well. Run that task first; bash submit.sh --fit 1 --kfold 3 submits the two, the refit to start when the fit has ended.
+✖ refit 4 (exp_mem, fold 4): failed. The refits of "exp_mem" start from its fit, task 1 of the fits, which has not ended well. Run that task first; bash submit.sh --fit 1 --kfold 4 submits the two, the refit to start when the fit has ended.
+✖ refit 5 (exp_weibull, fold 1): failed. The refits of "exp_weibull" start from its fit, task 2 of the fits, which has not ended well. Run that task first; bash submit.sh --fit 2 --kfold 5 submits the two, the refit to start when the fit has ended.
+✖ refit 6 (exp_weibull, fold 2): failed. The refits of "exp_weibull" start from its fit, task 2 of the fits, which has not ended well. Run that task first; bash submit.sh --fit 2 --kfold 6 submits the two, the refit to start when the fit has ended.
+✖ refit 7 (exp_weibull, fold 3): failed. The refits of "exp_weibull" start from its fit, task 2 of the fits, which has not ended well. Run that task first; bash submit.sh --fit 2 --kfold 7 submits the two, the refit to start when the fit has ended.
+✖ refit 8 (exp_weibull, fold 4): failed. The refits of "exp_weibull" start from its fit, task 2 of the fits, which has not ended well. Run that task first; bash submit.sh --fit 2 --kfold 8 submits the two, the refit to start when the fit has ended.
+ℹ To submit again the tasks not done, and only those:
+  bash submit.sh --fit 1-2 --kfold 1-8

@@ -2,6 +2,7 @@ BMA
 Betancourt
 Brubaker
 Bürkner
+CCDB
 CMD
 CTmax
 Castañeda
@@ -13,6 +14,7 @@ Esbaugh
 Gabry
 Gamperl
 Gelman
+Globus
 Gompertz
 Guo
 Hartig
@@ -21,6 +23,8 @@ Jørgensen
 Kingsolver
 Klahn
 Lifecycle
+Multifactor
+Nibi
 Norin
 ORCID
 Orsted
@@ -39,10 +43,13 @@ Umbanhowar
 Umbanhowar's
 Vehtari
 WAIC
+WinSCP
 Yao
+alliancecan
 brms
 brms's
 callout
+ccdb
 cmdstanr
 dCTmax
 dT

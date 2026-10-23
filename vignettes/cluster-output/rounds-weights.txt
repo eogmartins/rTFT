@@ -1,0 +1,6 @@
+ℹ Weights by stacking, from 8 units left out (one trial each).
+# A tibble: 2 × 6
+  model        elpd weight_all cumulative kept     weight
+  <chr>       <dbl>      <dbl>      <dbl> <lgl>     <dbl>
+1 exp_weibull -588.  1.000          1.000 TRUE  1.000
+2 exp_mem     -589.  0.0000314      1     TRUE  0.0000314

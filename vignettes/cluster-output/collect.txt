@@ -1,0 +1,16 @@
+✔ Collected 2 of the 2 models, 2 cross-validated by refitting.
+Warning messages:
+1: ! 2 models did not meet the convergence rule: "exp_mem" and "exp_weibull".
+ℹ The rule is Rhat below 1.01, bulk and tail effective sample sizes above 400,
+  and at most 0.1% of the draws from divergent transitions.
+ℹ They are kept in the fits returned; see rhat, ess_bulk, ess_tail and
+  divergent in the summary.
+2: ! PSIS cannot be trusted for some of the units left out, in 2 models: "exp_mem"
+  and "exp_weibull".
+ℹ The number of such units is in high_k of the summary.
+ℹ The estimates by refitting, in kfold, do not rely on it.
+# A tibble: 2 × 8
+  model       converged  rhat ess_bulk ess_tail divergent elpd_kfold se_kfold
+  <chr>       <lgl>     <dbl>    <dbl>    <dbl>     <int>      <dbl>    <dbl>
+1 exp_mem     FALSE      1.01     283.     372.         3      -590.     18.4
+2 exp_weibull FALSE      1.01     398.     363.         0      -588.     18.7

@@ -1,0 +1,482 @@
+---
+title: "Fitting models on a cluster"
+vignette: >
+  %\VignetteIndexEntry{Fitting models on a cluster}
+  %\VignetteEngine{quarto::html}
+  %\VignetteEncoding{UTF-8}
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    toc-title: "Contents"
+    html-math-method: mathml
+    include-in-header:
+      text: |
+        <style>
+        /* The contents list beside the text, in view while scrolling. It applies
+           only to the plain page the package build makes, on a window wide enough
+           to hold it; a themed Quarto page places its own contents list. */
+        @media (min-width: 1380px) {
+          body:not(:has(#quarto-content)) nav#TOC {
+            position: fixed;
+            top: 2em;
+            left: calc(50% - 670px);
+            width: 250px;
+            max-height: 90vh;
+            overflow-y: auto;
+            font-size: 0.9em;
+          }
+          body:not(:has(#quarto-content)) nav#TOC ul { padding-left: 1.1em; }
+        }
+        /* An estimate and its interval stay on one line of a table; only the first
+           column, which holds names, may wrap. */
+        table td:not(:first-child), table th:not(:first-child) { white-space: nowrap; }
+        </style>
+knitr:
+  opts_chunk:
+    collapse: true
+    comment: "#>"
+---
+
+```{r}
+#| label: setup
+#| include: false
+# The output of the cluster was captured from real runs and is stored beside this
+# vignette (cluster-output/, results-05.rds); the bundle is written, when the vignette
+# is built, into a temporary folder.
+vignette_dir <- getwd()
+results <- readRDS(file.path(vignette_dir, "results-05.rds"))
+knitr::opts_knit$set(root.dir = tempdir())
+
+# Show a block of captured output as it was printed.
+show_output <- function(name) {
+  lines <- readLines(file.path(vignette_dir, "cluster-output", paste0(name, ".txt")),
+                     encoding = "UTF-8", warn = FALSE)
+  cat("```text", lines, "```", sep = "\n")
+}
+
+# A time in seconds as minutes and seconds, or hours and minutes.
+as_time <- function(seconds) {
+  seconds <- round(seconds)
+  if (seconds < 60) return(paste(seconds, "s"))
+  if (seconds < 3600) return(sprintf("%d min %d s", seconds %/% 60, seconds %% 60))
+  sprintf("%d h %d min", seconds %/% 3600, (seconds %% 3600) %/% 60)
+}
+hms_seconds <- function(x) sum(as.numeric(strsplit(x, ":")[[1]]) * c(3600, 60, 1))
+
+stamp   <- results$stamp
+timeout <- results$timeout
+rounds  <- results$rounds
+install <- results$install
+chains  <- stamp$settings$chains
+seconds <- timeout$seconds
+sacct   <- timeout$sacct
+fit_seconds   <- seconds$seconds[seconds$stage == "fit"]
+refit_seconds <- seconds$seconds[seconds$stage == "kfold"]
+out_of_time   <- sacct$seconds[sacct$state == "TIMEOUT"]
+failed_refits <- sacct$seconds[sacct$state == "FAILED"]
+core_hours    <- sum(seconds$seconds) * chains / 3600
+memory        <- timeout$memory
+r1 <- rounds$round_1
+r2 <- rounds$round_2
+r3 <- rounds$round_3
+weibull <- function(x, column) x[[column]][x$model == "exp_weibull"]
+mem     <- function(x, column) x[[column]][x$model == "exp_mem"]
+stopifnot(
+  length(fit_seconds) == 2, length(refit_seconds) == 8,
+  length(out_of_time) == 2, length(failed_refits) == 8,
+  # round 1 missed the rule on both models; round 2 on exp_weibull's divergences only;
+  # round 3 met it on both
+  !any(r1$converged), all(r1$rhat >= 0.01 + 1), all(r1$ess_bulk < 400),
+  !weibull(r2, "converged"), weibull(r2, "ess_bulk") > 400,
+  weibull(r2, "divergent") / weibull(r2, "draws") > 0.001,
+  all(r3$converged), all(r3$round == 3),
+  # every refit used less memory than every fit
+  max(memory$gb[memory$stage == "kfold"]) < min(memory$gb[memory$stage == "fit"])
+)
+```
+
+Every model in the previous vignettes was fitted on one computer, and most of them in minutes. Cross-validation by refitting is slower, because each model is refitted once for each group of units left out, and a comparison of several models multiplies the refits again: four models compared by leaving out one of twelve trials at a time take 48 refits besides the four fits. A cluster (i.e., a set of computers shared by many users, each with many cores) can be used to run these fits and refits side by side, so that a comparison that would take a whole day on a personal computer can be done in about the time of its slowest fit and slowest refit (assuming the cluster has enough cores free).
+
+In this vignette, we fit two models of a ramping assay on a cluster of the [Digital Research Alliance of Canada](https://www.alliancecan.ca/en){target="_blank"} (hereafter, the Alliance), with cross-validation by refitting. We describe: (i) the account and its setup, which are done once; (ii) a run from start to end, from writing the models into a folder on our own computer to assembling the results there; (iii) a second round for models that did not meet the convergence rule; (iv) how long the tasks took and how much memory they used; and (v) what differs on another cluster. The models and the cross-validation are those of the vignettes [*Ramping assays*](ramping-assays.html) and [*Comparing and averaging models*](comparing-and-averaging-models.html).
+
+None of the work on the cluster can run when this vignette is built. Every block of terminal output below was captured from real runs on the cluster Fir and is shown as it was printed, apart from the changes listed at the end of the vignette.
+
+```{r}
+#| label: libraries
+#| message: false
+library(rTFT)
+```
+
+## Clusters and bundles
+
+A cluster has two kinds of computers. The login nodes are those we connect to: they are shared by everyone connected, and are meant for copying files, installing software and short checks. The compute nodes do the work, and are reached only through the scheduler, a program (Slurm, on the clusters of the Alliance) that holds the work submitted by every user in a queue and starts each piece of work when the cores and memory it asked for become free. A piece of work submitted to the scheduler is a job. A job array is a set of similar jobs submitted at once under one number, and each of its members, an array task, runs as a job of its own, numbered by the array and its place in it (e.g., task 2 of the array 66774007 is 66774007_2); in `rTFT`, each fit and each refit is one array task. Each job states how long it may run by the clock (its wall time), how many cores it needs and how much memory per core; the scheduler stops a job that exceeds its wall time or its memory.
+
+`rTFT` includes functions that settle everything about a run on our own computer, where the data and the models are, and writes it into one folder, the **bundle**: the data, the table of models, the settings of the sampler and of the jobs, and the scripts that run it on the cluster. The bundle is copied to the cluster and run there with its scripts, and its results are copied back and assembled into what `fit_hazard_models()` returns, as if the models had been fitted on our own computer. Each fit and each refit is one array task, so the work is spread over as many cores as the cluster can give at the time.
+
+## The account and its setup
+
+The steps of this section are done once, and each is described on a page of the Alliance's documentation, which should be followed when it differs from what is written here (the pages were checked on 2026-10-22). The clusters of the Alliance are open to researchers at Canadian institutions and to the collaborators they sponsor. Elsewhere, the same steps apply to most clusters that run Slurm, with the differences listed in [Other clusters](#other-clusters); a cluster with another scheduler needs scripts of its own.
+
+### Account and allocation
+
+An account is requested in the Alliance's database of users, CCDB ([ccdb.alliancecan.ca](https://ccdb.alliancecan.ca){target="_blank"}), with a sponsor: the principal investigator of the research group, whose own account must exist first ([Apply for a CCDB account](https://docs.alliancecan.ca/wiki/Apply_for_a_CCDB_account){target="_blank"}). The time used on the clusters is charged to an allocation of the sponsor's group, whose name is given to every job. Every group has a default allocation named after its principal investigator, such as `def-someone`; on Fir it is given to jobs as `def-someone_cpu`, the form the command `sshare -U` lists after connecting.
+
+### Second factor of authentication
+
+Every connection to a cluster of the Alliance asks for a second factor of authentication (e.g., a notification on a telephone, approved in an app) besides the password or key, which is set up in CCDB before the first connection ([Multifactor authentication](https://docs.alliancecan.ca/wiki/Multifactor_authentication){target="_blank"}). Each copy of files to or from a cluster is a connection of its own, and asks for it too.
+
+### SSH keys and connecting
+
+A connection is made with `ssh`, from a terminal on our own computer, as `ssh someone@fir.alliancecan.ca`, and asks for the password of the account and then for the second factor. An SSH key (i.e., a pair of files made on our own computer, of which the public half is added to CCDB) can be used in place of the password, but not of the second factor ([SSH Keys](https://docs.alliancecan.ca/wiki/SSH_Keys){target="_blank"}).
+
+### File systems
+
+Each user has three places to keep files on a cluster ([Storage and file management](https://docs.alliancecan.ca/wiki/Storage_and_file_management){target="_blank"}): the home folder, small and backed up, for software and settings; the project folder, shared by the group; and scratch (`~/scratch`), large and not backed up, for the files of running work. Files in scratch that have not been used for some time are deleted ([Scratch purging policy](https://docs.alliancecan.ca/wiki/Scratch_purging_policy){target="_blank"}), so a bundle is run in scratch and its results are copied back to our own computer as soon as they are done.
+
+### Modules and the R library
+
+Software on the clusters of the Alliance is loaded as modules: [R](https://docs.alliancecan.ca/wiki/R){target="_blank"}, for instance, with `module load StdEnv/2023 r/4.5.0`, where the first module sets the generation of the software environment and the second the version of R. Packages that R does not include are installed by each user into a personal library in the home folder, and the samplers of `brms` need CmdStan, which is compiled once into the home folder. Both are done by the script `install.sh` of the bundle, the folder that `rTFT` writes for a run on a cluster (see [The bundle](#the-bundle)).
+
+## A run from start to end
+
+The example is the ramping assay of the vignette [*Ramping assays*](ramping-assays.html), restricted to the ramps at 0.1 and 0.3°C per min in normoxia: `r length(unique(ramp_assay$trial[ramp_assay$rate %in% c(0.1, 0.3) & ramp_assay$do == 10]))` trials of fish whose failures were each observed at a known time. We compare two models, both with the exponential failure rate and a random effect of trial on the failure rate at the reference temperature, one with the memoryless baseline and one with the Weibull baseline, by refitting each model with one trial left out at a time, the trials grouped into `r stamp$settings$K` folds.
+
+### The bundle
+
+The data and the models are built as in the previous vignettes.
+
+```{r}
+#| label: data
+#| message: false
+rates <- c(0.1, 0.3)
+ramp  <- ramp_assay[ramp_assay$rate %in% rates & ramp_assay$do == 10, ]
+path  <- ramp_path(path_id = paste0("r", rates), T_start = 14, rate = rates,
+                   t_max = 15.5 / rates)
+long  <- build_hazard_data(ramp, path, observation = "continuous",
+                           covariates = c("mass", "trial"))
+models <- build_hazard_models("exp", c("mem", "weibull"),
+                              dpar_formulas = list(loga = ~ 1 + (1 | trial)))
+```
+
+The function `write_hpc_bundle()` writes the bundle. It takes what `fit_hazard_models()` takes, and the allocation, the wall time and memory of each task, and where on the cluster the bundle will be copied. Each task runs the four chains of one fit on four cores, one chain per core. We gave each task a wall time of one minute, far less than a fit needs, to show what happens when a task runs out of time; a first run should be given ample time instead (see [Time and memory](#time-and-memory)).
+
+```{r}
+#| label: bundle-shown
+#| eval: false
+write_hpc_bundle(models, long, "ramp-run", account = "def-someone_cpu",
+                 observation = "continuous", kfold = TRUE, K = 4,
+                 time = "00:01:00",
+                 remote = "someone@fir.alliancecan.ca:scratch/ramp-run",
+                 chains = 4, iter = 1000, seed = 1, backend = "cmdstanr")
+```
+
+```{r}
+#| label: bundle
+#| echo: false
+# The call shown above, run here. A development version of rTFT installed from a local
+# copy does not know where the cluster should install it from, and is told.
+write_bundle <- function(...) {
+  write_hpc_bundle(models, long, "ramp-run", account = "def-someone_cpu",
+                   observation = "continuous", kfold = TRUE, K = 4,
+                   time = "00:01:00",
+                   remote = "someone@fir.alliancecan.ca:scratch/ramp-run",
+                   chains = 4, iter = 1000, seed = 1, backend = "cmdstanr", ...)
+}
+tryCatch(write_bundle(), rTFT_no_rtft_source = function(e)
+  write_bundle(rtft_source = "eogmartins/rTFT"))
+```
+
+The bundle holds the scripts, the file `README.txt` and four folders. The folder `inputs/` holds what the run is made of (the data, the table of models and the settings, with their checksums), and nothing in it is to be edited; the other three are filled by the tasks: `stan/` with the compiled models, `results/` with what each task finds, and `logs/` with what each task prints.
+
+```{r}
+#| label: bundle-files
+list.files("ramp-run")
+```
+
+The file `settings.sh` keeps every setting of the jobs in one place, and is the one file of the bundle that may be edited. The file `README.txt` says what to do, step by step, with the commands to copy the bundle filled in.
+
+```{r}
+#| label: readme
+cat(readLines("ramp-run/README.txt"), sep = "\n")
+```
+
+### Copying the bundle
+
+Step 1 of `README.txt` gives the command that copies the bundle to the cluster, run from a terminal on our own computer, in the form that suits the computer that wrote the bundle. On macOS and Linux it is one `rsync` command over three lines, whose second line names the folder where the bundle was written (here a temporary folder, since this vignette writes it there). Windows has no `rsync`, and there the command is two: `ssh`, which makes the folders above the bundle's on the cluster, and `scp`, which copies the bundle; graphical tools that the Alliance documents (e.g., Globus, WinSCP) do the same.
+
+### Installing rTFT, brms and CmdStan
+
+After connecting and going to the bundle's folder, `install.sh` installs what the bundle needs into R on the cluster: `rTFT` at the version that wrote the bundle, with `brms` and the other packages it needs, `cmdstanr`, and CmdStan. A first install compiles a great deal, and a login node may stop a long compilation, so it can be run as a job instead.
+
+```bash
+ssh someone@fir.alliancecan.ca
+cd scratch/ramp-run
+bash install.sh --job
+```
+
+```{r}
+#| label: install-job-submit
+#| echo: false
+#| results: asis
+show_output("install-job-submit")
+```
+
+The job's log ends by saying whether the install worked. A first install into an empty library installed `r install$packages` packages in `r as_time(hms_seconds(install$elapsed))`, so a first install should be expected to take an hour or more; selected lines of its log are below.
+
+```{r}
+#| label: install-job-log
+#| echo: false
+#| results: asis
+show_output("install-job-log")
+```
+
+CmdStan had been installed by an earlier install, so this one found it. When it is missing, `install.sh` compiles it too, which ends with these lines (from a first install on the login node of Fir on `r stamp$rounds$date`):
+
+```{r}
+#| label: install-cmdstan
+#| echo: false
+#| results: asis
+show_output("install-cmdstan")
+```
+
+The install is needed once on each cluster, and again for a bundle written by another version of `rTFT`, when it installs only `rTFT`.
+
+### Checking the bundle
+
+`check.sh` checks that the files of the bundle are those that were written, that the installed `rTFT` is the version that wrote the bundle, and that the models can be assembled. Its first lines, printed by the cluster each time R is loaded, say which modules were loaded in place of those loaded at connection; they are not shown in the blocks that follow.
+
+```bash
+bash check.sh
+```
+
+```{r}
+#| label: check
+#| echo: false
+#| results: asis
+show_output("check")
+```
+
+### Submitting the tasks
+
+`submit.sh` submits the fits as one job array and the refits as a second, which waits for the fits to end, since each refit starts from its model's fit.
+
+```bash
+bash submit.sh
+```
+
+```{r}
+#| label: submit
+#| echo: false
+#| results: asis
+show_output("submit")
+```
+
+### Following the tasks
+
+The command `sq` lists our jobs waiting (PD, pending) and running (R), with the reason a pending job waits: `(None)` before the scheduler has considered it, `(Priority)` behind the jobs of other users, and `(Dependency)` for the refits waiting for the fits. We listed only the jobs of this run, by their names, since `sq` lists every job of the user.
+
+```bash
+sq -n rtft-fit,rtft-kfold
+```
+
+```{r}
+#| label: sq-waiting
+#| echo: false
+#| results: asis
+show_output("sq-waiting")
+```
+
+`status.sh` says what each task has done, from what the tasks wrote into the bundle, and what to do next. It can be run at any time, as it only reports the status of the tasks and changes nothing.
+
+### A task that ran out of time
+
+With a wall time of one minute, both fits were stopped by the scheduler after `r as_time(max(out_of_time))`. `status.sh` read the reason from the log of each task, and gave the command to submit the fits again. The refits were still waiting.
+
+```bash
+bash status.sh
+```
+
+```{r}
+#| label: status-timeout
+#| echo: false
+#| results: asis
+show_output("status-timeout")
+```
+
+The refits then started, since they wait for the fits to end whether or not they ended well, and each stopped within `r as_time(max(failed_refits))`, having no fit to start from.
+
+```{r}
+#| label: status-all-ended
+#| echo: false
+#| results: asis
+show_output("status-all-ended")
+```
+
+The remedy is to raise the wall time in `settings.sh` (here, with a text editor directly in the terminal, such as `nano settings.sh`, from `TIME="00:01:00"` to `TIME="01:00:00"`) and to submit again the tasks that `status.sh` names. A task that has ended well is never run again, so the same command can be used after any number of failures.
+
+```bash
+bash submit.sh --fit 1-2 --kfold 1-8
+```
+
+```{r}
+#| label: submit-again
+#| echo: false
+#| results: asis
+show_output("submit-again")
+```
+
+While the fits ran, `sq` and `status.sh` said so.
+
+```{r}
+#| label: sq-running
+#| echo: false
+#| results: asis
+show_output("sq-running")
+```
+
+```{r}
+#| label: status-running
+#| echo: false
+#| results: asis
+show_output("status-running")
+```
+
+When every task had ended well:
+
+```{r}
+#| label: status-done
+#| echo: false
+#| results: asis
+show_output("status-done")
+```
+
+### Copying the results back
+
+The command of step 8 of `README.txt`, run in a terminal on our own computer, copies the folder `results/` back into the bundle there. It holds each fit and the predictions of each refit, which take some megabytes for these models and can take some gigabytes for larger ones. The results should be copied back as soon as the tasks are done, since scratch is purged.
+
+### Assembling the results
+
+`collect_hpc()` reads the results into what `fit_hazard_models()` returns: the fitted models, their summary, and the cross-validation by refitting, which the functions of the vignette [*Comparing and averaging models*](comparing-and-averaging-models.html) take as they are.
+
+```{r}
+#| label: collect
+#| eval: false
+fits <- collect_hpc("ramp-run")
+fits$summary[, c("model", "converged", "rhat", "ess_bulk", "ess_tail", "divergent",
+                 "elpd_kfold", "se_kfold")]
+```
+
+```{r}
+#| label: collect-output
+#| echo: false
+#| results: asis
+show_output("collect")
+```
+
+Neither model met the convergence rule. Their Rhat, printed as 1.01, was `r sprintf("%.3f", mem(timeout$summary, "rhat"))` and `r sprintf("%.3f", weibull(timeout$summary, "rhat"))`, above the limit of 1.01, and their bulk effective sample sizes fell short of 400.
+
+## Rounds for models that did not converge
+
+A model that did not meet the convergence rule is fitted again with other settings of the sampler: more draws when the effective sample sizes are low, and a smaller step (a higher `adapt_delta`) when divergent transitions remain. The function `next_hpc_round()` writes a new bundle, a round, for the models named, beside the bundle it follows, with the same data, unit and folds, so that the results of every round can be assembled together. Only the settings of the sampler and of the jobs can change in a round, since anything else would make another model.
+
+Both models of the run above missed the rule. We first fitted the Weibull model again with three times as many iterations.
+
+```{r}
+#| label: round-2
+#| eval: false
+next_hpc_round("ramp-run", "exp_weibull", iter = 3000)
+```
+
+```{r}
+#| label: round-2-output
+#| echo: false
+#| results: asis
+show_output("rounds-round-2")
+```
+
+The round is written beside the bundle it follows, into a folder named after the first bundle and the number of the round: `ramp-run-round-2` here, and `ramp-run-round-3` for a round written from it. It has its own `README.txt`, whose commands copy the round to the cluster and its results back, and it is run there with the same scripts as the first bundle (`check.sh`, `submit.sh` and `status.sh`), without a new install, since it was written by the same version of `rTFT`. The round is copied to a folder of its own on the cluster, beside the first, and its scripts are run from that folder, which step 2 of its `README.txt` goes to (here, `cd scratch/ramp-run-round-2`).
+
+```{r}
+#| label: rounds-check-2
+#| echo: false
+#| results: asis
+show_output("rounds-check-2")
+```
+
+When its tasks were done, its results were copied back with the command of step 8 of its `README.txt`. Its bulk effective sample size rose from `r format(round(weibull(r1, "ess_bulk")), big.mark = ",")` to `r format(round(weibull(r2, "ess_bulk")), big.mark = ",")`, but `r weibull(r2, "divergent")` of its `r format(weibull(r2, "draws"), big.mark = ",")` draws came from divergent transitions (`r sprintf("%.2f", 100 * weibull(r2, "divergent") / weibull(r2, "draws"))`%, against the limit of 0.1%). A third round, written from the second, fitted both models with a smaller step; the number of iterations was kept from the round before.
+
+```{r}
+#| label: round-3
+#| eval: false
+next_hpc_round("ramp-run-round-2", c("exp_mem", "exp_weibull"),
+               control = list(adapt_delta = 0.99))
+```
+
+```{r}
+#| label: round-3-output
+#| echo: false
+#| results: asis
+show_output("rounds-round-3")
+```
+The third round was copied to the cluster, checked, submitted and copied back in the same way, with the commands of its own `README.txt`. `collect_hpc()`, given the folders of every round, keeps for each model the result of its latest round.
+
+```{r}
+#| label: rounds-collect
+#| eval: false
+fits <- collect_hpc(c("ramp-run", "ramp-run-round-2", "ramp-run-round-3"))
+fits$summary[, c("model", "round", "converged", "rhat", "ess_bulk", "ess_tail",
+                 "divergent", "draws", "elpd_kfold")]
+```
+
+```{r}
+#| label: rounds-collect-output
+#| echo: false
+#| results: asis
+show_output("rounds-collect-all")
+```
+
+Both models met the rule in the third round. The Rhat of the memoryless model, printed as 1.01, was `r sprintf("%.3f", mem(r3, "rhat"))`, below the limit, and `r mem(r3, "divergent")` of its `r format(mem(r3, "draws"), big.mark = ",")` draws came from a divergent transition. The assembled models are compared and averaged as in the vignette [*Comparing and averaging models*](comparing-and-averaging-models.html):
+
+```{r}
+#| label: weights
+#| eval: false
+hazard_weights(fits)
+```
+
+```{r}
+#| label: weights-output
+#| echo: false
+#| results: asis
+show_output("rounds-weights")
+```
+
+## Time and memory
+
+In the run above, after the wall time was raised, the two fits took `r as_time(min(fit_seconds))` and `r as_time(max(fit_seconds))` and the eight refits `r as_time(min(refit_seconds))` to `r as_time(max(refit_seconds))` each, `r sprintf("%.1f", core_hours)` core-hours in all with `r chains` cores per task. The time of a fit includes compiling its model, which its refits reuse. A larger run can be judged from a small one: the time of a fit grows roughly in proportion to the number of rows of the table of intervals at risk and to the number of iterations, and a model that converges poorly (with many steps per iteration) can take many times longer than its neighbour. A wall time of two to three times the longest fit of a small run leaves a margin; a task that asks for more waits longer in the queue, but a task that runs out of time is lost, and is run again from its start.
+
+The fits used `r sprintf("%.1f", min(memory$gb[memory$stage == "fit"]))` and `r sprintf("%.1f", max(memory$gb[memory$stage == "fit"]))` GB and the refits about `r sprintf("%.1f", mean(memory$gb[memory$stage == "kfold"]))` GB, against the `r sprintf("%.1f", as.numeric(sub("M$", "", timeout$mem_per_cpu)) / 1024)` GB per core asked for (`MEM_PER_CPU` in `settings.sh` is `r timeout$mem_per_cpu`, in megabytes), about `r round(chains * as.numeric(sub("M$", "", timeout$mem_per_cpu)) / 1024)` GB per task. The command `seff` with the number of a finished job reports its time and memory, as the scheduler measured them. A task that runs out of memory is reported by `status.sh`, which gives the command to submit it again after `MEM_PER_CPU` is raised in `settings.sh`.
+
+## Other clusters
+
+The bundle's scripts are written for the clusters of the Alliance, and most of what they assume holds on any cluster that runs Slurm. The table lists what we checked on Fir and Nibi clusters of the Alliance, and what to look for elsewhere.
+
+| | Fir | Nibi | Another cluster |
+|---|---|---|---|
+| Account given to jobs | `def-someone_cpu` | `def-someone_cpu` | the cluster's documentation |
+| Second factor at each connection | yes | yes | the cluster's documentation |
+| Modules for R | `StdEnv/2023 r/4.5.0` | `StdEnv/2023 r/4.5.0` | `module avail r` |
+| Compute nodes reach the internet (`install.sh --job`) | yes | yes | the job stops at once and says so when they do not |
+| Command listing one's jobs | `sq` | `sq` | `squeue -u $USER` |
+| Largest job array | 10,000 | 10,000 | `scontrol show config` (`MaxArraySize`) |
+| Longest wall time | 7 days | 7 days | the cluster's documentation |
+| Scratch | `~/scratch` | `~/scratch` | the cluster's documentation |
+| Checked | 2026-10-22 | 2026-10-19 | |
+
+The scripts themselves can be replaced: `write_hpc_bundle()` takes, in `template`, a folder of scripts of one's own with the same names, written for another scheduler or another cluster, and fills them in as it fills its own (see its help page).
+
+::: {.callout-note}
+## Captured output
+
+The output of this vignette was captured on the cluster Fir and on the computer that wrote the bundles: the run from start to end on `r stamp$timeout$date` (`rTFT` at commit `r stamp$timeout$commit` of the development version that became 0.2.0), the first install on `r stamp$install$date` (at `r stamp$install$commit`), and the rounds on `r stamp$rounds$date` (at `r stamp$rounds$commit`), from an earlier run of the same bundle, which gave the same fits, since the bundle is seeded; all with `brms` `r stamp$brms`. Five changes were made to it: (i) the user name is replaced by `someone`, (ii) the folder of the runs on that computer by `~/my-runs`, and (iii) the name of every bundle by `ramp-run`; (iv) the notice of the modules reloaded is shown once; and (v) the logs of the installs are shown by selected lines. The bundle and its `README.txt` are written when the vignette is built.
+:::

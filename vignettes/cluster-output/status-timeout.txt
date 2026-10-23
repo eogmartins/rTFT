@@ -1,0 +1,16 @@
+• Fits: 0 of 2 done; 2 started.
+• Refits for cross-validation: 0 of 8 done; 8 queued.
+! fit 1 (exp_mem): started, it ran out of time (raise TIME in settings.sh); see logs/fit-66774007_1.out
+! fit 2 (exp_weibull): started, it ran out of time (raise TIME in settings.sh); see logs/fit-66774007_2.out
+• refit 1 (exp_mem, fold 1): queued, submitted at 2026-10-22 07:07 as job 66774008, waiting to start
+• refit 2 (exp_mem, fold 2): queued, submitted at 2026-10-22 07:07 as job 66774008, waiting to start
+• refit 3 (exp_mem, fold 3): queued, submitted at 2026-10-22 07:07 as job 66774008, waiting to start
+• refit 4 (exp_mem, fold 4): queued, submitted at 2026-10-22 07:07 as job 66774008, waiting to start
+• refit 5 (exp_weibull, fold 1): queued, submitted at 2026-10-22 07:07 as job 66774008, waiting to start
+• refit 6 (exp_weibull, fold 2): queued, submitted at 2026-10-22 07:07 as job 66774008, waiting to start
+• refit 7 (exp_weibull, fold 3): queued, submitted at 2026-10-22 07:07 as job 66774008, waiting to start
+• refit 8 (exp_weibull, fold 4): queued, submitted at 2026-10-22 07:07 as job 66774008, waiting to start
+ℹ To submit again the tasks not done, and only those:
+  bash submit.sh --fit 1-2
+ℹ A task submitted and waiting to start is not submitted again. One that the command sq no longer lists was cancelled before it started; to submit those:
+  bash submit.sh --kfold 1-8

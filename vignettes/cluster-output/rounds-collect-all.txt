@@ -1,0 +1,11 @@
+✔ Collected 2 of the 2 models, 2 cross-validated by refitting, from 3 rounds.
+Warning message:
+! PSIS cannot be trusted for some of the units left out, in 2 models: "exp_mem"
+  and "exp_weibull".
+ℹ The number of such units is in high_k of the summary.
+ℹ The estimates by refitting, in kfold, do not rely on it.
+# A tibble: 2 × 9
+  model       round converged  rhat ess_bulk ess_tail divergent draws elpd_kfold
+  <chr>       <int> <lgl>     <dbl>    <dbl>    <dbl>     <int> <dbl>      <dbl>
+1 exp_mem         3 TRUE       1.01    1059.    1815.         1  6000      -589.
+2 exp_weibull     3 TRUE       1.00    1306.    1902.         0  6000      -588.

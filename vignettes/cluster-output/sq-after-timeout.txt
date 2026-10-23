@@ -1,0 +1,2 @@
+          JOBID     USER      ACCOUNT           NAME  ST  TIME_LEFT NODES CPUS TRES_PER_N MIN_MEM NODELIST (REASON)
+ 66774008_[1-8] someone def-someone     rtft-kfold  PD       1:00     1    4        N/A   4000M  (Dependency)
