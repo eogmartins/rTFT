@@ -1,4 +1,4 @@
-# rTFT (development version)
+# rTFT 0.2.0
 
 ## Comparing and averaging models
 

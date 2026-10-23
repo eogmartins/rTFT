@@ -1,6 +1,6 @@
 Package: rTFT
 Title: Hazard Models for Thermal Failure Time Data
-Version: 0.1.1.9000
+Version: 0.2.0
 Authors@R:
     person(c("Eduardo", "G."), "Martins", , "eduardo.martins@unbc.ca", role = c("aut", "cre"),
            comment = c(ORCID = "0000-0003-3500-9331"))
