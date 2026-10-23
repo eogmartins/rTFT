@@ -972,7 +972,9 @@ test_that("a model is compiled into a folder of its own, which its refits share"
   run_quietly(dir, "kfold", 1)                      # a refit of exp_mem
   run_quietly(dir, "kfold", 4)                      # a refit of exp_weibull
   expect_equal(basename(seen), c("fit-001", "fit-002", "fit-001", "fit-002"))
-  expect_equal(unique(dirname(seen)), normalizePath(file.path(dir, "stan")))
+  # dirname() writes a Windows path with forward slashes, normalizePath() with
+  # backslashes unless told otherwise
+  expect_equal(unique(dirname(seen)), normalizePath(file.path(dir, "stan"), winslash = "/"))
   expect_true(all(dir.exists(seen)))
 })
 
