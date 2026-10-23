@@ -188,26 +188,26 @@ build_hazard_models <- function(m_form, baseline = "mem", dpar_formulas = list()
 # 2. Fitting the models of a table
 # ===========================================================================
 
-# .has_posterior() / .check_rule() / .fit_convergence() / .is_converged() ------
+# .has_posterior() / .check_rule() / .fit_convergence() / .meets_rule() --------
 
 # Whether the posterior package is installed. .fit_convergence() is the one function
 # that needs it, so it is a suggested package rather than a required one.
 .has_posterior <- function() requireNamespace("posterior", quietly = TRUE)
 
-# Check that `rhat`, `ess` and `divergent`, the three limits of the convergence rule,
+# Check that `rhat`, `ess` and `divergent`, the three limits of the sampling rule,
 # are single numbers a rule can use, and return TRUE invisibly.
 .check_rule <- function(rhat, ess, divergent) {
   one <- function(x) is.numeric(x) && length(x) == 1L && is.finite(x)
   if (!one(rhat) || rhat <= 1 || !one(ess) || ess <= 0 ||
       !one(divergent) || divergent < 0 || divergent > 1)
     cli::cli_abort(c(
-      "The convergence rule needs {.arg rhat} above 1, a positive {.arg ess}, and {.arg divergent} as a proportion from 0 to 1.",
+      "The sampling rule needs {.arg rhat} above 1, a positive {.arg ess}, and {.arg divergent} as a proportion from 0 to 1.",
       "x" = "You supplied {.code rhat = {rhat}}, {.code ess = {ess}} and {.code divergent = {divergent}}."
     ), class = "rTFT_bad_rule")
   invisible(TRUE)
 }
 
-# Read from `fit` what the convergence rule needs, and return it as a list: the
+# Read from `fit` what the sampling rule needs, and return it as a list: the
 # number of chains and of draws, the largest rank-normalised split-Rhat and the
 # smallest bulk and tail effective sample sizes over the population-level
 # coefficients and the standard deviations and correlations of the group-level
@@ -245,8 +245,8 @@ build_hazard_models <- function(m_form, baseline = "mem", dpar_formulas = list()
 # Whether the diagnostics in `conv`, as .fit_convergence() returns them, meet the
 # rule set by `rhat`, `ess` and `divergent`: TRUE or FALSE. A diagnostic that could
 # not be computed is missing, and a fit with a missing diagnostic has not been shown
-# to converge, so it gives FALSE.
-.is_converged <- function(conv, rhat, ess, divergent) {
+# to meet the rule, so it gives FALSE.
+.meets_rule <- function(conv, rhat, ess, divergent) {
   values <- c(conv$rhat, conv$ess_bulk, conv$ess_tail, conv$divergent, conv$draws)
   !anyNA(values) && conv$rhat < rhat && conv$ess_bulk > ess && conv$ess_tail > ess &&
     conv$divergent <= divergent * conv$draws
@@ -304,7 +304,8 @@ build_hazard_models <- function(m_form, baseline = "mem", dpar_formulas = list()
 # list: the observation mode, the unit left out in cross-validation, the units of
 # `long` (the distinct values of that unit) and the number of chains asked for in
 # `dots`. With `kfold`, the number of folds `K` is checked against those units, so
-# that a bad `K` stops the run now and not after the fits.
+# that a bad `K` stops the run now and not after the fits; without it, a `K` given
+# is refused, since it would be ignored.
 .models_plan <- function(models, long, observation, unit, kfold, K, rhat, ess,
                          divergent, dots) {
   .check_models(models)
@@ -318,6 +319,11 @@ build_hazard_models <- function(m_form, baseline = "mem", dpar_formulas = list()
   if (!is.logical(kfold) || length(kfold) != 1L || is.na(kfold))
     cli::cli_abort("{.arg kfold} must be {.code TRUE} or {.code FALSE}.",
                    class = "rTFT_bad_kfold")
+  if (!kfold && !is.null(K))
+    cli::cli_abort(c(
+      "{.arg K} was given with {.code kfold = FALSE}, so it would have no effect.",
+      "i" = "Give {.code kfold = TRUE} for cross-validation by refitting in {.arg K} folds, or leave {.arg K} out."
+    ), class = "rTFT_K_without_kfold")
   of_table <- intersect(names(dots),
                         c("m_form", "baseline", "dpar_formulas", "costressors"))
   if (length(of_table))
@@ -360,7 +366,7 @@ build_hazard_models <- function(m_form, baseline = "mem", dpar_formulas = list()
 # One row of the summary, as a table of one row, for the model of `row`: a model that
 # was fitted, when `res` holds what .fit_one_model() returned, or one that failed,
 # when `res` is the error. The rule set by `rhat`, `ess` and `divergent` decides
-# `converged`, and `seconds` is the time the model took.
+# `rule_met`, and `seconds` is the time the model took.
 .model_row <- function(row, res, seconds, rhat, ess, divergent) {
   failed <- inherits(res, "error")
   conv <- if (failed) list(chains = NA_integer_, draws = NA_integer_, rhat = NA_real_,
@@ -371,7 +377,7 @@ build_hazard_models <- function(m_form, baseline = "mem", dpar_formulas = list()
   elpd <- if (failed) c(NA_real_, NA_real_) else res$loo$estimates["elpd_loo", ]
   # The rule is applied here and not inside the table below, where `rhat` and
   # `divergent` would be read as the columns of those names and not as the limits.
-  met <- if (failed) NA else .is_converged(conv, rhat, ess, divergent)
+  met <- if (failed) NA else .meets_rule(conv, rhat, ess, divergent)
   tibble::tibble(
     model      = row$model,
     m_form     = row$m_form,
@@ -384,7 +390,7 @@ build_hazard_models <- function(m_form, baseline = "mem", dpar_formulas = list()
     ess_bulk   = conv$ess_bulk,
     ess_tail   = conv$ess_tail,
     divergent  = conv$divergent,
-    converged  = met,
+    rule_met   = met,
     rhat_group = conv$rhat_group,
     ess_group  = conv$ess_group,
     elpd_loo   = elpd[[1]],
@@ -399,7 +405,7 @@ build_hazard_models <- function(m_form, baseline = "mem", dpar_formulas = list()
 #' Fit, check and cross-validate the models of a table
 #'
 #' Fits each model of a table built with [build_hazard_models()] to the same data
-#' with [fit_hazard()], checks each fit for convergence by one rule, and
+#' with [fit_hazard()], checks the sampling of each fit by one rule, and
 #' cross-validates each with [loo_hazard()], leaving out the same unit. With
 #' `kfold = TRUE` each is also cross-validated by refitting, with
 #' [kfold_hazard()] and the same folds for every model. What it returns is what
@@ -415,21 +421,24 @@ build_hazard_models <- function(m_form, baseline = "mem", dpar_formulas = list()
 #' that lost one of its chains is treated as failed: the diagnostics of the chains
 #' that are left would make it look complete.
 #'
-#' The convergence rule is applied to the population-level coefficients and to the
-#' standard deviations and correlations of the group-level effects: the
-#' rank-normalised split-Rhat of each below `rhat`, the bulk and the tail effective
-#' sample size of each above `ess`, and at most the proportion `divergent` of the
-#' draws from divergent transitions. A fit that does not meet it is kept, since it
-#' is often the one to look at, and is marked in the summary and named in a warning.
+#' The sampling rule is applied to the population-level coefficients and to the standard
+#' deviations and correlations of the group-level effects: the rank-normalised
+#' split-Rhat of each below `rhat`, the bulk and the tail effective sample size of each
+#' above `ess`, and at most the proportion `divergent` of the draws from divergent
+#' transitions. The three check different things: Rhat whether the chains agree, the
+#' effective sample sizes how precise the draws are, and the divergent transitions
+#' whether the sampler could reach every region; the rule is not called convergence,
+#' which is only the first of them. A fit that does not meet it is kept, since it is
+#' often the one to look at, and is marked in the summary and named in a warning.
 #' Whether to refit it, drop it or keep it is left to the user; zero divergent
-#' transitions and a rule that is met are not, by themselves, evidence that a model
-#' was sampled well. The limit of 400 on the effective sample sizes is 100 per chain
-#' for the four chains of the default (Vehtari et al. 2021); with more chains, raise
-#' it in proportion. The tolerance on divergent transitions exists so that a stray
-#' one does not fail a fit that is otherwise well sampled; a divergent transition is
-#' still evidence of a region the sampler could not enter, so where any remain, look
-#' at where those draws fall against the group-level standard deviations before
-#' reading the fit, and set `divergent = 0` to refuse any.
+#' transitions and a rule that is met are not, by themselves, evidence that a model was
+#' sampled well. The limit of 400 on the effective sample sizes is 100 per chain for the
+#' four chains of the default (Vehtari et al. 2021); with more chains, raise it in
+#' proportion. The tolerance on divergent transitions exists so that a stray one does
+#' not fail a fit that is otherwise well sampled; a divergent transition is still
+#' evidence of a region the sampler could not enter, so where any remain, look at where
+#' those draws fall against the group-level standard deviations before reading the fit,
+#' and set `divergent = 0` to refuse any.
 #'
 #' The group-level effects themselves, such as the effect of each trial, are not
 #' part of the rule: a model with many levels would take its worst case over many
@@ -468,17 +477,16 @@ build_hazard_models <- function(m_form, baseline = "mem", dpar_formulas = list()
 #'   (`brmsfit`), without those that failed. `loo` is a named list of their
 #'   cross-validation results from [loo_hazard()]. `kfold` is a named list of their
 #'   results from [kfold_hazard()], or `NULL` when `kfold` is `FALSE`. `summary` is a
-#'   data frame with one row per model of the table: its name, failure-rate function and
-#'   baseline; `status` (`"fitted"` or `"failed"`) and, for a model that failed, the
-#'   reason in `message`; the number of `chains` and `draws`; the largest `rhat`, the
-#'   smallest `ess_bulk` and `ess_tail` and the number of `divergent` draws;
-#'   `converged`, whether the rule is met (a rule met, not a verdict on the
-#'   sampling); `rhat_group` and `ess_group`, the largest
-#'   Rhat and the smallest bulk or tail effective sample size over the group-level
-#'   effects, outside the rule (`NA` for a model without them); `elpd_loo` with its
-#'   standard error `se_loo`, and `high_k`, the number of units for which importance
-#'   sampling cannot be trusted; `elpd_kfold` and `se_kfold` when `kfold` is `TRUE`; and
-#'   `seconds`, the time the fit and its cross-validation took.
+#'   data frame with one row per model of the table: its name, failure-rate function
+#'   and baseline; `status` (`"fitted"` or `"failed"`) and, for a model that failed,
+#'   the reason in `message`; the number of `chains` and `draws`; the largest `rhat`,
+#'   the smallest `ess_bulk` and `ess_tail` and the number of `divergent` draws;
+#'   `rule_met`, whether the sampling rule is met; `rhat_group` and `ess_group`, the
+#'   largest Rhat and the smallest bulk or tail effective sample size over the
+#'   group-level effects, outside the rule (`NA` for a model without them); `elpd_loo`
+#'   with its standard error `se_loo`, and `high_k`, the number of units for which
+#'   importance sampling cannot be trusted; `elpd_kfold` and `se_kfold` when `kfold` is
+#'   `TRUE`; and `seconds`, the time the fit and its cross-validation took.
 #' @references
 #' Vehtari, A., Gelman, A., Simpson, D., Carpenter, B. and Burkner, P.-C. (2021).
 #' Rank-normalization, folding, and localization: an improved Rhat for assessing
@@ -636,13 +644,13 @@ fit_hazard_models <- function(models, long,
       "i" = if (any(fitted) && sum(fitted) + length(failed) == nrow(model_summary))
         "The other models were fitted."
     ), class = "rTFT_models_failed")
-  unmet <- model_summary$model[fitted & !model_summary$converged]
+  unmet <- model_summary$model[fitted & !model_summary$rule_met]
   if (length(unmet))
     cli::cli_warn(c(
-      "!" = "{length(unmet)} model{?s} did not meet the convergence rule: {.val {unmet}}.",
+      "!" = "{length(unmet)} model{?s} did not meet the sampling rule: {.val {unmet}}.",
       "i" = "The rule is Rhat below {rhat}, bulk and tail effective sample sizes above {ess}, and at most {divergent * 100}% of the draws from divergent transitions.",
       "i" = "{cli::qty(length(unmet))}{?It is/They are} kept in the fits returned; see {.field rhat}, {.field ess_bulk}, {.field ess_tail} and {.field divergent} in the summary."
-    ), class = "rTFT_not_converged")
+    ), class = "rTFT_rule_not_met")
   high <- model_summary$model[fitted & model_summary$high_k > 0]
   if (length(high))
     cli::cli_warn(c(

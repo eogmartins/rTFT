@@ -39,8 +39,11 @@ lost a chain, and cross-validated by importance sampling with \code{\link[=loo_h
 leaving out the unit settled when the bundle was written. A refit starts from the
 model's fit, read from the result of its task, so it runs only once that fit has
 ended well, and it predicts the units left out as \code{\link[=kfold_hazard]{kfold_hazard()}} does. Each
-model is compiled once, by its fit, into the folder \verb{stan/} of the bundle, where
-its refits find the compiled program. A refit draws the effects of the units it
+model is compiled once, by its fit, into a folder of its own under \verb{stan/} in the
+bundle, named after its fit task, where its refits find the compiled program; two
+models that share their Stan code, as two whose formulas differ only in the name
+of a covariate do, are therefore never compiled into one file at the same time. A
+refit draws the effects of the units it
 leaves out at random, with R's own generator; when the bundle was written with a
 \code{seed}, the refit sets R's seed from it and from the task's number, so that a
 refit run again gives the same estimate.

@@ -37,10 +37,12 @@ from that, into \code{"my-run-round-3"}.}
 \code{\link[=write_hpc_bundle]{write_hpc_bundle()}}. \code{NULL} (the default) keeps those of the bundle before.}
 
 \item{remote}{An optional character string, where on the cluster to copy the
-round, as in \code{\link[=write_hpc_bundle]{write_hpc_bundle()}}.}
+round, as in \code{\link[=write_hpc_bundle]{write_hpc_bundle()}}. \code{NULL} (the default) takes the bundle's, with
+its last folder renamed as the round's folder is (\code{scratch/my-run} becomes
+\code{scratch/my-run-round-2}).}
 
 \item{rtft_source}{An optional character string, where the cluster installs rTFT
-from, as in \code{\link[=write_hpc_bundle]{write_hpc_bundle()}}.}
+from, as in \code{\link[=write_hpc_bundle]{write_hpc_bundle()}}. \code{NULL} (the default) takes the bundle's.}
 
 \item{template}{A character string, the scripts of the round, as in
 \code{\link[=write_hpc_bundle]{write_hpc_bundle()}}.}
@@ -52,15 +54,17 @@ what to do next.
 \description{
 Writes a new bundle that fits again some of the models of a bundle written by
 \code{\link[=write_hpc_bundle]{write_hpc_bundle()}} (or of an earlier round), with new settings of the sampler
-and of the jobs: typically the models that did not meet the convergence rule, given
+and of the jobs: typically the models that did not meet the sampling rule, given
 more draws or a smaller step. The round is a bundle of its own, in a new folder,
 copied to the cluster and run with the same scripts as the first.
 }
 \details{
 Everything that makes the results of the rounds comparable is copied from the
 bundle before, never chosen again: the data (the file itself), the unit left out
-in cross-validation, the folds, the observation mode and the convergence rule, as
-well as the account, the modules and the R library of the cluster. With
+in cross-validation, the folds, the observation mode and the sampling rule, as
+well as the account, the modules and the R library of the cluster, where the
+bundle is copied to (with the round's own folder name) and where rTFT is
+installed from. With
 cross-validation by refitting, each model of the round is refitted on the same
 folds, starting from its new fit. \code{\link[=collect_hpc]{collect_hpc()}}, given the folders of every
 round, keeps for each model the result of its latest round.

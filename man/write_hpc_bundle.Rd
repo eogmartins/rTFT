@@ -54,7 +54,7 @@ refitting, one task per model and fold. Defaults to \code{FALSE}.}
 With fewer folds than units the units are assigned to folds at random, once;
 call \code{\link[=set.seed]{set.seed()}} first to get the same folds again.}
 
-\item{rhat, ess, divergent}{The limits of the convergence rule, as in
+\item{rhat, ess, divergent}{The limits of the sampling rule, as in
 \code{\link[=fit_hazard_models]{fit_hazard_models()}}.}
 
 \item{time}{A character string, the time each task may run, as Slurm's \code{--time}

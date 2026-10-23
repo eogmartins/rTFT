@@ -159,6 +159,19 @@ test_that("a model that gives a unit no chance at all is named, and weighted by 
 })
 
 
+test_that("a unit that no model gives any chance stops the weighting, by name", {
+  six <- paste0("t", 1:6)
+  a <- make_cv(stats::setNames(c(-10, -12, -9, -11, -10, -Inf), six))
+  b <- make_cv(stats::setNames(c(-9, -11, -8, -10, -9, -Inf), six))
+  for (method in c("stacking", "pseudobma"))
+    expect_error(suppressMessages(hazard_weights(list(a = a, b = b), method = method)),
+                 class = "rTFT_unit_unpredicted")
+  said <- tryCatch(suppressMessages(hazard_weights(list(a = a, b = b))),
+                   error = function(e) cli::ansi_strip(conditionMessage(e)))
+  expect_match(said, 'No model gives the unit "t6" any chance', fixed = TRUE)
+})
+
+
 test_that("models cross-validated with fewer folds than the others are named", {
   with_K <- function(x, K) { x$K <- K; x }
   k_fold <- purrr::map(cv3, \(x) make_cv(x$pointwise[, 1], column = "elpd_kfold"))

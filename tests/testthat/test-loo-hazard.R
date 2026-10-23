@@ -367,6 +367,12 @@ test_that("kfold_hazard uses loo_hazard's choice of unit, and passes options to 
 test_that("kfold_hazard needs a sensible number of folds", {
   for (bad in list(1, 9, 2.5, "four", c(2, 3)))
     expect_error(suppressMessages(kfold_hazard(fit_trials, K = bad)), class = "rTFT_bad_K")
+  # one fold per unit by default, and a single unit refused as a number of folds
+  # given would be: there is nothing to refit to
+  expect_equal(.check_K(NULL, 3), 3)
+  expect_error(.check_K(NULL, 1), class = "rTFT_bad_K")
+  said <- tryCatch(.check_K(NULL, 1), error = function(e) cli::ansi_strip(conditionMessage(e)))
+  expect_match(said, "There is 1 unit to leave out", fixed = TRUE)
 })
 
 

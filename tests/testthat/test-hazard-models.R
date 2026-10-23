@@ -195,7 +195,7 @@ test_that(".check_models accepts a table that was bound or cut, and refuses a br
 
 
 # ===========================================================================
-# 3. The convergence rule
+# 3. The sampling rule
 # ===========================================================================
 
 test_that(".fit_convergence reads the diagnostics of the parameters, not of each group's effect", {
@@ -233,13 +233,13 @@ test_that(".fit_convergence reads the diagnostics of the parameters, not of each
 test_that("the rule needs every diagnostic within its limit, and none missing", {
   good <- list(chains = 4, draws = 4000, rhat = 1.004, ess_bulk = 900, ess_tail = 700,
                divergent = 4L)
-  rule <- function(conv) .is_converged(conv, rhat = 1.01, ess = 400, divergent = 0.001)
+  rule <- function(conv) .meets_rule(conv, rhat = 1.01, ess = 400, divergent = 0.001)
   expect_true(rule(good))
   expect_false(rule(utils::modifyList(good, list(rhat = 1.01))))        # at the limit
   expect_false(rule(utils::modifyList(good, list(ess_bulk = 400))))
   expect_false(rule(utils::modifyList(good, list(ess_tail = 399))))
   expect_false(rule(utils::modifyList(good, list(divergent = 5L))))     # 5 of 4000
-  expect_true(.is_converged(utils::modifyList(good, list(divergent = 5L)), 1.01, 400, 0.002))
+  expect_true(.meets_rule(utils::modifyList(good, list(divergent = 5L)), 1.01, 400, 0.002))
   # a diagnostic that could not be computed is not a diagnostic that passed
   expect_false(rule(utils::modifyList(good, list(rhat = NA_real_))))
   expect_false(rule(utils::modifyList(good, list(ess_tail = NA_real_))))
@@ -303,7 +303,7 @@ test_that("the summary has one row per model, with its diagnostics and its cross
   out <- quietly(fit_hazard_models(two_models, long, chains = 2))
   s <- out$summary
   expect_named(s, c("model", "m_form", "baseline", "status", "message", "chains", "draws",
-                    "rhat", "ess_bulk", "ess_tail", "divergent", "converged",
+                    "rhat", "ess_bulk", "ess_tail", "divergent", "rule_met",
                     "rhat_group", "ess_group", "elpd_loo", "se_loo", "high_k", "seconds"))
   expect_equal(s$model, two_models$model)
   expect_equal(s$status, c("fitted", "fitted"))
@@ -325,25 +325,25 @@ test_that("the summary has one row per model, with its diagnostics and its cross
 })
 
 
-test_that("a fit that does not meet the convergence rule is kept, marked and named", {
+test_that("a fit that does not meet the sampling rule is kept, marked and named", {
   local_mocked_bindings(fit_hazard = stand_in_fit(new_record()))
   # the stored fits are short, 300 draws a chain, and do not meet the default rule
   expect_warning(
     out <- suppressMessages(fit_hazard_models(two_models, long, chains = 2)),
-    class = "rTFT_not_converged")
-  expect_equal(out$summary$converged, c(FALSE, FALSE))
+    class = "rTFT_rule_not_met")
+  expect_equal(out$summary$rule_met, c(FALSE, FALSE))
   expect_named(out$fits, c("exp_mem", "zeroexp_mem"))
   # under a rule they meet nothing is said, and under one that one of them meets
   # only the other is marked
   expect_no_warning(
     loose <- suppressMessages(fit_hazard_models(two_models, long, chains = 2, rhat = 1.5,
                                                 ess = 50, divergent = 0.01)),
-    class = "rTFT_not_converged")
-  expect_equal(loose$summary$converged, c(TRUE, TRUE))
+    class = "rTFT_rule_not_met")
+  expect_equal(loose$summary$rule_met, c(TRUE, TRUE))
   between <- mean(loose$summary$rhat)
   one <- quietly(fit_hazard_models(two_models, long, chains = 2, rhat = between, ess = 50))
-  expect_equal(one$summary$converged, loose$summary$rhat < between)
-  expect_equal(sum(one$summary$converged), 1)
+  expect_equal(one$summary$rule_met, loose$summary$rhat < between)
+  expect_equal(sum(one$summary$rule_met), 1)
 })
 
 
@@ -355,7 +355,7 @@ test_that("a model whose fit fails does not stop the others, and is reported", {
     two_models[2, ])
   expect_warning(
     out <- suppressMessages(suppressWarnings(
-      fit_hazard_models(three, long, chains = 2), classes = "rTFT_not_converged")),
+      fit_hazard_models(three, long, chains = 2), classes = "rTFT_rule_not_met")),
     class = "rTFT_models_failed")
   expect_length(record$calls, 3)                         # the third was still fitted
   expect_equal(out$summary$status, c("fitted", "failed", "fitted"))
@@ -365,7 +365,7 @@ test_that("a model whose fit fails does not stop the others, and is reported", {
   # and in neither list
   failed <- out$summary[2, ]
   expect_true(all(is.na(failed[c("chains", "draws", "rhat", "ess_bulk", "ess_tail",
-                                 "divergent", "converged", "rhat_group", "ess_group",
+                                 "divergent", "rule_met", "rhat_group", "ess_group",
                                  "elpd_loo", "se_loo", "high_k")])))
   expect_named(out$fits, c("exp_mem", "zeroexp_mem"))
   expect_named(out$loo, c("exp_mem", "zeroexp_mem"))
@@ -435,7 +435,7 @@ test_that("units for which importance sampling cannot be trusted are counted and
   expect_warning(
     out <- suppressMessages(suppressWarnings(
       fit_hazard_models(trial_models, long_trials, chains = 2),
-      classes = "rTFT_not_converged")),
+      classes = "rTFT_rule_not_met")),
     class = "rTFT_loo_unreliable")
   k <- out$loo$exp_mem$diagnostics$pareto_k
   expect_gt(sum(k > .k_threshold(600)), 0)
@@ -447,7 +447,7 @@ test_that("units for which importance sampling cannot be trusted are counted and
   # the warning points to refitting, unless refitting was asked for
   said <- function(kfold) tryCatch(
     suppressWarnings(.report_models(out$summary, 1.5, 50, 0.01, kfold = kfold),
-                     classes = "rTFT_not_converged"),
+                     classes = "rTFT_rule_not_met"),
     rTFT_loo_unreliable = function(w) conditionMessage(w))
   expect_match(said(FALSE), "kfold = TRUE", fixed = TRUE)
   expect_no_match(said(TRUE), "kfold = TRUE", fixed = TRUE)
@@ -525,6 +525,13 @@ test_that("one fold per unit is the default, and a unit given is left out by ref
 })
 
 
+test_that("a number of folds given without kfold is refused, since it would be ignored", {
+  expect_error(fit_hazard_models(two_models, long, K = 3), class = "rTFT_K_without_kfold")
+  expect_error(fit_hazard_models(two_models, long, kfold = FALSE, K = 2),
+               class = "rTFT_K_without_kfold")
+})
+
+
 test_that("a number of folds that cannot be is refused before any model is fitted", {
   record <- new_record()
   local_mocked_bindings(fit_hazard = stand_in_fit(record, always = fit_trials))
@@ -548,7 +555,7 @@ test_that("a model whose refits fail is left out of the results by refitting, an
   expect_warning(
     out <- suppressMessages(suppressWarnings(
       fit_hazard_models(trial_models, long_trials, kfold = TRUE, K = 2, chains = 2),
-      classes = c("rTFT_not_converged", "rTFT_loo_unreliable"))),
+      classes = c("rTFT_rule_not_met", "rTFT_loo_unreliable"))),
     class = "rTFT_models_failed")
   expect_named(out$kfold, "exp_mem")
   expect_named(out$fits, c("exp_mem", "exp_weibull"))    # its fit is kept

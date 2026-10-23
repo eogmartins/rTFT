@@ -71,14 +71,13 @@
     account     = !one(account),
     time        = !one(time) ||
                     !grepl("^([0-9]+-)?[0-9]+:[0-5][0-9]:[0-5][0-9]$", time),
-    mem_per_cpu = !one(mem_per_cpu) || !grepl("^[0-9]+[KMGT]?$", mem_per_cpu),
+    mem_per_cpu = !one(mem_per_cpu) || !grepl("^[1-9][0-9]*[KMGT]?$", mem_per_cpu),
     email       = !is.null(email) && (!one(email) || !grepl("@", email, fixed = TRUE)),
     modules     = !is.character(modules) || !length(modules) || anyNA(modules) ||
                     any(!nzchar(modules)),
     r_library   = !is.null(r_library) && !one(r_library),
     remote      = !is.null(remote) &&
-                    (!one(remote) || !grepl(":", remote, fixed = TRUE) ||
-                       grepl("[[:space:]]", remote)))
+                    (!one(remote) || !grepl("^[^:[:space:]]+:[^[:space:]]+$", remote)))
   if (any(bad))
     cli::cli_abort(c(
       "Some settings of the cluster cannot be used: {.arg {names(bad)[bad]}}.",
@@ -222,21 +221,27 @@
 # .model_key() / .check_distinct_models() ---------------------------------------
 
 # The model in row `i` of `models` as one string, to compare models by: its
-# failure-rate function, its baseline, the formula of each parameter, by parameter,
-# and its co-stressors, everything but its name.
+# failure-rate function, its baseline, the terms of the formula of each parameter,
+# by parameter and in sorted order (so that `~ 1 + mass` and `~ mass + 1` are one
+# formula), and its co-stressors, everything but its name.
 .model_key <- function(models, i) {
   as_text <- function(x) paste(deparse(x), collapse = " ")
+  terms_of <- function(f) {
+    t <- stats::terms(f)
+    paste(c(if (attr(t, "intercept") == 0) "0", sort(attr(t, "term.labels"))),
+          collapse = " + ")
+  }
   formulas <- models$dpar_formulas[[i]]
   given    <- sort(names(formulas))
   paste(c(models$m_form[i], models$baseline[i],
-          paste(given, vapply(formulas[given], as_text, character(1))),
+          paste(given, vapply(formulas[given], terms_of, character(1))),
           as_text(models$costressors[[i]])),
         collapse = "\r")
 }
 
 # Check that no two models of `models` are the same model under different names, and
-# return TRUE invisibly. On the cluster their tasks would run at the same time and
-# compile one program, whose file is named by its code, into the same file.
+# return TRUE invisibly. Fitted and cross-validated twice, such a model would be
+# weighted twice when the models are averaged.
 .check_distinct_models <- function(models) {
   keys <- vapply(seq_len(nrow(models)), \(i) .model_key(models, i), character(1))
   same <- keys %in% keys[duplicated(keys)]
@@ -245,7 +250,7 @@
                    \(m) paste0('"', m, '"', collapse = " and "), character(1))
     cli::cli_abort(c(
       "Some models of the table are the same model under different names: {sets}.",
-      "i" = "Fitted at the same time on the cluster, they would compile one program into the same file. Keep one of each."
+      "i" = "Fitted and cross-validated twice, such a model would be weighted twice when the models are averaged. Keep one of each."
     ), class = "rTFT_duplicate_models")
   }
   invisible(TRUE)
@@ -514,7 +519,7 @@
 #'   `TRUE`, as in [kfold_hazard()]. `NULL` (the default) gives one fold per unit.
 #'   With fewer folds than units the units are assigned to folds at random, once;
 #'   call [set.seed()] first to get the same folds again.
-#' @param rhat,ess,divergent The limits of the convergence rule, as in
+#' @param rhat,ess,divergent The limits of the sampling rule, as in
 #'   [fit_hazard_models()].
 #' @param time A character string, the time each task may run, as Slurm's `--time`
 #'   takes it: hours, minutes and seconds (`"12:00:00"`, the default), or days
@@ -621,7 +626,7 @@ write_hpc_bundle <- function(models, long, dir, account,
     observation  = plan$observation, unit = plan$unit, units = plan$units,
     kfold = kfold, K = if (kfold) K else NULL, folds = folds,
     rule = list(rhat = rhat, ess = ess, divergent = divergent),
-    chains = plan$chains, dots = dots,
+    chains = plan$chains, dots = dots, remote = remote, rtft_source = rtft_source,
     slurm = list(account = account, time = time, mem_per_cpu = mem_per_cpu,
                  cpus_per_task = plan$chains, email = email, modules = modules,
                  r_library = r_library))
@@ -646,14 +651,16 @@ write_hpc_bundle <- function(models, long, dir, account,
 #'
 #' Writes a new bundle that fits again some of the models of a bundle written by
 #' [write_hpc_bundle()] (or of an earlier round), with new settings of the sampler
-#' and of the jobs: typically the models that did not meet the convergence rule, given
+#' and of the jobs: typically the models that did not meet the sampling rule, given
 #' more draws or a smaller step. The round is a bundle of its own, in a new folder,
 #' copied to the cluster and run with the same scripts as the first.
 #'
 #' Everything that makes the results of the rounds comparable is copied from the
 #' bundle before, never chosen again: the data (the file itself), the unit left out
-#' in cross-validation, the folds, the observation mode and the convergence rule, as
-#' well as the account, the modules and the R library of the cluster. With
+#' in cross-validation, the folds, the observation mode and the sampling rule, as
+#' well as the account, the modules and the R library of the cluster, where the
+#' bundle is copied to (with the round's own folder name) and where rTFT is
+#' installed from. With
 #' cross-validation by refitting, each model of the round is refitted on the same
 #' folds, starting from its new fit. [collect_hpc()], given the folders of every
 #' round, keeps for each model the result of its latest round.
@@ -690,9 +697,11 @@ write_hpc_bundle <- function(models, long, dir, account,
 #' @param time,mem_per_cpu,email Optional settings of the jobs that change, as in
 #'   [write_hpc_bundle()]. `NULL` (the default) keeps those of the bundle before.
 #' @param remote An optional character string, where on the cluster to copy the
-#'   round, as in [write_hpc_bundle()].
+#'   round, as in [write_hpc_bundle()]. `NULL` (the default) takes the bundle's, with
+#'   its last folder renamed as the round's folder is (`scratch/my-run` becomes
+#'   `scratch/my-run-round-2`).
 #' @param rtft_source An optional character string, where the cluster installs rTFT
-#'   from, as in [write_hpc_bundle()].
+#'   from, as in [write_hpc_bundle()]. `NULL` (the default) takes the bundle's.
 #' @param template A character string, the scripts of the round, as in
 #'   [write_hpc_bundle()].
 #' @return The path of the round, invisibly. A message says what was written and
@@ -743,10 +752,6 @@ next_hpc_round <- function(dir, models, new_dir = NULL, ..., time = NULL,
   if (!is.null(time)) slurm$time <- time
   if (!is.null(mem_per_cpu)) slurm$mem_per_cpu <- mem_per_cpu
   if (!is.null(email)) slurm$email <- email
-  .check_hpc_settings(slurm$account, slurm$time, slurm$mem_per_cpu, slurm$email,
-                      slurm$modules, slurm$r_library, remote)
-  template_dir <- .template_dir(template)
-  rtft_source  <- .check_rtft_source(rtft_source)
   # the round's place in the chain of rounds: its number, and the first bundle and
   # the one before, by identity and by folder
   id       <- .bundle_id(dir)
@@ -761,6 +766,17 @@ next_hpc_round <- function(dir, models, new_dir = NULL, ..., time = NULL,
     new_dir <- file.path(dirname(here),
                          paste0(basename(of_round$first_dir), "-round-", number))
   .check_new_dir(new_dir, "new_dir")
+  # where the round is copied to and where rTFT is installed from, taken from the
+  # bundle before unless given; the last folder of the place on the cluster is
+  # renamed as the round's folder is (a bundle written before these were recorded
+  # has neither)
+  if (is.null(remote) && !is.null(before$remote))
+    remote <- sub("[^/:]*$", basename(new_dir), before$remote)
+  if (is.null(rtft_source)) rtft_source <- before$rtft_source
+  .check_hpc_settings(slurm$account, slurm$time, slurm$mem_per_cpu, slurm$email,
+                      slurm$modules, slurm$r_library, remote)
+  template_dir <- .template_dir(template)
+  rtft_source  <- .check_rtft_source(rtft_source)
 
   # the settings of the bundle before, with the sampler's changed and the round's
   # place in the chain of rounds: its number, the first bundle and the one before
@@ -773,6 +789,8 @@ next_hpc_round <- function(dir, models, new_dir = NULL, ..., time = NULL,
   settings$slurm <- slurm
   settings$created <- format(Sys.time(), "%Y-%m-%d %H:%M %Z")
   settings$brms_version <- as.character(utils::packageVersion("brms"))
+  settings$remote <- remote
+  settings$rtft_source <- rtft_source
   settings$round <- of_round
   n <- .write_bundle(new_dir, all_models, file.path(dir, "inputs", "data.rds"),
                      settings, rtft_source, remote, template_dir, to_fit = models)
@@ -1062,8 +1080,11 @@ check_hpc_bundle <- function(dir = ".") {
 #' leaving out the unit settled when the bundle was written. A refit starts from the
 #' model's fit, read from the result of its task, so it runs only once that fit has
 #' ended well, and it predicts the units left out as [kfold_hazard()] does. Each
-#' model is compiled once, by its fit, into the folder `stan/` of the bundle, where
-#' its refits find the compiled program. A refit draws the effects of the units it
+#' model is compiled once, by its fit, into a folder of its own under `stan/` in the
+#' bundle, named after its fit task, where its refits find the compiled program; two
+#' models that share their Stan code, as two whose formulas differ only in the name
+#' of a covariate do, are therefore never compiled into one file at the same time. A
+#' refit draws the effects of the units it
 #' leaves out at random, with R's own generator; when the bundle was written with a
 #' `seed`, the refit sets R's seed from it and from the task's number, so that a
 #' refit run again gives the same estimate.
@@ -1146,12 +1167,19 @@ run_hpc_task <- function(dir = ".", stage = "fit",
                .task_file(dir, stage, row$task, "started"), .write_csv_lf)
   cli::cli_inform("Running task {label}, on {host}.", class = "rTFT_task_progress")
 
-  # Each model is compiled into the folder stan/ of the bundle, where its refits find
-  # it: cmdstanr reuses a compiled program whose code is the same. The chains are
-  # given their cores directly, and mc.cores is left alone: set, it would make
-  # other functions copy this process with forks, which can hang for good once the
-  # threads of a loaded sampler are running (seen on Nibi, 2026-10-19).
-  old <- options(cmdstanr_write_stan_file_dir = normalizePath(file.path(dir, "stan")))
+  # Each model is compiled into a folder of its own under stan/, named after its fit
+  # task, where its refits find it: cmdstanr reuses a compiled program whose code is
+  # the same, and names the program by its code, so two models with the same code
+  # (two covariates of different names, say) compiled side by side in one folder
+  # would write one file at the same time. The chains are given their cores
+  # directly, and mc.cores is left alone: set, it would make other functions copy
+  # this process with forks, which can hang for good once the threads of a loaded
+  # sampler are running (seen on Nibi, 2026-10-19).
+  fits    <- .read_tasks(dir, "fit")
+  of_fit  <- if (stage == "fit") row$task else fits$task[fits$model == row$model]
+  stan_dir <- file.path(dir, "stan", sprintf("fit-%03d", of_fit))
+  dir.create(stan_dir, recursive = TRUE, showWarnings = FALSE)
+  old <- options(cmdstanr_write_stan_file_dir = normalizePath(stan_dir))
   on.exit(options(old), add = TRUE)
   begun <- proc.time()[["elapsed"]]
   # The version is checked here, among what the task records, so that a task stopped
@@ -1202,6 +1230,7 @@ run_hpc_task <- function(dir = ".", stage = "fit",
 # numbers shortened to its ends: "1-3,5,7-8".
 .array_ranges <- function(x) {
   x   <- sort(unique(as.integer(x)))
+  if (!length(x)) return("")
   run <- cumsum(c(1L, diff(x) != 1L))
   ends <- vapply(split(x, run), \(r) {
     if (length(r) == 1L) as.character(r) else paste0(r[1], "-", r[length(r)])
@@ -1291,19 +1320,25 @@ run_hpc_task <- function(dir = ".", stage = "fit",
         status <- record$status
         if (status == "failed") reason <- record$message
       }
-    } else if (file.exists(started)) {
+    }
+    started_job <- if (file.exists(started))
+      utils::read.csv(started, colClasses = "character")$job else NA_character_
+    if (is.null(record) && file.exists(started)) {
       status <- "started"
-      reason <- .log_reason(dir, stage,
-                            utils::read.csv(started, colClasses = "character")$job)
+      reason <- .log_reason(dir, stage, started_job)
     }
     # A task not done that was submitted after its files were last written waits in
-    # the queue: its files still tell of an earlier attempt, if any.
+    # the queue: its files still tell of an earlier attempt, if any. A task whose
+    # record of starting names the job of the latest submission was started by it,
+    # whatever the two clocks (the login node's at submission, the file system's
+    # for the record) say of each other.
     mine <- sent[sent$task == task, ]
     if (status != "done" && nrow(mine)) {
       files <- .task_file(dir, stage, task, c("csv", "started"))
       written <- suppressWarnings(max(as.numeric(file.info(files)$mtime), na.rm = TRUE))
       last <- mine[which.max(mine$time), ]
-      if (last$time > written) {
+      by_last <- !is.na(started_job) && identical(sub("_.*$", "", started_job), last$job)
+      if (!by_last && last$time > written) {
         status <- "queued"
         reason <- sprintf("submitted at %s as job %s, waiting to start",
                           format(as.POSIXct(last$time), "%Y-%m-%d %H:%M"), last$job)
@@ -1340,7 +1375,9 @@ run_hpc_task <- function(dir = ".", stage = "fit",
 #'
 #' When tasks remain to be run, the message gives the command that submits them
 #' again, and only them: it leaves out a task that may still be running or that
-#' waits in the queue. A task already done is never run twice.
+#' waits in the queue, and a refit whose fit is itself still queued or running,
+#' since the refit would start without its fit and fail. A task already done is
+#' never run twice.
 #'
 #' @param dir A character string, the folder of the bundle. Defaults to the working
 #'   folder, which is where `status.sh` runs it.
@@ -1402,6 +1439,14 @@ hpc_status <- function(dir = ".") {
     grepl("^it (ran out|was stopped|was cancelled)", not_done$reason)
   again   <- not_done[not_done$status %in% c("failed", "not started") | stopped, ]
   queued  <- not_done[not_done$status == "queued", ]
+  # A refit starts from its model's fit. One whose fit is neither done nor among the
+  # tasks to submit again would start at once, without its fit, and fail: it is
+  # left for when that fit has ended.
+  fits_done  <- states$model[states$stage == "fit" & states$status == "done"]
+  fits_again <- again$model[again$stage == "fit"]
+  with_fit   <- again$stage == "fit" | again$model %in% c(fits_done, fits_again)
+  later      <- again[!with_fit, ]
+  again      <- again[with_fit, ]
   submit  <- function(of) paste(c(
     "bash submit.sh",
     if (any(of$stage == "fit"))
@@ -1426,6 +1471,7 @@ hpc_status <- function(dir = ".") {
     "v" = if (!nrow(not_done)) "Every task is done. Copy {.file results/} back to your own computer as step 8 of {.file README.txt} says, and assemble the results there with {.fn collect_hpc}.",
     "i" = if (nrow(again)) "To submit again the tasks not done, and only those:",
     " " = if (nrow(again)) "{command}",
+    "i" = if (nrow(later)) "{nrow(later)} refit{?s} of a fit still queued or running {?is/are} left out; submit {?it/them} when that fit has ended.",
     "i" = if (running) "A task started without a record of its end may still be running; the command sq lists the tasks waiting or running.",
     "i" = if (nrow(queued)) "A task submitted and waiting to start is not submitted again. One that the command sq no longer lists was cancelled before it started; to submit those:",
     " " = if (nrow(queued)) "{if_gone}"
@@ -1469,7 +1515,13 @@ hpc_status <- function(dir = ".") {
     err$seconds <- as.numeric(record$seconds)
     return(err)
   }
-  if (!file.exists(file)) return(NULL)
+  # a record that says done without its result beside it: the copy back was cut
+  # short, or the file was removed, and the task is not to be taken as missing
+  if (!file.exists(file)) {
+    err <- simpleError(paste0("Its result is missing from results/, although its record says it ended well: copy results/ back again."))
+    err$seconds <- as.numeric(record$seconds)
+    return(err)
+  }
   res <- tryCatch(readRDS(file), error = function(e) unreadable(basename(file)))
   if (!identical(res$bundle, id)) foreign(basename(file))
   res
@@ -1619,7 +1671,7 @@ hpc_status <- function(dir = ".") {
 #' or with a result computed from another bundle: the files are checked against their
 #' checksums, and each result against the stamp of the bundle that computed it.
 #'
-#' The convergence rule of the bundle is applied to each fit and reported as
+#' The sampling rule of the bundle is applied to each fit and reported as
 #' [fit_hazard_models()] reports it. A model whose fit failed is reported with its
 #' reason, and one whose fit has no result yet (its task did not run, or has not
 #' finished) is marked `"missing"` in the summary and named in a warning, so the

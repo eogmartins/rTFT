@@ -37,7 +37,7 @@ Nothing is assembled from a bundle whose files have changed since it was written
 or with a result computed from another bundle: the files are checked against their
 checksums, and each result against the stamp of the bundle that computed it.
 
-The convergence rule of the bundle is applied to each fit and reported as
+The sampling rule of the bundle is applied to each fit and reported as
 \code{\link[=fit_hazard_models]{fit_hazard_models()}} reports it. A model whose fit failed is reported with its
 reason, and one whose fit has no result yet (its task did not run, or has not
 finished) is marked \code{"missing"} in the summary and named in a warning, so the

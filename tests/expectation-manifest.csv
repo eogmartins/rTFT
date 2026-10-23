@@ -2,11 +2,11 @@ file,expectations
 test-discrete-time-hazard-brms.R,547
 test-derive-tdt-ttl.R,248
 test-plot-tdt-ttl.R,154
-test-loo-hazard.R,123
-test-average-tdt-ttl.R,113
+test-loo-hazard.R,126
+test-average-tdt-ttl.R,116
 test-predict-survival.R,147
 test-plot-survival.R,84
 test-check-hazard.R,109
 test-plot-check.R,47
-test-hazard-models.R,197
-test-hpc.R,532
+test-hazard-models.R,199
+test-hpc.R,567

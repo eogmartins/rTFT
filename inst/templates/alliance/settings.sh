@@ -32,7 +32,7 @@ R_LIBRARY="{{r_library}}"
 # Alliance keep some modules loaded through a purge, and say so at length each time;
 # that notice is not shown. Errors in loading the modules below still are.
 load_r() {
-  module purge > /dev/null 2>&1
+  module purge > /dev/null 2>&1 || true
   module load $MODULES
   if [ -n "$R_LIBRARY" ]; then
     export R_LIBS="$R_LIBRARY"

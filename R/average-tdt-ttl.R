@@ -172,6 +172,15 @@ hazard_weights <- function(cv, method = c("stacking", "pseudobma"), min_weight =
       "i" = "Stacking and pseudo-BMA weights need the predictions of at least two units."
     ), class = "rTFT_too_few_units")
   lpd <- vapply(elpd, \(e) e[names(elpd[[1]])], numeric(n_units))
+  # A unit that no model gives any chance has no weight to tell the models apart
+  # by, and the stacking cannot start from it; the weights are defined only where
+  # some model predicts each unit.
+  unpredicted <- names(elpd[[1]])[apply(lpd, 1, \(x) all(x == -Inf))]
+  if (length(unpredicted))
+    cli::cli_abort(c(
+      "No model gives {cli::qty(length(unpredicted))}{?the unit/the units} {.val {unpredicted}} any chance at all (a log predictive density of -Inf in every model), so the models cannot be weighted.",
+      "i" = "{cli::qty(length(unpredicted))}Look at why every model rules {?it/them} out, such as a threshold above {?its/their} failures, before weighting the models."
+    ), class = "rTFT_unit_unpredicted")
   .say_zero_density(lpd, method)
 
   weight_all <- .cv_weights(lpd, method)

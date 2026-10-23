@@ -58,21 +58,20 @@ A list with four elements. \code{fits} is a named list of the fitted models
 (\code{brmsfit}), without those that failed. \code{loo} is a named list of their
 cross-validation results from \code{\link[=loo_hazard]{loo_hazard()}}. \code{kfold} is a named list of their
 results from \code{\link[=kfold_hazard]{kfold_hazard()}}, or \code{NULL} when \code{kfold} is \code{FALSE}. \code{summary} is a
-data frame with one row per model of the table: its name, failure-rate function and
-baseline; \code{status} (\code{"fitted"} or \code{"failed"}) and, for a model that failed, the
-reason in \code{message}; the number of \code{chains} and \code{draws}; the largest \code{rhat}, the
-smallest \code{ess_bulk} and \code{ess_tail} and the number of \code{divergent} draws;
-\code{converged}, whether the rule is met (a rule met, not a verdict on the
-sampling); \code{rhat_group} and \code{ess_group}, the largest
-Rhat and the smallest bulk or tail effective sample size over the group-level
-effects, outside the rule (\code{NA} for a model without them); \code{elpd_loo} with its
-standard error \code{se_loo}, and \code{high_k}, the number of units for which importance
-sampling cannot be trusted; \code{elpd_kfold} and \code{se_kfold} when \code{kfold} is \code{TRUE}; and
-\code{seconds}, the time the fit and its cross-validation took.
+data frame with one row per model of the table: its name, failure-rate function
+and baseline; \code{status} (\code{"fitted"} or \code{"failed"}) and, for a model that failed,
+the reason in \code{message}; the number of \code{chains} and \code{draws}; the largest \code{rhat},
+the smallest \code{ess_bulk} and \code{ess_tail} and the number of \code{divergent} draws;
+\code{rule_met}, whether the sampling rule is met; \code{rhat_group} and \code{ess_group}, the
+largest Rhat and the smallest bulk or tail effective sample size over the
+group-level effects, outside the rule (\code{NA} for a model without them); \code{elpd_loo}
+with its standard error \code{se_loo}, and \code{high_k}, the number of units for which
+importance sampling cannot be trusted; \code{elpd_kfold} and \code{se_kfold} when \code{kfold} is
+\code{TRUE}; and \code{seconds}, the time the fit and its cross-validation took.
 }
 \description{
 Fits each model of a table built with \code{\link[=build_hazard_models]{build_hazard_models()}} to the same data
-with \code{\link[=fit_hazard]{fit_hazard()}}, checks each fit for convergence by one rule, and
+with \code{\link[=fit_hazard]{fit_hazard()}}, checks the sampling of each fit by one rule, and
 cross-validates each with \code{\link[=loo_hazard]{loo_hazard()}}, leaving out the same unit. With
 \code{kfold = TRUE} each is also cross-validated by refitting, with
 \code{\link[=kfold_hazard]{kfold_hazard()}} and the same folds for every model. What it returns is what
@@ -89,21 +88,24 @@ returned and is reported, with the reason, in the summary and in a warning. A fi
 that lost one of its chains is treated as failed: the diagnostics of the chains
 that are left would make it look complete.
 
-The convergence rule is applied to the population-level coefficients and to the
-standard deviations and correlations of the group-level effects: the
-rank-normalised split-Rhat of each below \code{rhat}, the bulk and the tail effective
-sample size of each above \code{ess}, and at most the proportion \code{divergent} of the
-draws from divergent transitions. A fit that does not meet it is kept, since it
-is often the one to look at, and is marked in the summary and named in a warning.
+The sampling rule is applied to the population-level coefficients and to the standard
+deviations and correlations of the group-level effects: the rank-normalised
+split-Rhat of each below \code{rhat}, the bulk and the tail effective sample size of each
+above \code{ess}, and at most the proportion \code{divergent} of the draws from divergent
+transitions. The three check different things: Rhat whether the chains agree, the
+effective sample sizes how precise the draws are, and the divergent transitions
+whether the sampler could reach every region; the rule is not called convergence,
+which is only the first of them. A fit that does not meet it is kept, since it is
+often the one to look at, and is marked in the summary and named in a warning.
 Whether to refit it, drop it or keep it is left to the user; zero divergent
-transitions and a rule that is met are not, by themselves, evidence that a model
-was sampled well. The limit of 400 on the effective sample sizes is 100 per chain
-for the four chains of the default (Vehtari et al. 2021); with more chains, raise
-it in proportion. The tolerance on divergent transitions exists so that a stray
-one does not fail a fit that is otherwise well sampled; a divergent transition is
-still evidence of a region the sampler could not enter, so where any remain, look
-at where those draws fall against the group-level standard deviations before
-reading the fit, and set \code{divergent = 0} to refuse any.
+transitions and a rule that is met are not, by themselves, evidence that a model was
+sampled well. The limit of 400 on the effective sample sizes is 100 per chain for the
+four chains of the default (Vehtari et al. 2021); with more chains, raise it in
+proportion. The tolerance on divergent transitions exists so that a stray one does
+not fail a fit that is otherwise well sampled; a divergent transition is still
+evidence of a region the sampler could not enter, so where any remain, look at where
+those draws fall against the group-level standard deviations before reading the fit,
+and set \code{divergent = 0} to refuse any.
 
 The group-level effects themselves, such as the effect of each trial, are not
 part of the rule: a model with many levels would take its worst case over many

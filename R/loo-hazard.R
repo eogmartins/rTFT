@@ -356,15 +356,18 @@ loo_hazard <- function(fit, unit = NULL) {
   out
 }
 
-# The number of folds for `n` units: one per unit unless given, and otherwise a whole
-# number from 2 to `n`.
+# The number of folds for `n` units: one per unit unless given, and in either case a
+# whole number from 2 to `n`, so that a single unit, which leaves nothing to refit
+# to, is refused whether `K` is given or not.
 .check_K <- function(K, n) {
-  if (is.null(K)) return(n)
+  given <- !is.null(K)
+  if (!given) K <- n
   if (!is.numeric(K) || length(K) != 1L || !is.finite(K) || K != round(K) ||
       K < 2 || K > n)
     cli::cli_abort(c(
       "{.arg K} must be a whole number of folds from 2 to the number of units, {n}.",
-      "x" = "You supplied {.val {K}}."
+      "x" = if (given) "You supplied {.val {K}}."
+            else "There {?is/are} {n} unit{?s} to leave out, and cross-validation by refitting needs at least two."
     ), class = "rTFT_bad_K")
   K
 }

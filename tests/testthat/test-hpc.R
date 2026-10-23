@@ -428,6 +428,17 @@ test_that("settings of the cluster that Slurm would refuse are refused here", {
 })
 
 
+test_that("a remote without a host or a folder, and a memory of none, are refused", {
+  settings <- function(mem, remote)
+    .check_hpc_settings("def-test", "1:00:00", mem, NULL, "r/4.5.0", NULL, remote)
+  for (bad in list("me@host:", ":run", "me@host", "me@host: run"))
+    expect_error(settings("4G", bad), class = "rTFT_bad_hpc_setting")
+  expect_true(settings("4G", "me@host:run"))
+  for (bad in c("0", "0M", "4000MB"))
+    expect_error(settings(bad, NULL), class = "rTFT_bad_hpc_setting")
+})
+
+
 test_that("the cores and the backend are set for the cluster, not given", {
   dir <- file.path(withr::local_tempdir(), "run")
   expect_error(write_hpc_bundle(models, long, dir, account = "def-test", rtft_source = src,
@@ -459,6 +470,20 @@ test_that("the run is checked as fit_hazard_models() checks it, before anything 
 })
 
 
+test_that("a table with a single unit to leave out, and K without kfold, are refused", {
+  one <- ind
+  one$trial <- "a"
+  long_one <- suppressMessages(build_hazard_data(one, ramp, "interval", covariates = "trial",
+                                                 checks = checks, grid_dT = Inf))
+  dir <- file.path(withr::local_tempdir(), "run")
+  expect_error(suppressMessages(write_hpc_bundle(models, long_one, dir, account = "def-test",
+                                                 rtft_source = src, kfold = TRUE)),
+               class = "rTFT_bad_K")
+  expect_error(write_quietly(K = 3), class = "rTFT_K_without_kfold")
+  expect_false(dir.exists(dir))
+})
+
+
 test_that("two models that differ only in their names are refused", {
   dir <- file.path(withr::local_tempdir(), "run")
   again <- models[1, ]
@@ -472,11 +497,21 @@ test_that("two models that differ only in their names are refused", {
     error = function(e) cli::ansi_strip(conditionMessage(e)))
   expect_match(said, '"exp_mem" and "exp_mem_again"', fixed = TRUE)
   expect_false(dir.exists(dir))
+  # the same formula with its terms in another order is the same model
+  reordered <- again
+  reordered$dpar_formulas <- list(list(loga = ~ (1 | trial) + 1))
+  expect_error(.check_distinct_models(rbind(models, reordered)),
+               class = "rTFT_duplicate_models")
   # the same function and baseline with another formula, or with a co-stressor, is
   # another model
   other <- again
   other$dpar_formulas <- list(list(loga = ~ 1 + mass + (1 | trial)))
   expect_true(.check_distinct_models(rbind(models, other)))
+  renamed <- other
+  renamed$model <- "exp_mem_renamed"
+  renamed$dpar_formulas <- list(list(loga = ~ 1 + (1 | trial) + mass))
+  expect_error(.check_distinct_models(rbind(other, renamed)),
+               class = "rTFT_duplicate_models")
   stressed <- again
   stressed$costressors <- list(list(costressor("DO", column = "do", ref = 8.5, scale = 1,
                                                direction = -1)))
@@ -617,6 +652,38 @@ test_that("a round is written beside the bundle by default, named after the firs
                    rTFT_bad_dir = function(e) cli::ansi_strip(conditionMessage(e)))
   expect_match(said, "`new_dir` must be", fixed = TRUE)
   expect_error(next_hpc_round(NULL, "exp_mem"), class = "rTFT_bad_dir")
+})
+
+
+test_that("a round takes where it is copied to, and where rTFT comes from, from the bundle", {
+  dir <- file.path(withr::local_tempdir(), "my-run")
+  suppressMessages(write_hpc_bundle(models, long, dir, account = "def-test", rtft_source = src,
+                                    remote = "me@host:scratch/my-run"))
+  expect_equal(readRDS(file.path(dir, "inputs", "settings.rds"))$remote,
+               "me@host:scratch/my-run")
+  two <- suppressMessages(next_hpc_round(dir, "exp_mem"))
+  readme <- paste(readLines(file.path(two, "README.txt")), collapse = "\n")
+  expect_match(readme, "cd scratch/my-run-round-2", fixed = TRUE)
+  expect_match(readme, "me@host:scratch/my-run-round-2", fixed = TRUE)
+  expect_true(any(grepl(paste0('install_github("', src, '"'),
+                        readLines(file.path(two, "install.R")), fixed = TRUE)))
+  settings <- readRDS(file.path(two, "inputs", "settings.rds"))
+  expect_equal(settings$remote, "me@host:scratch/my-run-round-2")
+  expect_equal(settings$rtft_source, src)
+  # given, they are used in place of the bundle's
+  three <- suppressMessages(next_hpc_round(two, "exp_mem", remote = "me@host:elsewhere/r3",
+                                           rtft_source = "eogmartins/rTFT@v9"))
+  expect_match(paste(readLines(file.path(three, "README.txt")), collapse = "\n"),
+               "cd elsewhere/r3", fixed = TRUE)
+  expect_true(any(grepl('install_github("eogmartins/rTFT@v9"',
+                        readLines(file.path(three, "install.R")), fixed = TRUE)))
+  # a bundle written without a remote leaves the placeholders in its rounds too
+  plain <- file.path(withr::local_tempdir(), "plain")
+  suppressMessages(write_hpc_bundle(models, long, plain, account = "def-test",
+                                    rtft_source = src))
+  r2 <- suppressMessages(next_hpc_round(plain, "exp_mem"))
+  expect_match(paste(readLines(file.path(r2, "README.txt")), collapse = "\n"),
+               "cd <folder>", fixed = TRUE)
 })
 
 
@@ -850,6 +917,11 @@ test_that("the task numbers are written as Slurm's --array takes them, and read 
 # 5. Running a task (run_hpc_task)
 # ===========================================================================
 
+test_that("no task at all is written as no range", {
+  expect_equal(.array_ranges(integer(0)), "")
+})
+
+
 test_that("run_hpc_task fits the model of its task as fit_hazard_models() does, and keeps it", {
   record <- new_record()
   local_mocked_bindings(fit_hazard = stand_in_fit(record))
@@ -882,6 +954,26 @@ test_that("run_hpc_task fits the model of its task as fit_hazard_models() does, 
   expect_true(is.na(ended$message))
   expect_true(file.exists(.task_file(dir, "fit", 2, "started")))
   expect_length(list.files(file.path(dir, "results"), pattern = "[.]part$"), 0)
+})
+
+
+test_that("a model is compiled into a folder of its own, which its refits share", {
+  seen <- character(0)
+  note <- function() seen <<- c(seen, getOption("cmdstanr_write_stan_file_dir"))
+  local_mocked_bindings(
+    fit_hazard = function(...) { note(); fit_trials },
+    .refit_fold = function(fit, data, train, unit_values, ...) {
+      note()
+      held <- unique(as.character(unit_values[!train]))
+      list(elpd = stats::setNames(rep(-1, length(held)), held), fit = fit)
+    })
+  dir <- trial_bundle()
+  for (i in 1:2) run_quietly(dir, "fit", i)
+  run_quietly(dir, "kfold", 1)                      # a refit of exp_mem
+  run_quietly(dir, "kfold", 4)                      # a refit of exp_weibull
+  expect_equal(basename(seen), c("fit-001", "fit-002", "fit-001", "fit-002"))
+  expect_equal(unique(dirname(seen)), normalizePath(file.path(dir, "stan")))
+  expect_true(all(dir.exists(seen)))
 })
 
 
@@ -1198,6 +1290,12 @@ test_that("a task submitted again waits in the queue, and is not given to submit
   expect_no_match(said, "To submit again", fixed = TRUE)
   expect_match(said, "bash submit.sh --fit 2 --kfold 1-6", fixed = TRUE)   # if gone
   expect_plain_command(said, "the command sq no longer lists")
+  # a task whose record of starting names the latest submission's job was started by
+  # it, whatever the clocks say: refit 1 under job 96 is started, not queued
+  fake_start(dir, "kfold", 1, "96_1")
+  Sys.setFileTime(.task_file(dir, "kfold", 1, "started"), Sys.time() - 3600)
+  expect_equal(status_quietly(dir)$status[3], "started")
+  file.remove(.task_file(dir, "kfold", 1, "started"))
   # a submission older than a task's files is an earlier one
   writeLines(c('"time","stage","tasks","job"', paste0(now - 7200, ',"fit","2","90"')),
              file.path(dir, "results", "submitted.csv"))
@@ -1206,6 +1304,22 @@ test_that("a task submitted again waits in the queue, and is not given to submit
   # and without a record of submissions nothing is queued
   file.remove(file.path(dir, "results", "submitted.csv"))
   expect_false(any(status_quietly(dir)$status == "queued"))
+})
+
+
+test_that("the refits of a fit still queued are not offered to submit on their own", {
+  local_mocked_bindings(fit_hazard = stand_in_fit(new_record()))
+  dir <- trial_bundle()
+  run_quietly(dir, "fit", 1)
+  now <- round(as.numeric(Sys.time()))
+  writeLines(c('"time","stage","tasks","job"', paste0(now + 60, ',"fit","2","95"')),
+             file.path(dir, "results", "submitted.csv"))
+  states <- status_quietly(dir)
+  expect_equal(states$status[2], "queued")
+  said <- message_of(hpc_status(dir), "rTFT_hpc_status")
+  expect_match(said, "bash submit.sh --kfold 1-3", fixed = TRUE)
+  expect_no_match(said, "--kfold 1-6", fixed = TRUE)
+  expect_match(said, "3 refits of a fit still queued or running are left out", fixed = TRUE)
 })
 
 
@@ -1299,6 +1413,19 @@ test_that("collect_hpc returns what fit_hazard_models() returns for the same run
 })
 
 
+test_that("a record of done without its result is a failed task in collect_hpc too", {
+  local_mocked_bindings(fit_hazard = stand_in_fit(new_record()))
+  dir <- trial_bundle(kfold = FALSE)
+  for (i in 1:2) run_quietly(dir, "fit", i)
+  file.remove(.task_file(dir, "fit", 2, "rds"))
+  out <- suppressMessages(suppressWarnings(collect_hpc(dir)))
+  expect_equal(out$summary$status, c("fitted", "failed"))
+  expect_match(out$summary$message[2], "missing from results/", fixed = TRUE)
+  expect_match(out$summary$message[2], "copy results/ back again", fixed = TRUE)
+  expect_false(is.na(out$summary$seconds[2]))
+})
+
+
 test_that("models and folds without a result are named, and the rest is collected", {
   local_mocked_bindings(fit_hazard = stand_in_fit(new_record()),
                         .refit_fold = stand_in_refit(new_record()))
@@ -1307,7 +1434,7 @@ test_that("models and folds without a result are named, and the rest is collecte
   for (i in 1:2) run_quietly(dir, "kfold", i)
   expect_warning(expect_warning(
     out <- suppressMessages(suppressWarnings(
-      collect_hpc(dir), classes = c("rTFT_not_converged", "rTFT_loo_unreliable"))),
+      collect_hpc(dir), classes = c("rTFT_rule_not_met", "rTFT_loo_unreliable"))),
     class = "rTFT_tasks_missing"), class = "rTFT_models_failed")
   expect_equal(out$summary$status, c("fitted", "missing"))
   expect_named(out$fits, "exp_mem")
@@ -1510,8 +1637,9 @@ test_that("a model's latest round counts even when it failed or has no result", 
   two <- round_quietly(dir, "exp_weibull", iter = 4000)
   # the round has not run: the model is missing, not taken from the first bundle
   expect_warning(
-    out <- suppressMessages(suppressWarnings(collect_hpc(c(dir, two)),
-                                             classes = "rTFT_models_failed")),
+    out <- suppressMessages(suppressWarnings(
+      collect_hpc(c(dir, two)),
+      classes = c("rTFT_models_failed", "rTFT_rule_not_met", "rTFT_loo_unreliable"))),
     class = "rTFT_tasks_missing")
   expect_equal(out$summary$status, c("fitted", "missing"))
   expect_equal(out$summary$round, c(1L, 2L))

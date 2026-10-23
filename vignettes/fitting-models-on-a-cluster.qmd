@@ -96,10 +96,10 @@ stopifnot(
   length(out_of_time) == 2, length(failed_refits) == 8,
   # round 1 missed the rule on both models; round 2 on exp_weibull's divergences only;
   # round 3 met it on both
-  !any(r1$converged), all(r1$rhat >= 0.01 + 1), all(r1$ess_bulk < 400),
-  !weibull(r2, "converged"), weibull(r2, "ess_bulk") > 400,
+  !any(r1$rule_met), all(r1$rhat >= 0.01 + 1), all(r1$ess_bulk < 400),
+  !weibull(r2, "rule_met"), weibull(r2, "ess_bulk") > 400,
   weibull(r2, "divergent") / weibull(r2, "draws") > 0.001,
-  all(r3$converged), all(r3$round == 3),
+  all(r3$rule_met), all(r3$round == 3),
   # every refit used less memory than every fit
   max(memory$gb[memory$stage == "kfold"]) < min(memory$gb[memory$stage == "fit"]),
   length(n_listed) == 1, n_listed < install$packages,
@@ -383,7 +383,7 @@ The command of step 8 of `README.txt`, run in a terminal on our own computer, co
 #| label: collect
 #| eval: false
 fits <- collect_hpc("ramp-run")
-fits$summary[, c("model", "converged", "rhat", "ess_bulk", "ess_tail", "divergent",
+fits$summary[, c("model", "rule_met", "rhat", "ess_bulk", "ess_tail", "divergent",
                  "elpd_kfold", "se_kfold")]
 ```
 
@@ -394,11 +394,11 @@ fits$summary[, c("model", "converged", "rhat", "ess_bulk", "ess_tail", "divergen
 show_output("collect")
 ```
 
-Neither model met the convergence rule. Their Rhat, printed as 1.01, was `r sprintf("%.3f", mem(timeout$summary, "rhat"))` and `r sprintf("%.3f", weibull(timeout$summary, "rhat"))`, above the limit of 1.01, and their bulk effective sample sizes fell short of 400.
+Neither model met the sampling rule (`rule_met` in the summary: Rhat below 1.01, bulk and tail effective sample sizes above 400 and at most 0.1% of the draws from divergent transitions; see `?fit_hazard_models`). Their Rhat, printed as 1.01, was `r sprintf("%.3f", mem(timeout$summary, "rhat"))` and `r sprintf("%.3f", weibull(timeout$summary, "rhat"))`, above the limit of 1.01, and their bulk effective sample sizes fell short of 400.
 
 ## Rounds for models that did not converge
 
-A model that did not meet the convergence rule is fitted again with other settings of the sampler: more draws when the effective sample sizes are low, and a smaller step (a higher `adapt_delta`) when divergent transitions remain. The function `next_hpc_round()` writes a new bundle, a round, for the models named, beside the bundle it follows, with the same data, unit and folds, so that the results of every round can be assembled together. Only the settings of the sampler and of the jobs can change in a round, since anything else would make another model.
+A model that did not meet the sampling rule is fitted again with other settings of the sampler: more draws when the effective sample sizes are low, and a smaller step (a higher `adapt_delta`) when divergent transitions remain. The function `next_hpc_round()` writes a new bundle, a round, for the models named, beside the bundle it follows, with the same data, unit and folds, so that the results of every round can be assembled together. Only the settings of the sampler and of the jobs can change in a round, since anything else would make another model.
 
 Both models of the run above missed the rule. We first fitted the Weibull model again with three times as many iterations.
 
@@ -446,7 +446,7 @@ The third round was copied to the cluster, checked, submitted and copied back in
 #| label: rounds-collect
 #| eval: false
 fits <- collect_hpc(c("ramp-run", "ramp-run-round-2", "ramp-run-round-3"))
-fits$summary[, c("model", "round", "converged", "rhat", "ess_bulk", "ess_tail",
+fits$summary[, c("model", "round", "rule_met", "rhat", "ess_bulk", "ess_tail",
                  "divergent", "draws", "elpd_kfold")]
 ```
 
@@ -510,5 +510,5 @@ The scripts themselves can be replaced: `write_hpc_bundle()` takes, in `template
 ::: {.callout-note}
 ## Captured output
 
-The output of this vignette was captured on the cluster Fir and on the computer that wrote the bundles: the run from start to end on `r stamp$timeout$date` (`rTFT` at commit `r stamp$timeout$commit` of the development version that became 0.2.0), the first install on `r stamp$install$date` (at `r stamp$install$commit`), the rounds on `r stamp$rounds$date` (at `r stamp$rounds$commit`), from an earlier run of the same bundle on the same cluster, which gave the same fits (the sampler is seeded; a seed does not reproduce draws across machines) and estimates by refitting that differ by under 1 in elpd, since the effects of the trials left out were drawn with an unseeded generator in that run; and the build of CmdStan on `r stamp$cmdstan$date`, from a second install on the login node; all with `brms` `r stamp$brms`. Five changes were made to it: (i) the user name is replaced by `someone`, (ii) the folder of the runs on that computer by `~/my-runs`, and (iii) the name of every bundle by `ramp-run`; (iv) the notice of the modules reloaded is shown once; and (v) the logs of the installs are shown by selected lines. `sq` cuts the account to 12 characters, so `def-someone` in its output stands for `def-someone_cpu`. The bundle and its `README.txt` are written when the vignette is built.
+The output of this vignette was captured on the cluster Fir and on the computer that wrote the bundles: the run from start to end on `r stamp$timeout$date` (`rTFT` at commit `r stamp$timeout$commit` of the development version that became 0.2.0), the first install on `r stamp$install$date` (at `r stamp$install$commit`), the rounds on `r stamp$rounds$date` (at `r stamp$rounds$commit`), from an earlier run of the same bundle on the same cluster, which gave the same fits (the sampler is seeded; a seed does not reproduce draws across machines) and estimates by refitting that differ by under 1 in elpd, since the effects of the trials left out were drawn with an unseeded generator in that run; and the build of CmdStan on `r stamp$cmdstan$date`, from a second install on the login node; all with `brms` `r stamp$brms`. Six changes were made to it: (i) the user name is replaced by `someone`, (ii) the folder of the runs on that computer by `~/my-runs`, and (iii) the name of every bundle by `ramp-run`; (iv) the notice of the modules reloaded is shown once; (v) the logs of the installs are shown by selected lines; and (vi) the column `converged` of the summaries and the warning's "convergence rule" have the names given to them afterwards, `rule_met` and "sampling rule". `sq` cuts the account to 12 characters, so `def-someone` in its output stands for `def-someone_cpu`. The bundle and its `README.txt` are written when the vignette is built.
 :::

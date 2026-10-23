@@ -7,7 +7,9 @@
   formula is given to the models that have its parameter, and a name that is
   misspelt is reported before anything is fitted.
 * `fit_hazard_models()` fits every model of the table to the same data, checks
-  each fit for convergence by one rule, and cross-validates each with the same
+  the sampling of each fit by one rule (Rhat, the effective sample sizes and the
+  divergent transitions, met or not in the column `rule_met` of its summary), and
+  cross-validates each with the same
   unit left out, by importance sampling and, when asked, by refitting with the
   same folds for every model. A model that fails does not stop the others. It
   returns the fits and the cross-validation results as `hazard_weights()` and
@@ -16,7 +18,9 @@
   all (a log predictive density of -Inf), as a model with a threshold can for a
   unit whose failures it places below the threshold. Pseudo-BMA gives such a
   model a weight of zero; stacking can still weight it, even the most, when
-  other models predict that unit, and the message and the help say why.
+  other models predict that unit, and the message and the help say why. A unit
+  that no model gives any chance stops the weighting with an error that names
+  it, where the stacking would otherwise fail without saying why.
 
 ## Running on a cluster
 
@@ -53,8 +57,9 @@
   and folds without a result are named.
 * `next_hpc_round()` writes the next round of a bundle for some of its models,
   typically those that did not converge, with new settings of the sampler and
-  of the jobs. The data, the unit, the folds and the convergence rule are
-  copied from the bundle, never chosen again, and a change that would make
+  of the jobs. The data, the unit, the folds and the sampling rule are copied
+  from the bundle, never chosen again, as are the place on the cluster the bundle
+  is copied to and where rTFT is installed from, and a change that would make
   another model, such as a prior, is refused. A round can name any model of the
   first bundle, so a model left out of one round can be fitted again in a later
   one. `collect_hpc()`, given the folders of a bundle and of its rounds, takes
@@ -62,9 +67,11 @@
   result yet, and says which round in a new column of the summary, `round`.
 * The bundle's folder `inputs/` holds the data, the models, the settings and the
   tasks with their checksums; `write_hpc_bundle()` refuses a table in which the
-  same model appears under two names, whose tasks would compile one program into
-  the same file; and `install.sh` keeps its temporary files out of the login
-  node's `/tmp`, which is small and shared.
+  same model appears under two names, which would be weighted twice; each model
+  is compiled into a folder of its own under `stan/`, so that two models with the
+  same Stan code are never compiled into one file at the same time; and
+  `install.sh` keeps its temporary files out of the login node's `/tmp`, which
+  is small and shared.
 * A fifth vignette, *Fitting models on a cluster*, takes a user who has never
   used a cluster from an account on the clusters of the Digital Research
   Alliance of Canada to the assembled results of a comparison, with the output
@@ -121,7 +128,7 @@
   estimates (they differed by about 1 in elpd in a test on a cluster), and a seed
   gives the same estimate again without making it more precise. The help of
   `kfold_hazard()` and `fit_hazard_models()` says so, and the help of
-  `fit_hazard_models()` says where the limits of its convergence rule come from.
+  `fit_hazard_models()` says where the limits of its sampling rule come from.
 * `tools` is imported (for the checksums of a bundle), `cmdstanr` and `withr`
   are suggested, and `Additional_repositories` names the repository of
   `cmdstanr`, which is not on CRAN.

@@ -36,7 +36,9 @@ waiting or running.
 
 When tasks remain to be run, the message gives the command that submits them
 again, and only them: it leaves out a task that may still be running or that
-waits in the queue. A task already done is never run twice.
+waits in the queue, and a refit whose fit is itself still queued or running,
+since the refit would start without its fit and fail. A task already done is
+never run twice.
 }
 \examples{
 \dontrun{
