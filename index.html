@@ -29,7 +29,7 @@
 
     <a class="navbar-brand me-2" href="index.html">rTFT</a>
 
-    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.1.1</small>
+    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.2.0</small>
 
 
     <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbar" aria-controls="navbar" aria-expanded="false" aria-label="Toggle navigation">
@@ -45,6 +45,7 @@
     <li><a class="dropdown-item" href="articles/ramping-assays.html">Ramping assays</a></li>
     <li><a class="dropdown-item" href="articles/comparing-and-averaging-models.html">Comparing and averaging models</a></li>
     <li><a class="dropdown-item" href="articles/temperature-and-a-co-stressor.html">Temperature and a co-stressor</a></li>
+    <li><a class="dropdown-item" href="articles/fitting-models-on-a-cluster.html">Fitting models on a cluster</a></li>
   </ul>
 </li>
 <li class="nav-item"><a class="nav-link" href="reference/index.html">Reference</a></li>
@@ -91,7 +92,7 @@
 <p>From R-universe, where the package is already built, vignettes included, so that neither <code>remotes</code> nor Quarto is needed.</p>
 <div class="sourceCode" id="cb2"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="fu"><a href="https://rdrr.io/r/utils/install.packages.html" class="external-link">install.packages</a></span><span class="op">(</span><span class="st">"rTFT"</span>, repos <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"https://eogmartins.r-universe.dev"</span>, <span class="st">"https://cloud.r-project.org"</span><span class="op">)</span><span class="op">)</span></span></code></pre></div>
-<p>Fitting a model requires a working installation of Stan, through either <code>cmdstanr</code> or <code>rstan</code> (see the <a href="https://github.com/paul-buerkner/brms#how-do-i-install-brms" class="external-link">installation notes of brms</a>). <code>cmdstanr</code> is recommended and was used to fit the models of the vignettes; it is not on CRAN and is installed with <code>install.packages("cmdstanr", repos = c("https://stan-dev.r-universe.dev", getOption("repos")))</code> followed by <code>cmdstanr::install_cmdstan()</code>. It is asked for with <code>backend = "cmdstanr"</code> in <code><a href="reference/fit_hazard.html">fit_hazard()</a></code>, as in the example below; without it, leave that argument out and brms uses <code>rstan</code>.</p>
+<p>Fitting a model requires a working installation of Stan, through either <code>cmdstanr</code> or <code>rstan</code> (see the <a href="https://github.com/paul-buerkner/brms#how-do-i-install-brms" class="external-link">installation notes of brms</a>). <code>cmdstanr</code> is recommended and was used to fit the models of the vignettes; it is not on CRAN and is installed with <code>install.packages("cmdstanr", repos = c("https://stan-dev.r-universe.dev", getOption("repos")))</code> followed by <code><a href="https://mc-stan.org/cmdstanr/reference/install_cmdstan.html" class="external-link">cmdstanr::install_cmdstan()</a></code>. It is asked for with <code>backend = "cmdstanr"</code> in <code><a href="reference/fit_hazard.html">fit_hazard()</a></code>, as in the example below; without it, leave that argument out and brms uses <code>rstan</code>.</p>
 </div>
 <div class="section level2">
 <h2 id="example">Example<a class="anchor" aria-label="anchor" href="#example"></a>
@@ -129,7 +130,7 @@
 <div class="section level2">
 <h2 id="vignettes">Vignettes<a class="anchor" aria-label="anchor" href="#vignettes"></a>
 </h2>
-<p>Four vignettes describe the package, and are best read in this order. They can be read, with the help pages, on the <a href="https://eogmartins.github.io/rTFT/">website of the package</a>.</p>
+<p>Five vignettes describe the package, and are best read in this order. They can be read, with the help pages, on the <a href="https://eogmartins.github.io/rTFT/">website of the package</a>.</p>
 <ol style="list-style-type: decimal">
 <li>
 <em>Getting started with rTFT</em> (<code><a href="articles/getting-started.html">vignette("getting-started", package = "rTFT")</a></code>): the model, a static assay, the checks of a fitted model, the derived quantities and a prediction of survival along a record of stream temperature.</li>
@@ -139,6 +140,8 @@
 <em>Comparing and averaging models</em> (<code><a href="articles/comparing-and-averaging-models.html">vignette("comparing-and-averaging-models", package = "rTFT")</a></code>): cross-validation by individual or trial, model weights and averaged predictions.</li>
 <li>
 <em>Temperature and a co-stressor</em> (<code><a href="articles/temperature-and-a-co-stressor.html">vignette("temperature-and-a-co-stressor", package = "rTFT")</a></code>): dissolved oxygen as a second stressor, with and without an interaction with temperature.</li>
+<li>
+<em>Fitting models on a cluster</em> (<code><a href="articles/fitting-models-on-a-cluster.html">vignette("fitting-models-on-a-cluster", package = "rTFT")</a></code>): the fits and refits of a comparison run side by side on a cluster of the Digital Research Alliance of Canada, from the account to the assembled results.</li>
 </ol>
 </div>
 <div class="section level2">
@@ -152,7 +155,7 @@
 </h2>
 <p>If you use the package, please cite it as:</p>
 <blockquote>
-<p>Martins, E. G. (2026). rTFT: hazard models for thermal failure time data. R package version 0.1.1. <a href="https://doi.org/10.5281/zenodo.23319254" class="external-link uri">https://doi.org/10.5281/zenodo.23319254</a></p>
+<p>Martins, E. G. (2026). rTFT: hazard models for thermal failure time data. R package version 0.2.0. <a href="https://doi.org/10.5281/zenodo.23319254" class="external-link uri">https://doi.org/10.5281/zenodo.23319254</a></p>
 </blockquote>
 <p>The same reference is given by <code>citation("rTFT")</code>. The DOI stands for every version of the package and leads to the most recent one; each version is archived with a DOI of its own on the same page.</p>
 </div>

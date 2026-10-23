@@ -7,7 +7,7 @@
 
     <a class="navbar-brand me-2" href="../index.html">rTFT</a>
 
-    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.1.1</small>
+    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.2.0</small>
 
 
     <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbar" aria-controls="navbar" aria-expanded="false" aria-label="Toggle navigation">
@@ -21,6 +21,7 @@
     <li><a class="dropdown-item" href="../articles/ramping-assays.html">Ramping assays</a></li>
     <li><a class="dropdown-item" href="../articles/comparing-and-averaging-models.html">Comparing and averaging models</a></li>
     <li><a class="dropdown-item" href="../articles/temperature-and-a-co-stressor.html">Temperature and a co-stressor</a></li>
+    <li><a class="dropdown-item" href="../articles/fitting-models-on-a-cluster.html">Fitting models on a cluster</a></li>
   </ul></li>
 <li class="active nav-item"><a class="nav-link" href="../reference/index.html">Reference</a></li>
 <li class="nav-item"><a class="nav-link" href="../news/index.html">Changelog</a></li>
@@ -202,6 +203,20 @@
 
       <dl><dt>
 
+          <code><a href="build_hazard_models.html">build_hazard_models()</a></code>
+
+        </dt>
+        <dd>A table of failure-rate models to fit and compare</dd>
+
+        <dt>
+
+          <code><a href="fit_hazard_models.html">fit_hazard_models()</a></code>
+
+        </dt>
+        <dd>Fit, check and cross-validate the models of a table</dd>
+
+        <dt>
+
           <code><a href="loo_hazard.html">loo_hazard()</a></code>
 
         </dt>
@@ -241,6 +256,57 @@
 
         </dt>
         <dd>Survival along a record of temperature, averaged over several fitted models</dd>
+      </dl></div><div class="section level2">
+      <h2 id="running-on-a-cluster">Running on a cluster<a class="anchor" aria-label="anchor" href="#running-on-a-cluster"></a></h2>
+
+      <div class="section-desc"><p>Fitting a table of models on a cluster that schedules its jobs with Slurm.</p></div>
+
+      <dl></dl></div><div class="section level2">
+
+
+
+
+      <dl><dt>
+
+          <code><a href="write_hpc_bundle.html">write_hpc_bundle()</a></code>
+
+        </dt>
+        <dd>Write a table of models into a folder to fit on a cluster</dd>
+
+        <dt>
+
+          <code><a href="check_hpc_bundle.html">check_hpc_bundle()</a></code>
+
+        </dt>
+        <dd>Check a bundle and the R that will fit it, before anything is submitted</dd>
+
+        <dt>
+
+          <code><a href="run_hpc_task.html">run_hpc_task()</a></code>
+
+        </dt>
+        <dd>Run one task of a bundle on the cluster</dd>
+
+        <dt>
+
+          <code><a href="hpc_status.html">hpc_status()</a></code>
+
+        </dt>
+        <dd>What each task of a bundle has done, and what to do next</dd>
+
+        <dt>
+
+          <code><a href="collect_hpc.html">collect_hpc()</a></code>
+
+        </dt>
+        <dd>Assemble the results of a bundle run on a cluster</dd>
+
+        <dt>
+
+          <code><a href="next_hpc_round.html">next_hpc_round()</a></code>
+
+        </dt>
+        <dd>Write the next round of a bundle, for some of its models</dd>
       </dl></div><div class="section level2">
       <h2 id="predicting-survival">Predicting survival<a class="anchor" aria-label="anchor" href="#predicting-survival"></a></h2>
 

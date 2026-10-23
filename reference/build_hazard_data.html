@@ -21,7 +21,7 @@ finer sub-grid is required but can be provided."><meta property="og:image" conte
 
     <a class="navbar-brand me-2" href="../index.html">rTFT</a>
 
-    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.1.1</small>
+    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.2.0</small>
 
 
     <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbar" aria-controls="navbar" aria-expanded="false" aria-label="Toggle navigation">
@@ -35,6 +35,7 @@ finer sub-grid is required but can be provided."><meta property="og:image" conte
     <li><a class="dropdown-item" href="../articles/ramping-assays.html">Ramping assays</a></li>
     <li><a class="dropdown-item" href="../articles/comparing-and-averaging-models.html">Comparing and averaging models</a></li>
     <li><a class="dropdown-item" href="../articles/temperature-and-a-co-stressor.html">Temperature and a co-stressor</a></li>
+    <li><a class="dropdown-item" href="../articles/fitting-models-on-a-cluster.html">Fitting models on a cluster</a></li>
   </ul></li>
 <li class="active nav-item"><a class="nav-link" href="../reference/index.html">Reference</a></li>
 <li class="nav-item"><a class="nav-link" href="../news/index.html">Changelog</a></li>
@@ -49,7 +50,7 @@ finer sub-grid is required but can be provided."><meta property="og:image" conte
 <div class="row">
   <main id="main" class="col-md-9"><div class="page-header">
       <img src="../logo.png" class="logo" alt=""><h1>Build the row-per-interval table a failure-rate model is fitted to</h1>
-      <small class="dont-index">Source: <a href="https://github.com/eogmartins/rTFT/blob/v0.1.1/R/discrete-time-hazard-brms.R" class="external-link"><code>R/discrete-time-hazard-brms.R</code></a></small>
+      <small class="dont-index">Source: <a href="https://github.com/eogmartins/rTFT/blob/main/R/discrete-time-hazard-brms.R" class="external-link"><code>R/discrete-time-hazard-brms.R</code></a></small>
       <div class="d-none name"><code>build_hazard_data.Rd</code></div>
     </div>
 
@@ -102,16 +103,17 @@ after it began cannot be represented.</p></dd>
 <dd><p>A data frame giving the temperature trajectory for each path.
 Required columns: <code>path_id</code>, <code>time</code>, <code>temp</code>. The function interpolates these
 points linearly in time, so a minimal two-point path (start and end) encodes a
-linear ramp. Interpolation uses the full series, so a temperature data logger
-whose records are finer than the checks still supplies the true temperature at
-each interval midpoint (never a check-to-check straight line); the checks control
-only the integration grid, not the temperature. Temperatures outside the recorded
-time range are held flat at the nearest endpoint rather than returned as <code>NA</code>,
-because the at-risk grid (the checks, the exact failure time, and the <code>t = 0</code>
-start) need not sit strictly inside the logged times: a check or failure time
-can fall just past the last reading, or the first interval can begin before the
-first reading, and an <code>NA</code> temperature there would propagate into <code>Ta</code> and the
-linear predictor.</p></dd>
+linear ramp, and each path has one reading at each time: a sudden change is
+written as two readings a moment apart (e.g., at 10 and 10.01). Interpolation uses
+the full series, so a temperature data logger whose records are finer than the
+checks still supplies the true temperature at each interval midpoint (never a
+check-to-check straight line); the checks control only the integration grid, not
+the temperature. Temperatures outside the recorded time range are held flat at
+the nearest endpoint rather than returned as <code>NA</code>, because the at-risk grid (the
+checks, the exact failure time, and the <code>t = 0</code> start) need not sit strictly inside
+the logged times: a check or failure time can fall just past the last reading, or
+the first interval can begin before the first reading, and an <code>NA</code> temperature
+there would propagate into <code>Ta</code> and the linear predictor.</p></dd>
 
 
 <dt id="arg-observation">observation<a class="anchor" aria-label="anchor" href="#arg-observation"></a></dt>
@@ -219,7 +221,17 @@ midpoint, is then understated by about (b dT)^2 / 24, that is by 0.1% over a
 tenth of a degree and by 3% over half a degree, an error that grows with the
 square of the change in temperature. So any interval over which temperature
 changes by more than <code>grid_dT</code> is divided into equal parts, each with its own
-row, and a message says how many rows resulted.</p>
+row; a part that still changes by more, where the path bends within the interval
+(a logged record, or a ramp held and then resumed), is divided again; and a
+message says how many rows resulted.</p>
+<p>The error left by the default step grows with the square of b. In simulations of
+large ramping assays (eight assays of 3,000 individuals at three ramp rates,
+fitted by maximum likelihood), the default of 0.1 degrees
+raised b and the Weibull shape by about 0.1% at b = 1.7 and by about 1% at b =
+4.7, and sCTmax by 0.007 degrees at b = 4.7; dCTmax was not affected. Those are
+small against the uncertainty of an assay of a hundred or so individuals. Where
+the fitted b is above about 3, a step of 0.05 makes them about four times
+smaller, at the cost of twice the rows and about twice the time to fit.</p>
 <p>Two cases are treated apart. A failure at a known time needs the hazard at the
 moment it happened, and the midpoint of the interval it fell in is earlier and,
 in a ramp, cooler; so that interval is closed with a very short one ending at the
@@ -228,9 +240,17 @@ ramp followed in intervals of a minute underestimated b = 1.7 by about 4% in a
 simulation of eight large assays, and with it b was recovered whatever the
 length of the intervals. A failure known only to the interval between two
 checks keeps that interval whole, since where in it the individual failed is
-not known, and its contribution is the probability of failing anywhere in it. A
-warning is given when temperature changes by more than half a degree within
-such an interval, so that the estimates can be interpreted with that in mind.</p>
+not known, and its contribution is the probability of failing anywhere in it.
+Its hazard is still taken at its midpoint, and on a ramp checked at long
+intervals that is the largest error of all, because the grid cannot reduce it:
+in simulations of ramps of 0.1 to 0.3 degrees per minute checked every 3 minutes
+(failure intervals of 0.3 to 0.9 degrees), b was 3% low and sCTmax 0.07 degrees
+low at b = 1.7, and 20% and 0.23 degrees low at b = 4.7, whatever the step. A
+warning is given when temperature changes by more than half a degree within such
+an interval. On a ramp, check often enough that temperature changes by a few
+tenths of a degree at most between checks, the fewer the higher b, or record the
+time of each failure. A static assay is not affected, since temperature does not
+change within its intervals.</p>
 <p>When neither <code>checks</code> nor <code>grid_dt</code> is given for failures at known times, the
 intervals are those between the readings of <code>path</code>, divided as above, and into
 at least 20 per individual, so that a trajectory given by its two ends is still
@@ -240,64 +260,59 @@ followed closely.</p>
     <div class="section level2">
     <h2 id="ref-examples">Examples<a class="anchor" aria-label="anchor" href="#ref-examples"></a></h2>
     <div class="sourceCode"><pre class="sourceCode r"><code><span class="r-in"><span><span class="co"># A single linear ramp encoded as two points: 20 -&gt; 35 degrees over 60 minutes,</span></span></span>
-<span class="r-in"><span><span class="co"># with failure checked for every 10 minutes.</span></span></span>
+<span class="r-in"><span><span class="co"># with failure checked for every minute.</span></span></span>
 <span class="r-in"><span><span class="va">path</span>   <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/data.frame.html" class="external-link">data.frame</a></span><span class="op">(</span>path_id <span class="op">=</span> <span class="st">"A"</span>, time <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="fl">0</span>, <span class="fl">60</span><span class="op">)</span>, temp <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="fl">20</span>, <span class="fl">35</span><span class="op">)</span><span class="op">)</span></span></span>
-<span class="r-in"><span><span class="va">checks</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/data.frame.html" class="external-link">data.frame</a></span><span class="op">(</span>path_id <span class="op">=</span> <span class="st">"A"</span>, time <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/seq.html" class="external-link">seq</a></span><span class="op">(</span><span class="fl">0</span>, <span class="fl">60</span>, by <span class="op">=</span> <span class="fl">10</span><span class="op">)</span><span class="op">)</span></span></span>
+<span class="r-in"><span><span class="va">checks</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/data.frame.html" class="external-link">data.frame</a></span><span class="op">(</span>path_id <span class="op">=</span> <span class="st">"A"</span>, time <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/seq.html" class="external-link">seq</a></span><span class="op">(</span><span class="fl">0</span>, <span class="fl">60</span>, by <span class="op">=</span> <span class="fl">1</span><span class="op">)</span><span class="op">)</span></span></span>
 <span class="r-in"><span></span></span>
 <span class="r-in"><span><span class="co"># Interval-censored: one failure found at the 30-minute check, one survivor.</span></span></span>
 <span class="r-in"><span><span class="va">ind</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/data.frame.html" class="external-link">data.frame</a></span><span class="op">(</span>id <span class="op">=</span> <span class="fl">1</span><span class="op">:</span><span class="fl">2</span>, path_id <span class="op">=</span> <span class="st">"A"</span>, event <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="fl">1</span>, <span class="fl">0</span><span class="op">)</span>, t_upper <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="fl">30</span>, <span class="fl">60</span><span class="op">)</span><span class="op">)</span></span></span>
 <span class="r-in"><span><span class="fu">build_hazard_data</span><span class="op">(</span><span class="va">ind</span>, <span class="va">path</span>, <span class="st">"interval"</span>, checks <span class="op">=</span> <span class="va">checks</span><span class="op">)</span></span></span>
-<span class="r-msg co"><span class="r-pr">#&gt;</span> <span style="color: #00BBBB;">ℹ</span> The intervals at risk were divided further, into 201 rows from 9, so that</span>
+<span class="r-msg co"><span class="r-pr">#&gt;</span> <span style="color: #00BBBB;">ℹ</span> The intervals at risk were divided further, into 268 rows from 90, so that</span>
 <span class="r-msg co"><span class="r-pr">#&gt;</span>   temperature changes by at most 0.1 degrees within each.</span>
 <span class="r-msg co"><span class="r-pr">#&gt;</span> <span style="color: #00BBBB;">ℹ</span> The hazard is taken as constant within an interval, which biases the fit when</span>
 <span class="r-msg co"><span class="r-pr">#&gt;</span>   temperature changes much within it. Failures at a known time are also given a</span>
 <span class="r-msg co"><span class="r-pr">#&gt;</span>   short closing interval, so their hazard is that of the moment of failure.</span>
 <span class="r-msg co"><span class="r-pr">#&gt;</span> <span style="color: #00BBBB;">ℹ</span> Set `grid_dT` to change the step, or to `Inf` to keep the intervals as given.</span>
-<span class="r-wrn co"><span class="r-pr">#&gt;</span> <span class="warning">Warning: </span><span style="color: #BBBB00;">!</span> For 1 individual, temperature changes by up to 2.5 degrees within the</span>
-<span class="r-wrn co"><span class="r-pr">#&gt;</span>   interval in which failure was found.</span>
-<span class="r-wrn co"><span class="r-pr">#&gt;</span> <span style="color: #00BBBB;">ℹ</span> That interval cannot be divided, since where in it the individual failed is</span>
-<span class="r-wrn co"><span class="r-pr">#&gt;</span>   not known, and the hazard is taken at its midpoint, so the estimates may be</span>
-<span class="r-wrn co"><span class="r-pr">#&gt;</span>   somewhat biased.</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> <span style="color: #949494;"># A tibble: 201 × 10</span></span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> <span style="color: #949494;"># A tibble: 268 × 10</span></span>
 <span class="r-out co"><span class="r-pr">#&gt;</span>       id path_id   tau exposure    Ta failed    Tr log_tau tau_ref log_exposure</span>
 <span class="r-out co"><span class="r-pr">#&gt;</span>    <span style="color: #949494; font-style: italic;">&lt;int&gt;</span> <span style="color: #949494; font-style: italic;">&lt;chr&gt;</span>   <span style="color: #949494; font-style: italic;">&lt;dbl&gt;</span>    <span style="color: #949494; font-style: italic;">&lt;dbl&gt;</span> <span style="color: #949494; font-style: italic;">&lt;dbl&gt;</span>  <span style="color: #949494; font-style: italic;">&lt;int&gt;</span> <span style="color: #949494; font-style: italic;">&lt;dbl&gt;</span>   <span style="color: #949494; font-style: italic;">&lt;dbl&gt;</span>   <span style="color: #949494; font-style: italic;">&lt;dbl&gt;</span>        <span style="color: #949494; font-style: italic;">&lt;dbl&gt;</span></span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> <span style="color: #BCBCBC;"> 1</span>     1 A         0.2    0.4    20.0      0  26.2  -<span style="color: #BB0000;">1.61</span>       30       -<span style="color: #BB0000;">0.916</span></span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> <span style="color: #BCBCBC;"> 2</span>     1 A         0.6    0.4    20.2      0  26.2  -<span style="color: #BB0000;">0.511</span>      30       -<span style="color: #BB0000;">0.916</span></span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> <span style="color: #BCBCBC;"> 3</span>     1 A         1      0.4    20.2      0  26.2   0          30       -<span style="color: #BB0000;">0.916</span></span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> <span style="color: #BCBCBC;"> 4</span>     1 A         1.4    0.4    20.4      0  26.2   0.336      30       -<span style="color: #BB0000;">0.916</span></span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> <span style="color: #BCBCBC;"> 5</span>     1 A         1.8    0.4    20.4      0  26.2   0.588      30       -<span style="color: #BB0000;">0.916</span></span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> <span style="color: #BCBCBC;"> 6</span>     1 A         2.2    0.400  20.6      0  26.2   0.788      30       -<span style="color: #BB0000;">0.916</span></span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> <span style="color: #BCBCBC;"> 7</span>     1 A         2.6    0.4    20.6      0  26.2   0.956      30       -<span style="color: #BB0000;">0.916</span></span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> <span style="color: #BCBCBC;"> 8</span>     1 A         3      0.4    20.8      0  26.2   1.10       30       -<span style="color: #BB0000;">0.916</span></span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> <span style="color: #BCBCBC;"> 9</span>     1 A         3.4    0.4    20.8      0  26.2   1.22       30       -<span style="color: #BB0000;">0.916</span></span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> <span style="color: #BCBCBC;">10</span>     1 A         3.8    0.4    21.0      0  26.2   1.34       30       -<span style="color: #BB0000;">0.916</span></span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> <span style="color: #949494;"># ℹ 191 more rows</span></span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> <span style="color: #BCBCBC;"> 1</span>     1 A       0.167    0.333  20.0      0  27.4  -<span style="color: #BB0000;">1.79</span>       30        -<span style="color: #BB0000;">1.10</span></span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> <span style="color: #BCBCBC;"> 2</span>     1 A       0.5      0.333  20.1      0  27.4  -<span style="color: #BB0000;">0.693</span>      30        -<span style="color: #BB0000;">1.10</span></span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> <span style="color: #BCBCBC;"> 3</span>     1 A       0.833    0.333  20.2      0  27.4  -<span style="color: #BB0000;">0.182</span>      30        -<span style="color: #BB0000;">1.10</span></span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> <span style="color: #BCBCBC;"> 4</span>     1 A       1.17     0.333  20.3      0  27.4   0.154      30        -<span style="color: #BB0000;">1.10</span></span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> <span style="color: #BCBCBC;"> 5</span>     1 A       1.5      0.333  20.4      0  27.4   0.405      30        -<span style="color: #BB0000;">1.10</span></span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> <span style="color: #BCBCBC;"> 6</span>     1 A       1.83     0.333  20.5      0  27.4   0.606      30        -<span style="color: #BB0000;">1.10</span></span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> <span style="color: #BCBCBC;"> 7</span>     1 A       2.17     0.333  20.5      0  27.4   0.773      30        -<span style="color: #BB0000;">1.10</span></span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> <span style="color: #BCBCBC;"> 8</span>     1 A       2.5      0.333  20.6      0  27.4   0.916      30        -<span style="color: #BB0000;">1.10</span></span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> <span style="color: #BCBCBC;"> 9</span>     1 A       2.83     0.333  20.7      0  27.4   1.04       30        -<span style="color: #BB0000;">1.10</span></span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> <span style="color: #BCBCBC;">10</span>     1 A       3.17     0.333  20.8      0  27.4   1.15       30        -<span style="color: #BB0000;">1.10</span></span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> <span style="color: #949494;"># ℹ 258 more rows</span></span>
 <span class="r-in"><span></span></span>
 <span class="r-in"><span><span class="co"># Known-time: the failure time itself, integrated on the same checks.</span></span></span>
 <span class="r-in"><span><span class="va">ind_c</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/data.frame.html" class="external-link">data.frame</a></span><span class="op">(</span>id <span class="op">=</span> <span class="fl">1</span>, path_id <span class="op">=</span> <span class="st">"A"</span>, event <span class="op">=</span> <span class="fl">1</span>, t_event <span class="op">=</span> <span class="fl">42</span><span class="op">)</span></span></span>
 <span class="r-in"><span><span class="fu">build_hazard_data</span><span class="op">(</span><span class="va">ind_c</span>, <span class="va">path</span>, <span class="st">"continuous"</span>, checks <span class="op">=</span> <span class="va">checks</span><span class="op">)</span></span></span>
-<span class="r-msg co"><span class="r-pr">#&gt;</span> <span style="color: #00BBBB;">ℹ</span> The intervals at risk were divided further, into 106 rows from 5, so that</span>
+<span class="r-msg co"><span class="r-pr">#&gt;</span> <span style="color: #00BBBB;">ℹ</span> The intervals at risk were divided further, into 127 rows from 42, so that</span>
 <span class="r-msg co"><span class="r-pr">#&gt;</span>   temperature changes by at most 0.1 degrees within each.</span>
 <span class="r-msg co"><span class="r-pr">#&gt;</span> <span style="color: #00BBBB;">ℹ</span> The hazard is taken as constant within an interval, which biases the fit when</span>
 <span class="r-msg co"><span class="r-pr">#&gt;</span>   temperature changes much within it. Failures at a known time are also given a</span>
 <span class="r-msg co"><span class="r-pr">#&gt;</span>   short closing interval, so their hazard is that of the moment of failure.</span>
 <span class="r-msg co"><span class="r-pr">#&gt;</span> <span style="color: #00BBBB;">ℹ</span> Set `grid_dT` to change the step, or to `Inf` to keep the intervals as given.</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> <span style="color: #949494;"># A tibble: 106 × 10</span></span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> <span style="color: #949494;"># A tibble: 127 × 10</span></span>
 <span class="r-out co"><span class="r-pr">#&gt;</span>       id path_id   tau exposure    Ta failed    Tr log_tau tau_ref log_exposure</span>
 <span class="r-out co"><span class="r-pr">#&gt;</span>    <span style="color: #949494; font-style: italic;">&lt;dbl&gt;</span> <span style="color: #949494; font-style: italic;">&lt;chr&gt;</span>   <span style="color: #949494; font-style: italic;">&lt;dbl&gt;</span>    <span style="color: #949494; font-style: italic;">&lt;dbl&gt;</span> <span style="color: #949494; font-style: italic;">&lt;dbl&gt;</span>  <span style="color: #949494; font-style: italic;">&lt;int&gt;</span> <span style="color: #949494; font-style: italic;">&lt;dbl&gt;</span>   <span style="color: #949494; font-style: italic;">&lt;dbl&gt;</span>   <span style="color: #949494; font-style: italic;">&lt;dbl&gt;</span>        <span style="color: #949494; font-style: italic;">&lt;dbl&gt;</span></span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> <span style="color: #BCBCBC;"> 1</span>     1 A         0.2    0.4    20.0      0  30.5  -<span style="color: #BB0000;">1.61</span>       42       -<span style="color: #BB0000;">0.916</span></span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> <span style="color: #BCBCBC;"> 2</span>     1 A         0.6    0.4    20.2      0  30.5  -<span style="color: #BB0000;">0.511</span>      42       -<span style="color: #BB0000;">0.916</span></span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> <span style="color: #BCBCBC;"> 3</span>     1 A         1      0.4    20.2      0  30.5   0          42       -<span style="color: #BB0000;">0.916</span></span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> <span style="color: #BCBCBC;"> 4</span>     1 A         1.4    0.4    20.4      0  30.5   0.336      42       -<span style="color: #BB0000;">0.916</span></span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> <span style="color: #BCBCBC;"> 5</span>     1 A         1.8    0.4    20.4      0  30.5   0.588      42       -<span style="color: #BB0000;">0.916</span></span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> <span style="color: #BCBCBC;"> 6</span>     1 A         2.2    0.400  20.6      0  30.5   0.788      42       -<span style="color: #BB0000;">0.916</span></span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> <span style="color: #BCBCBC;"> 7</span>     1 A         2.6    0.4    20.6      0  30.5   0.956      42       -<span style="color: #BB0000;">0.916</span></span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> <span style="color: #BCBCBC;"> 8</span>     1 A         3      0.4    20.8      0  30.5   1.10       42       -<span style="color: #BB0000;">0.916</span></span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> <span style="color: #BCBCBC;"> 9</span>     1 A         3.4    0.4    20.8      0  30.5   1.22       42       -<span style="color: #BB0000;">0.916</span></span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> <span style="color: #BCBCBC;">10</span>     1 A         3.8    0.4    21.0      0  30.5   1.34       42       -<span style="color: #BB0000;">0.916</span></span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> <span style="color: #949494;"># ℹ 96 more rows</span></span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> <span style="color: #BCBCBC;"> 1</span>     1 A       0.167    0.333  20.0      0  30.5  -<span style="color: #BB0000;">1.79</span>       42        -<span style="color: #BB0000;">1.10</span></span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> <span style="color: #BCBCBC;"> 2</span>     1 A       0.5      0.333  20.1      0  30.5  -<span style="color: #BB0000;">0.693</span>      42        -<span style="color: #BB0000;">1.10</span></span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> <span style="color: #BCBCBC;"> 3</span>     1 A       0.833    0.333  20.2      0  30.5  -<span style="color: #BB0000;">0.182</span>      42        -<span style="color: #BB0000;">1.10</span></span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> <span style="color: #BCBCBC;"> 4</span>     1 A       1.17     0.333  20.3      0  30.5   0.154      42        -<span style="color: #BB0000;">1.10</span></span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> <span style="color: #BCBCBC;"> 5</span>     1 A       1.5      0.333  20.4      0  30.5   0.405      42        -<span style="color: #BB0000;">1.10</span></span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> <span style="color: #BCBCBC;"> 6</span>     1 A       1.83     0.333  20.5      0  30.5   0.606      42        -<span style="color: #BB0000;">1.10</span></span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> <span style="color: #BCBCBC;"> 7</span>     1 A       2.17     0.333  20.5      0  30.5   0.773      42        -<span style="color: #BB0000;">1.10</span></span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> <span style="color: #BCBCBC;"> 8</span>     1 A       2.5      0.333  20.6      0  30.5   0.916      42        -<span style="color: #BB0000;">1.10</span></span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> <span style="color: #BCBCBC;"> 9</span>     1 A       2.83     0.333  20.7      0  30.5   1.04       42        -<span style="color: #BB0000;">1.10</span></span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> <span style="color: #BCBCBC;">10</span>     1 A       3.17     0.333  20.8      0  30.5   1.15       42        -<span style="color: #BB0000;">1.10</span></span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> <span style="color: #949494;"># ℹ 117 more rows</span></span>
 <span class="r-in"><span></span></span>
-<span class="r-in"><span><span class="co"># A finer, regular integration grid instead of the checks (known-time only);</span></span></span>
+<span class="r-in"><span><span class="co"># A regular integration grid instead of the checks (known-time only);</span></span></span>
 <span class="r-in"><span><span class="co"># the last interval still closes exactly on the failure time.</span></span></span>
 <span class="r-in"><span><span class="fu">build_hazard_data</span><span class="op">(</span><span class="va">ind_c</span>, <span class="va">path</span>, <span class="st">"continuous"</span>, grid_dt <span class="op">=</span> <span class="fl">5</span><span class="op">)</span></span></span>
 <span class="r-msg co"><span class="r-pr">#&gt;</span> <span style="color: #00BBBB;">ℹ</span> The intervals at risk were divided further, into 110 rows from 9, so that</span>
@@ -327,61 +342,51 @@ followed closely.</p>
 <span class="r-in"><span>                    obs_type <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"interval"</span>, <span class="st">"continuous"</span><span class="op">)</span>,</span></span>
 <span class="r-in"><span>                    t_upper <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="fl">30</span>, <span class="cn">NA</span><span class="op">)</span>, t_event <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="cn">NA</span>, <span class="fl">42</span><span class="op">)</span><span class="op">)</span></span></span>
 <span class="r-in"><span><span class="fu">build_hazard_data</span><span class="op">(</span><span class="va">ind_m</span>, <span class="va">path</span>, <span class="st">"mixed"</span>, checks <span class="op">=</span> <span class="va">checks</span><span class="op">)</span></span></span>
-<span class="r-msg co"><span class="r-pr">#&gt;</span> <span style="color: #00BBBB;">ℹ</span> The intervals at risk were divided further, into 157 rows from 8, so that</span>
+<span class="r-msg co"><span class="r-pr">#&gt;</span> <span style="color: #00BBBB;">ℹ</span> The intervals at risk were divided further, into 215 rows from 72, so that</span>
 <span class="r-msg co"><span class="r-pr">#&gt;</span>   temperature changes by at most 0.1 degrees within each.</span>
 <span class="r-msg co"><span class="r-pr">#&gt;</span> <span style="color: #00BBBB;">ℹ</span> The hazard is taken as constant within an interval, which biases the fit when</span>
 <span class="r-msg co"><span class="r-pr">#&gt;</span>   temperature changes much within it. Failures at a known time are also given a</span>
 <span class="r-msg co"><span class="r-pr">#&gt;</span>   short closing interval, so their hazard is that of the moment of failure.</span>
 <span class="r-msg co"><span class="r-pr">#&gt;</span> <span style="color: #00BBBB;">ℹ</span> Set `grid_dT` to change the step, or to `Inf` to keep the intervals as given.</span>
-<span class="r-wrn co"><span class="r-pr">#&gt;</span> <span class="warning">Warning: </span><span style="color: #BBBB00;">!</span> For 1 individual, temperature changes by up to 2.5 degrees within the</span>
-<span class="r-wrn co"><span class="r-pr">#&gt;</span>   interval in which failure was found.</span>
-<span class="r-wrn co"><span class="r-pr">#&gt;</span> <span style="color: #00BBBB;">ℹ</span> That interval cannot be divided, since where in it the individual failed is</span>
-<span class="r-wrn co"><span class="r-pr">#&gt;</span>   not known, and the hazard is taken at its midpoint, so the estimates may be</span>
-<span class="r-wrn co"><span class="r-pr">#&gt;</span>   somewhat biased.</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> <span style="color: #949494;"># A tibble: 157 × 11</span></span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> <span style="color: #949494;"># A tibble: 215 × 11</span></span>
 <span class="r-out co"><span class="r-pr">#&gt;</span>       id path_id   tau exposure    Ta failed exact    Tr log_tau tau_ref</span>
 <span class="r-out co"><span class="r-pr">#&gt;</span>    <span style="color: #949494; font-style: italic;">&lt;int&gt;</span> <span style="color: #949494; font-style: italic;">&lt;chr&gt;</span>   <span style="color: #949494; font-style: italic;">&lt;dbl&gt;</span>    <span style="color: #949494; font-style: italic;">&lt;dbl&gt;</span> <span style="color: #949494; font-style: italic;">&lt;dbl&gt;</span>  <span style="color: #949494; font-style: italic;">&lt;int&gt;</span> <span style="color: #949494; font-style: italic;">&lt;int&gt;</span> <span style="color: #949494; font-style: italic;">&lt;dbl&gt;</span>   <span style="color: #949494; font-style: italic;">&lt;dbl&gt;</span>   <span style="color: #949494; font-style: italic;">&lt;dbl&gt;</span></span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> <span style="color: #BCBCBC;"> 1</span>     1 A         0.2    0.4    20.0      0     0  28.4  -<span style="color: #BB0000;">1.61</span>       36</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> <span style="color: #BCBCBC;"> 2</span>     1 A         0.6    0.4    20.2      0     0  28.4  -<span style="color: #BB0000;">0.511</span>      36</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> <span style="color: #BCBCBC;"> 3</span>     1 A         1      0.4    20.2      0     0  28.4   0          36</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> <span style="color: #BCBCBC;"> 4</span>     1 A         1.4    0.4    20.4      0     0  28.4   0.336      36</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> <span style="color: #BCBCBC;"> 5</span>     1 A         1.8    0.4    20.4      0     0  28.4   0.588      36</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> <span style="color: #BCBCBC;"> 6</span>     1 A         2.2    0.400  20.6      0     0  28.4   0.788      36</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> <span style="color: #BCBCBC;"> 7</span>     1 A         2.6    0.4    20.6      0     0  28.4   0.956      36</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> <span style="color: #BCBCBC;"> 8</span>     1 A         3      0.4    20.8      0     0  28.4   1.10       36</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> <span style="color: #BCBCBC;"> 9</span>     1 A         3.4    0.4    20.8      0     0  28.4   1.22       36</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> <span style="color: #BCBCBC;">10</span>     1 A         3.8    0.4    21.0      0     0  28.4   1.34       36</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> <span style="color: #949494;"># ℹ 147 more rows</span></span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> <span style="color: #BCBCBC;"> 1</span>     1 A       0.167    0.333  20.0      0     0  28.9  -<span style="color: #BB0000;">1.79</span>       36</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> <span style="color: #BCBCBC;"> 2</span>     1 A       0.5      0.333  20.1      0     0  28.9  -<span style="color: #BB0000;">0.693</span>      36</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> <span style="color: #BCBCBC;"> 3</span>     1 A       0.833    0.333  20.2      0     0  28.9  -<span style="color: #BB0000;">0.182</span>      36</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> <span style="color: #BCBCBC;"> 4</span>     1 A       1.17     0.333  20.3      0     0  28.9   0.154      36</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> <span style="color: #BCBCBC;"> 5</span>     1 A       1.5      0.333  20.4      0     0  28.9   0.405      36</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> <span style="color: #BCBCBC;"> 6</span>     1 A       1.83     0.333  20.5      0     0  28.9   0.606      36</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> <span style="color: #BCBCBC;"> 7</span>     1 A       2.17     0.333  20.5      0     0  28.9   0.773      36</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> <span style="color: #BCBCBC;"> 8</span>     1 A       2.5      0.333  20.6      0     0  28.9   0.916      36</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> <span style="color: #BCBCBC;"> 9</span>     1 A       2.83     0.333  20.7      0     0  28.9   1.04       36</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> <span style="color: #BCBCBC;">10</span>     1 A       3.17     0.333  20.8      0     0  28.9   1.15       36</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> <span style="color: #949494;"># ℹ 205 more rows</span></span>
 <span class="r-out co"><span class="r-pr">#&gt;</span> <span style="color: #949494;"># ℹ 1 more variable: log_exposure &lt;dbl&gt;</span></span>
 <span class="r-in"><span></span></span>
 <span class="r-in"><span><span class="co"># A covariate carried through to every row, and a shared reference Tr.</span></span></span>
 <span class="r-in"><span><span class="va">ind</span><span class="op">$</span><span class="va">mass</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="fl">12.1</span>, <span class="fl">9.8</span><span class="op">)</span></span></span>
 <span class="r-in"><span><span class="fu">build_hazard_data</span><span class="op">(</span><span class="va">ind</span>, <span class="va">path</span>, <span class="st">"interval"</span>, covariates <span class="op">=</span> <span class="st">"mass"</span>, Tr <span class="op">=</span> <span class="fl">15</span>, checks <span class="op">=</span> <span class="va">checks</span><span class="op">)</span></span></span>
-<span class="r-msg co"><span class="r-pr">#&gt;</span> <span style="color: #00BBBB;">ℹ</span> The intervals at risk were divided further, into 201 rows from 9, so that</span>
+<span class="r-msg co"><span class="r-pr">#&gt;</span> <span style="color: #00BBBB;">ℹ</span> The intervals at risk were divided further, into 268 rows from 90, so that</span>
 <span class="r-msg co"><span class="r-pr">#&gt;</span>   temperature changes by at most 0.1 degrees within each.</span>
 <span class="r-msg co"><span class="r-pr">#&gt;</span> <span style="color: #00BBBB;">ℹ</span> The hazard is taken as constant within an interval, which biases the fit when</span>
 <span class="r-msg co"><span class="r-pr">#&gt;</span>   temperature changes much within it. Failures at a known time are also given a</span>
 <span class="r-msg co"><span class="r-pr">#&gt;</span>   short closing interval, so their hazard is that of the moment of failure.</span>
 <span class="r-msg co"><span class="r-pr">#&gt;</span> <span style="color: #00BBBB;">ℹ</span> Set `grid_dT` to change the step, or to `Inf` to keep the intervals as given.</span>
-<span class="r-wrn co"><span class="r-pr">#&gt;</span> <span class="warning">Warning: </span><span style="color: #BBBB00;">!</span> For 1 individual, temperature changes by up to 2.5 degrees within the</span>
-<span class="r-wrn co"><span class="r-pr">#&gt;</span>   interval in which failure was found.</span>
-<span class="r-wrn co"><span class="r-pr">#&gt;</span> <span style="color: #00BBBB;">ℹ</span> That interval cannot be divided, since where in it the individual failed is</span>
-<span class="r-wrn co"><span class="r-pr">#&gt;</span>   not known, and the hazard is taken at its midpoint, so the estimates may be</span>
-<span class="r-wrn co"><span class="r-pr">#&gt;</span>   somewhat biased.</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> <span style="color: #949494;"># A tibble: 201 × 11</span></span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> <span style="color: #949494;"># A tibble: 268 × 11</span></span>
 <span class="r-out co"><span class="r-pr">#&gt;</span>       id  mass path_id   tau exposure    Ta failed    Tr log_tau tau_ref</span>
 <span class="r-out co"><span class="r-pr">#&gt;</span>    <span style="color: #949494; font-style: italic;">&lt;int&gt;</span> <span style="color: #949494; font-style: italic;">&lt;dbl&gt;</span> <span style="color: #949494; font-style: italic;">&lt;chr&gt;</span>   <span style="color: #949494; font-style: italic;">&lt;dbl&gt;</span>    <span style="color: #949494; font-style: italic;">&lt;dbl&gt;</span> <span style="color: #949494; font-style: italic;">&lt;dbl&gt;</span>  <span style="color: #949494; font-style: italic;">&lt;int&gt;</span> <span style="color: #949494; font-style: italic;">&lt;dbl&gt;</span>   <span style="color: #949494; font-style: italic;">&lt;dbl&gt;</span>   <span style="color: #949494; font-style: italic;">&lt;dbl&gt;</span></span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> <span style="color: #BCBCBC;"> 1</span>     1  12.1 A         0.2    0.4    20.0      0    15  -<span style="color: #BB0000;">1.61</span>       30</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> <span style="color: #BCBCBC;"> 2</span>     1  12.1 A         0.6    0.4    20.2      0    15  -<span style="color: #BB0000;">0.511</span>      30</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> <span style="color: #BCBCBC;"> 3</span>     1  12.1 A         1      0.4    20.2      0    15   0          30</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> <span style="color: #BCBCBC;"> 4</span>     1  12.1 A         1.4    0.4    20.4      0    15   0.336      30</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> <span style="color: #BCBCBC;"> 5</span>     1  12.1 A         1.8    0.4    20.4      0    15   0.588      30</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> <span style="color: #BCBCBC;"> 6</span>     1  12.1 A         2.2    0.400  20.6      0    15   0.788      30</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> <span style="color: #BCBCBC;"> 7</span>     1  12.1 A         2.6    0.4    20.6      0    15   0.956      30</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> <span style="color: #BCBCBC;"> 8</span>     1  12.1 A         3      0.4    20.8      0    15   1.10       30</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> <span style="color: #BCBCBC;"> 9</span>     1  12.1 A         3.4    0.4    20.8      0    15   1.22       30</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> <span style="color: #BCBCBC;">10</span>     1  12.1 A         3.8    0.4    21.0      0    15   1.34       30</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> <span style="color: #949494;"># ℹ 191 more rows</span></span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> <span style="color: #BCBCBC;"> 1</span>     1  12.1 A       0.167    0.333  20.0      0    15  -<span style="color: #BB0000;">1.79</span>       30</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> <span style="color: #BCBCBC;"> 2</span>     1  12.1 A       0.5      0.333  20.1      0    15  -<span style="color: #BB0000;">0.693</span>      30</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> <span style="color: #BCBCBC;"> 3</span>     1  12.1 A       0.833    0.333  20.2      0    15  -<span style="color: #BB0000;">0.182</span>      30</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> <span style="color: #BCBCBC;"> 4</span>     1  12.1 A       1.17     0.333  20.3      0    15   0.154      30</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> <span style="color: #BCBCBC;"> 5</span>     1  12.1 A       1.5      0.333  20.4      0    15   0.405      30</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> <span style="color: #BCBCBC;"> 6</span>     1  12.1 A       1.83     0.333  20.5      0    15   0.606      30</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> <span style="color: #BCBCBC;"> 7</span>     1  12.1 A       2.17     0.333  20.5      0    15   0.773      30</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> <span style="color: #BCBCBC;"> 8</span>     1  12.1 A       2.5      0.333  20.6      0    15   0.916      30</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> <span style="color: #BCBCBC;"> 9</span>     1  12.1 A       2.83     0.333  20.7      0    15   1.04       30</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> <span style="color: #BCBCBC;">10</span>     1  12.1 A       3.17     0.333  20.8      0    15   1.15       30</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> <span style="color: #949494;"># ℹ 258 more rows</span></span>
 <span class="r-out co"><span class="r-pr">#&gt;</span> <span style="color: #949494;"># ℹ 1 more variable: log_exposure &lt;dbl&gt;</span></span>
 </code></pre></div>
     </div>

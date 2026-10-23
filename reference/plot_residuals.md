@@ -13,8 +13,6 @@ under the model; residuals below it are individuals that failed earlier
 than the model predicts. The time of failure is not a variable to draw
 them against (see
 [`hazard_residuals()`](https://eogmartins.github.io/rTFT/reference/hazard_residuals.md)).
-The result is a ggplot object, which can be refined by the user with
-further ggplot2 layers, scales, labels and themes.
 
 ## Usage
 
@@ -39,14 +37,27 @@ plot_residuals(x, against = NULL)
 
 A ggplot object.
 
+## Details
+
+With several randomisations (`n_randomisations` of
+[`hazard_residuals()`](https://eogmartins.github.io/rTFT/reference/hazard_residuals.md)),
+each is drawn faintly: against the uniform distribution as a line of its
+own, so that the spread of the lines shows how much the verdict owes to
+one draw; against a variable as points over one another, and for a
+grouping with one box over all of them. A pattern of the data persists
+across the randomisations; one seen in a single draw is the draw's own.
+
+The result is a ggplot object, which can be refined by the user with
+further ggplot2 layers, scales, labels and themes.
+
 ## Examples
 
 ``` r
 if (FALSE) { # \dontrun{
 # a model fitted to a small ramping trial: 20 individuals warmed from 20 to 35
-# degrees over 60 minutes and checked every 10, in two trials (see fit_hazard())
+# degrees over 60 minutes and checked every minute, in two trials (see fit_hazard())
 path   <- data.frame(path_id = "A", time = c(0, 60), temp = c(20, 35))
-checks <- data.frame(path_id = "A", time = seq(0, 60, by = 10))
+checks <- data.frame(path_id = "A", time = seq(0, 60, by = 1))
 ind    <- data.frame(id = 1:20, path_id = "A", event = 1, mass = runif(20, 8, 12),
                      trial = rep(c("a", "b"), each = 10),
                      t_upper = sample(seq(10, 60, 10), 20, replace = TRUE))
@@ -58,5 +69,8 @@ res <- hazard_residuals(fit)
 plot_residuals(res)
 plot_residuals(res, against = "mass")
 plot_residuals(res, against = "trial")
+
+# twenty randomisations, to see how much a verdict owes to one draw
+plot_residuals(hazard_residuals(fit, n_randomisations = 20))
 } # }
 ```

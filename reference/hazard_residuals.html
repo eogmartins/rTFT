@@ -13,7 +13,7 @@ model describes the data, the residuals are uniform between 0 and 1."><meta prop
 
     <a class="navbar-brand me-2" href="../index.html">rTFT</a>
 
-    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.1.1</small>
+    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.2.0</small>
 
 
     <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbar" aria-controls="navbar" aria-expanded="false" aria-label="Toggle navigation">
@@ -27,6 +27,7 @@ model describes the data, the residuals are uniform between 0 and 1."><meta prop
     <li><a class="dropdown-item" href="../articles/ramping-assays.html">Ramping assays</a></li>
     <li><a class="dropdown-item" href="../articles/comparing-and-averaging-models.html">Comparing and averaging models</a></li>
     <li><a class="dropdown-item" href="../articles/temperature-and-a-co-stressor.html">Temperature and a co-stressor</a></li>
+    <li><a class="dropdown-item" href="../articles/fitting-models-on-a-cluster.html">Fitting models on a cluster</a></li>
   </ul></li>
 <li class="active nav-item"><a class="nav-link" href="../reference/index.html">Reference</a></li>
 <li class="nav-item"><a class="nav-link" href="../news/index.html">Changelog</a></li>
@@ -41,7 +42,7 @@ model describes the data, the residuals are uniform between 0 and 1."><meta prop
 <div class="row">
   <main id="main" class="col-md-9"><div class="page-header">
       <img src="../logo.png" class="logo" alt=""><h1>Residuals of a fitted model, one per individual</h1>
-      <small class="dont-index">Source: <a href="https://github.com/eogmartins/rTFT/blob/v0.1.1/R/check-hazard.R" class="external-link"><code>R/check-hazard.R</code></a></small>
+      <small class="dont-index">Source: <a href="https://github.com/eogmartins/rTFT/blob/main/R/check-hazard.R" class="external-link"><code>R/check-hazard.R</code></a></small>
       <div class="d-none name"><code>hazard_residuals.Rd</code></div>
     </div>
 
@@ -54,7 +55,7 @@ model describes the data, the residuals are uniform between 0 and 1.</p>
 
     <div class="section level2">
     <h2 id="ref-usage">Usage<a class="anchor" aria-label="anchor" href="#ref-usage"></a></h2>
-    <div class="sourceCode"><pre class="sourceCode r"><code><span><span class="fu">hazard_residuals</span><span class="op">(</span><span class="va">fit</span>, n_draws <span class="op">=</span> <span class="fl">400</span><span class="op">)</span></span></code></pre></div>
+    <div class="sourceCode"><pre class="sourceCode r"><code><span><span class="fu">hazard_residuals</span><span class="op">(</span><span class="va">fit</span>, n_draws <span class="op">=</span> <span class="fl">400</span>, n_randomisations <span class="op">=</span> <span class="fl">1</span><span class="op">)</span></span></code></pre></div>
     </div>
 
     <div class="section level2">
@@ -69,13 +70,20 @@ model describes the data, the residuals are uniform between 0 and 1.</p>
 <dd><p>A single number, the number of posterior draws to average the
 predicted survival over, evenly spaced through the posterior. Defaults to 400.</p></dd>
 
+
+<dt id="arg-n-randomisations">n_randomisations<a class="anchor" aria-label="anchor" href="#arg-n-randomisations"></a></dt>
+<dd><p>A single whole number, the number of times the residuals
+are drawn, each time for every individual. Defaults to 1. Under the same seed,
+the first randomisation is the one a call with the default gives.</p></dd>
+
 </dl></div>
     <div class="section level2">
     <h2 id="value">Value<a class="anchor" aria-label="anchor" href="#value"></a></h2>
-    <p>A tibble with one row per individual: <code>id</code>; <code>path_id</code>; the variables of
-the model that have one value per individual (covariates and groupings);
-<code>time</code>, the time at which it failed or was last observed; <code>Ta</code>, the temperature
-at that time; <code>event</code>, 1 for a failure and 0 for a survivor; and <code>residual</code>.</p>
+    <p>A tibble with one row per individual and randomisation: <code>id</code>; <code>path_id</code>;
+the variables of the model that have one value per individual (covariates and
+groupings); <code>time</code>, the time at which it failed or was last observed; <code>Ta</code>, the
+temperature at that time; <code>event</code>, 1 for a failure and 0 for a survivor;
+<code>randomisation</code>, from 1 to <code>n_randomisations</code>; and <code>residual</code>.</p>
     </div>
     <div class="section level2">
     <h2 id="details">Details<a class="anchor" aria-label="anchor" href="#details"></a></h2>
@@ -90,9 +98,21 @@ observed:</p><ul><li><p>a failure at a known time has the residual 1 - S(t);</p>
 that fraction at the start of the interval and at its end;</p></li>
 <li><p>a survivor, known only to have outlasted its last observation, has a residual
 drawn uniformly between that fraction at its last observation and 1.</p></li>
-</ul><p>The draws are random: call <code><a href="https://rdrr.io/r/base/Random.html" class="external-link">set.seed()</a></code> first for the same residuals again. One
-residual per individual is used, and not one per interval, because the intervals
-of an individual are slices of one exposure and are not separate observations.</p>
+</ul><p>One residual per individual is used, and not one per interval, because the
+intervals of an individual are slices of one exposure and are not separate
+observations.</p>
+<p>The draws are random, and a seed only makes them repeat: call <code><a href="https://rdrr.io/r/base/Random.html" class="external-link">set.seed()</a></code> first
+for the same residuals again, but what the residuals show under one seed may not
+hold under another. How far a residual can move from one draw to the next is set
+by what was observed of the individual: not at all for a failure at a known time;
+across the fraction predicted to fail during its interval, for a failure known
+only to an interval; and from the fraction predicted to have failed by its last
+observation up to 1, for a survivor. The residuals are therefore least settled
+when the checks are far apart or many individuals survive, and under interval
+observation every residual is drawn. With <code>n_randomisations</code> above 1 the draws
+are repeated, each time for every individual, so that a pattern can be told apart
+from the luck of one draw: a pattern of the data persists across the
+randomisations, and one seen in a single draw is the draw's own.</p>
 <p>The residuals are to be examined against what was set before the outcome was
 known: a covariate, a treatment, a trial. They should not be examined against the
 time of failure, or the temperature at failure in a ramp. An individual that
@@ -116,9 +136,9 @@ group.</p></div>
     <h2 id="ref-examples">Examples<a class="anchor" aria-label="anchor" href="#ref-examples"></a></h2>
     <div class="sourceCode"><pre class="sourceCode r"><code><span class="r-in"><span><span class="kw">if</span> <span class="op">(</span><span class="cn">FALSE</span><span class="op">)</span> <span class="op">{</span> <span class="co"># \dontrun{</span></span></span>
 <span class="r-in"><span><span class="co"># a model fitted to a small ramping trial: 20 individuals warmed from 20 to 35</span></span></span>
-<span class="r-in"><span><span class="co"># degrees over 60 minutes and checked every 10, in two trials (see fit_hazard())</span></span></span>
+<span class="r-in"><span><span class="co"># degrees over 60 minutes and checked every minute, in two trials (see fit_hazard())</span></span></span>
 <span class="r-in"><span><span class="va">path</span>   <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/data.frame.html" class="external-link">data.frame</a></span><span class="op">(</span>path_id <span class="op">=</span> <span class="st">"A"</span>, time <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="fl">0</span>, <span class="fl">60</span><span class="op">)</span>, temp <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="fl">20</span>, <span class="fl">35</span><span class="op">)</span><span class="op">)</span></span></span>
-<span class="r-in"><span><span class="va">checks</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/data.frame.html" class="external-link">data.frame</a></span><span class="op">(</span>path_id <span class="op">=</span> <span class="st">"A"</span>, time <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/seq.html" class="external-link">seq</a></span><span class="op">(</span><span class="fl">0</span>, <span class="fl">60</span>, by <span class="op">=</span> <span class="fl">10</span><span class="op">)</span><span class="op">)</span></span></span>
+<span class="r-in"><span><span class="va">checks</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/data.frame.html" class="external-link">data.frame</a></span><span class="op">(</span>path_id <span class="op">=</span> <span class="st">"A"</span>, time <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/seq.html" class="external-link">seq</a></span><span class="op">(</span><span class="fl">0</span>, <span class="fl">60</span>, by <span class="op">=</span> <span class="fl">1</span><span class="op">)</span><span class="op">)</span></span></span>
 <span class="r-in"><span><span class="va">ind</span>    <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/data.frame.html" class="external-link">data.frame</a></span><span class="op">(</span>id <span class="op">=</span> <span class="fl">1</span><span class="op">:</span><span class="fl">20</span>, path_id <span class="op">=</span> <span class="st">"A"</span>, event <span class="op">=</span> <span class="fl">1</span>, mass <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/stats/Uniform.html" class="external-link">runif</a></span><span class="op">(</span><span class="fl">20</span>, <span class="fl">8</span>, <span class="fl">12</span><span class="op">)</span>,</span></span>
 <span class="r-in"><span>                     trial <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/rep.html" class="external-link">rep</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"a"</span>, <span class="st">"b"</span><span class="op">)</span>, each <span class="op">=</span> <span class="fl">10</span><span class="op">)</span>,</span></span>
 <span class="r-in"><span>                     t_upper <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/sample.html" class="external-link">sample</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/seq.html" class="external-link">seq</a></span><span class="op">(</span><span class="fl">10</span>, <span class="fl">60</span>, <span class="fl">10</span><span class="op">)</span>, <span class="fl">20</span>, replace <span class="op">=</span> <span class="cn">TRUE</span><span class="op">)</span><span class="op">)</span></span></span>

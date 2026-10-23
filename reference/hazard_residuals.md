@@ -9,7 +9,7 @@ and 1.
 ## Usage
 
 ``` r
-hazard_residuals(fit, n_draws = 400)
+hazard_residuals(fit, n_draws = 400, n_randomisations = 1)
 ```
 
 ## Arguments
@@ -25,13 +25,20 @@ hazard_residuals(fit, n_draws = 400)
   predicted survival over, evenly spaced through the posterior. Defaults
   to 400.
 
+- n_randomisations:
+
+  A single whole number, the number of times the residuals are drawn,
+  each time for every individual. Defaults to 1. Under the same seed,
+  the first randomisation is the one a call with the default gives.
+
 ## Value
 
-A tibble with one row per individual: `id`; `path_id`; the variables of
-the model that have one value per individual (covariates and groupings);
-`time`, the time at which it failed or was last observed; `Ta`, the
-temperature at that time; `event`, 1 for a failure and 0 for a survivor;
-and `residual`.
+A tibble with one row per individual and randomisation: `id`; `path_id`;
+the variables of the model that have one value per individual
+(covariates and groupings); `time`, the time at which it failed or was
+last observed; `Ta`, the temperature at that time; `event`, 1 for a
+failure and 0 for a survivor; `randomisation`, from 1 to
+`n_randomisations`; and `residual`.
 
 ## Details
 
@@ -52,11 +59,24 @@ time, so the residual is drawn at random within what was observed:
   residual drawn uniformly between that fraction at its last observation
   and 1.
 
-The draws are random: call
+One residual per individual is used, and not one per interval, because
+the intervals of an individual are slices of one exposure and are not
+separate observations.
+
+The draws are random, and a seed only makes them repeat: call
 [`set.seed()`](https://rdrr.io/r/base/Random.html) first for the same
-residuals again. One residual per individual is used, and not one per
-interval, because the intervals of an individual are slices of one
-exposure and are not separate observations.
+residuals again, but what the residuals show under one seed may not hold
+under another. How far a residual can move from one draw to the next is
+set by what was observed of the individual: not at all for a failure at
+a known time; across the fraction predicted to fail during its interval,
+for a failure known only to an interval; and from the fraction predicted
+to have failed by its last observation up to 1, for a survivor. The
+residuals are therefore least settled when the checks are far apart or
+many individuals survive, and under interval observation every residual
+is drawn. With `n_randomisations` above 1 the draws are repeated, each
+time for every individual, so that a pattern can be told apart from the
+luck of one draw: a pattern of the data persists across the
+randomisations, and one seen in a single draw is the draw's own.
 
 The residuals are to be examined against what was set before the outcome
 was known: a covariate, a treatment, a trial. They should not be
@@ -83,9 +103,9 @@ for a check by group.
 ``` r
 if (FALSE) { # \dontrun{
 # a model fitted to a small ramping trial: 20 individuals warmed from 20 to 35
-# degrees over 60 minutes and checked every 10, in two trials (see fit_hazard())
+# degrees over 60 minutes and checked every minute, in two trials (see fit_hazard())
 path   <- data.frame(path_id = "A", time = c(0, 60), temp = c(20, 35))
-checks <- data.frame(path_id = "A", time = seq(0, 60, by = 10))
+checks <- data.frame(path_id = "A", time = seq(0, 60, by = 1))
 ind    <- data.frame(id = 1:20, path_id = "A", event = 1, mass = runif(20, 8, 12),
                      trial = rep(c("a", "b"), each = 10),
                      t_upper = sample(seq(10, 60, 10), 20, replace = TRUE))

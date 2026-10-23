@@ -8,16 +8,16 @@
 ## Citation
 
 Source:
-[`inst/CITATION`](https://github.com/eogmartins/rTFT/blob/v0.1.1/inst/CITATION)
+[`inst/CITATION`](https://github.com/eogmartins/rTFT/blob/main/inst/CITATION)
 
 Martins, E. G. (2026). rTFT: hazard models for thermal failure time
-data. R package version 0.1.1. https://doi.org/10.5281/zenodo.23319254
+data. R package version 0.2.0. https://doi.org/10.5281/zenodo.23319254
 
     @Manual{,
       title = {rTFT: hazard models for thermal failure time data},
       author = {Eduardo G. Martins},
       year = {2026},
-      note = {R package version 0.1.1},
+      note = {R package version 0.2.0},
       doi = {10.5281/zenodo.23319254},
       url = {https://eogmartins.github.io/rTFT/},
     }

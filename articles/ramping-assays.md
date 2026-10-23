@@ -403,10 +403,17 @@ still well below the temperatures at which failures were observed, and
 decreased steeply towards the end of the ramp. The residuals followed
 the uniform distribution closely and showed no trial whose fish
 consistently failed earlier or later than predicted
-([Figure 2](#fig-residuals)). As in a static assay, the residuals should
-not be examined against the time of failure. In a ramping assay the same
-applies to the temperature at failure (i.e., the CTmax of each fish),
-which is the time of failure expressed on another scale (see
+([Figure 2](#fig-residuals)). Every failure here was seen at its time,
+so only the 5 of the 120 fish that outlasted their ramp have residuals
+drawn at random, and a single draw is nearly the whole answer; in the
+static assay of the vignette [*Getting started with
+rTFT*](https://eogmartins.github.io/rTFT/articles/getting-started.md),
+where every failure is known only to the interval between two checks,
+every residual is drawn, and the residuals are drawn 20 times. As in a
+static assay, the residuals should not be examined against the time of
+failure. In a ramping assay the same applies to the temperature at
+failure (i.e., the CTmax of each fish), which is the time of failure
+expressed on another scale (see
 [`?hazard_residuals`](https://eogmartins.github.io/rTFT/reference/hazard_residuals.md)).
 
 ## Thermal tolerance derived from the fit
@@ -457,7 +464,7 @@ it is greater than 1 was 0.99). For comparison, the static assay of the
 vignette [*Getting started with
 rTFT*](https://eogmartins.github.io/rTFT/articles/getting-started.md),
 which was simulated from the same model, gave a 95% credible interval of
-1.12–1.65 for $`k`$. The difference follows from how each kind of assay
+1.13–1.62 for $`k`$. The difference follows from how each kind of assay
 informs the baseline. In a static trial the temperature is constant, so
 any change in the hazard during the trial can only be due to the time
 under exposure. Within a ramp, the temperature and the time under
@@ -872,7 +879,7 @@ models*](https://eogmartins.github.io/rTFT/articles/comparing-and-averaging-mode
 For comparison, the model fitted to the static assay in the vignette
 [*Getting started with
 rTFT*](https://eogmartins.github.io/rTFT/articles/getting-started.md)
-predicted 60% (35–84%).
+predicted 58% (36–83%).
 
 ``` r
 
@@ -1009,7 +1016,7 @@ predict_survival(fit, heat_wave, newdata = data.frame(mass = 15))$mortality
 
 | Assay | 30 days | Heat wave, 5 days | Warmest day, 24 h |
 |:---|---:|---:|---:|
-| Static | 60 (35–84) \[59\] | 34 (23–46) \[34\] | 9 (6–14) \[9\] |
+| Static | 58 (36–83) \[59\] | 33 (22–45) \[33\] | 9 (6–14) \[9\] |
 | Ramps at 0.1, 0.2, 0.3 (3-fold) | 100 (25–100) \[91\] | 88 (16–100) \[78\] | 26 (5–81) \[31\] |
 | Ramps at 0.025, 0.1, 0.3 (12-fold) | 78 (31–100) \[74\] | 53 (24–86) \[54\] | 18 (8–34) \[19\] |
 | Model used to simulate the data | 81 | 45 | 12 |
@@ -1024,8 +1031,8 @@ exposure is counted from their first reading.
 
 The three assays agreed better, and were closer to the value given by
 the model used to simulate the data, the shorter the period
-([Table 6](#tbl-warm)). Their predictions were 60–100% for the 30 days
-(81% under the model used to simulate the data), 34–88% for the heat
+([Table 6](#tbl-warm)). Their predictions were 58–100% for the 30 days
+(81% under the model used to simulate the data), 33–88% for the heat
 wave (45%) and 9–26% for the warmest day (12%). The span of the rates
 mattered for the shorter periods too. For the warmest day, the 95%
 credible interval was 8–34% with the 12-fold span and 5–81% with the
@@ -1064,7 +1071,7 @@ analysed in a single model, with the individuals of both in one table
 > the vignette is built. The values for the static assay are those saved
 > for the vignette [*Getting started with
 > rTFT*](https://eogmartins.github.io/rTFT/articles/getting-started.md)
-> (fitted on 2026-10-08 with version 0.0.0.9000).
+> (fitted on 2026-10-21 with version 0.1.1.9000).
 
 ## References
 

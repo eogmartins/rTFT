@@ -49,17 +49,19 @@ build_hazard_data(
   A data frame giving the temperature trajectory for each path. Required
   columns: `path_id`, `time`, `temp`. The function interpolates these
   points linearly in time, so a minimal two-point path (start and end)
-  encodes a linear ramp. Interpolation uses the full series, so a
-  temperature data logger whose records are finer than the checks still
-  supplies the true temperature at each interval midpoint (never a
-  check-to-check straight line); the checks control only the integration
-  grid, not the temperature. Temperatures outside the recorded time
-  range are held flat at the nearest endpoint rather than returned as
-  `NA`, because the at-risk grid (the checks, the exact failure time,
-  and the `t = 0` start) need not sit strictly inside the logged times:
-  a check or failure time can fall just past the last reading, or the
-  first interval can begin before the first reading, and an `NA`
-  temperature there would propagate into `Ta` and the linear predictor.
+  encodes a linear ramp, and each path has one reading at each time: a
+  sudden change is written as two readings a moment apart (e.g., at 10
+  and 10.01). Interpolation uses the full series, so a temperature data
+  logger whose records are finer than the checks still supplies the true
+  temperature at each interval midpoint (never a check-to-check straight
+  line); the checks control only the integration grid, not the
+  temperature. Temperatures outside the recorded time range are held
+  flat at the nearest endpoint rather than returned as `NA`, because the
+  at-risk grid (the checks, the exact failure time, and the `t = 0`
+  start) need not sit strictly inside the logged times: a check or
+  failure time can fall just past the last reading, or the first
+  interval can begin before the first reading, and an `NA` temperature
+  there would propagate into `Ta` and the linear predictor.
 
 - observation:
 
@@ -179,7 +181,19 @@ understated by about (b dT)^2 / 24, that is by 0.1% over a tenth of a
 degree and by 3% over half a degree, an error that grows with the square
 of the change in temperature. So any interval over which temperature
 changes by more than `grid_dT` is divided into equal parts, each with
-its own row, and a message says how many rows resulted.
+its own row; a part that still changes by more, where the path bends
+within the interval (a logged record, or a ramp held and then resumed),
+is divided again; and a message says how many rows resulted.
+
+The error left by the default step grows with the square of b. In
+simulations of large ramping assays (eight assays of 3,000 individuals
+at three ramp rates, fitted by maximum likelihood), the default of 0.1
+degrees raised b and the Weibull shape by about 0.1% at b = 1.7 and by
+about 1% at b = 4.7, and sCTmax by 0.007 degrees at b = 4.7; dCTmax was
+not affected. Those are small against the uncertainty of an assay of a
+hundred or so individuals. Where the fitted b is above about 3, a step
+of 0.05 makes them about four times smaller, at the cost of twice the
+rows and about twice the time to fit.
 
 Two cases are treated apart. A failure at a known time needs the hazard
 at the moment it happened, and the midpoint of the interval it fell in
@@ -191,9 +205,17 @@ assays, and with it b was recovered whatever the length of the
 intervals. A failure known only to the interval between two checks keeps
 that interval whole, since where in it the individual failed is not
 known, and its contribution is the probability of failing anywhere in
-it. A warning is given when temperature changes by more than half a
-degree within such an interval, so that the estimates can be interpreted
-with that in mind.
+it. Its hazard is still taken at its midpoint, and on a ramp checked at
+long intervals that is the largest error of all, because the grid cannot
+reduce it: in simulations of ramps of 0.1 to 0.3 degrees per minute
+checked every 3 minutes (failure intervals of 0.3 to 0.9 degrees), b was
+3% low and sCTmax 0.07 degrees low at b = 1.7, and 20% and 0.23 degrees
+low at b = 4.7, whatever the step. A warning is given when temperature
+changes by more than half a degree within such an interval. On a ramp,
+check often enough that temperature changes by a few tenths of a degree
+at most between checks, the fewer the higher b, or record the time of
+each failure. A static assay is not affected, since temperature does not
+change within its intervals.
 
 When neither `checks` nor `grid_dt` is given for failures at known
 times, the intervals are those between the readings of `path`, divided
@@ -204,64 +226,59 @@ given by its two ends is still followed closely.
 
 ``` r
 # A single linear ramp encoded as two points: 20 -> 35 degrees over 60 minutes,
-# with failure checked for every 10 minutes.
+# with failure checked for every minute.
 path   <- data.frame(path_id = "A", time = c(0, 60), temp = c(20, 35))
-checks <- data.frame(path_id = "A", time = seq(0, 60, by = 10))
+checks <- data.frame(path_id = "A", time = seq(0, 60, by = 1))
 
 # Interval-censored: one failure found at the 30-minute check, one survivor.
 ind <- data.frame(id = 1:2, path_id = "A", event = c(1, 0), t_upper = c(30, 60))
 build_hazard_data(ind, path, "interval", checks = checks)
-#> ℹ The intervals at risk were divided further, into 201 rows from 9, so that
+#> ℹ The intervals at risk were divided further, into 268 rows from 90, so that
 #>   temperature changes by at most 0.1 degrees within each.
 #> ℹ The hazard is taken as constant within an interval, which biases the fit when
 #>   temperature changes much within it. Failures at a known time are also given a
 #>   short closing interval, so their hazard is that of the moment of failure.
 #> ℹ Set `grid_dT` to change the step, or to `Inf` to keep the intervals as given.
-#> Warning: ! For 1 individual, temperature changes by up to 2.5 degrees within the
-#>   interval in which failure was found.
-#> ℹ That interval cannot be divided, since where in it the individual failed is
-#>   not known, and the hazard is taken at its midpoint, so the estimates may be
-#>   somewhat biased.
-#> # A tibble: 201 × 10
+#> # A tibble: 268 × 10
 #>       id path_id   tau exposure    Ta failed    Tr log_tau tau_ref log_exposure
 #>    <int> <chr>   <dbl>    <dbl> <dbl>  <int> <dbl>   <dbl>   <dbl>        <dbl>
-#>  1     1 A         0.2    0.4    20.0      0  26.2  -1.61       30       -0.916
-#>  2     1 A         0.6    0.4    20.2      0  26.2  -0.511      30       -0.916
-#>  3     1 A         1      0.4    20.2      0  26.2   0          30       -0.916
-#>  4     1 A         1.4    0.4    20.4      0  26.2   0.336      30       -0.916
-#>  5     1 A         1.8    0.4    20.4      0  26.2   0.588      30       -0.916
-#>  6     1 A         2.2    0.400  20.6      0  26.2   0.788      30       -0.916
-#>  7     1 A         2.6    0.4    20.6      0  26.2   0.956      30       -0.916
-#>  8     1 A         3      0.4    20.8      0  26.2   1.10       30       -0.916
-#>  9     1 A         3.4    0.4    20.8      0  26.2   1.22       30       -0.916
-#> 10     1 A         3.8    0.4    21.0      0  26.2   1.34       30       -0.916
-#> # ℹ 191 more rows
+#>  1     1 A       0.167    0.333  20.0      0  27.4  -1.79       30        -1.10
+#>  2     1 A       0.5      0.333  20.1      0  27.4  -0.693      30        -1.10
+#>  3     1 A       0.833    0.333  20.2      0  27.4  -0.182      30        -1.10
+#>  4     1 A       1.17     0.333  20.3      0  27.4   0.154      30        -1.10
+#>  5     1 A       1.5      0.333  20.4      0  27.4   0.405      30        -1.10
+#>  6     1 A       1.83     0.333  20.5      0  27.4   0.606      30        -1.10
+#>  7     1 A       2.17     0.333  20.5      0  27.4   0.773      30        -1.10
+#>  8     1 A       2.5      0.333  20.6      0  27.4   0.916      30        -1.10
+#>  9     1 A       2.83     0.333  20.7      0  27.4   1.04       30        -1.10
+#> 10     1 A       3.17     0.333  20.8      0  27.4   1.15       30        -1.10
+#> # ℹ 258 more rows
 
 # Known-time: the failure time itself, integrated on the same checks.
 ind_c <- data.frame(id = 1, path_id = "A", event = 1, t_event = 42)
 build_hazard_data(ind_c, path, "continuous", checks = checks)
-#> ℹ The intervals at risk were divided further, into 106 rows from 5, so that
+#> ℹ The intervals at risk were divided further, into 127 rows from 42, so that
 #>   temperature changes by at most 0.1 degrees within each.
 #> ℹ The hazard is taken as constant within an interval, which biases the fit when
 #>   temperature changes much within it. Failures at a known time are also given a
 #>   short closing interval, so their hazard is that of the moment of failure.
 #> ℹ Set `grid_dT` to change the step, or to `Inf` to keep the intervals as given.
-#> # A tibble: 106 × 10
+#> # A tibble: 127 × 10
 #>       id path_id   tau exposure    Ta failed    Tr log_tau tau_ref log_exposure
 #>    <dbl> <chr>   <dbl>    <dbl> <dbl>  <int> <dbl>   <dbl>   <dbl>        <dbl>
-#>  1     1 A         0.2    0.4    20.0      0  30.5  -1.61       42       -0.916
-#>  2     1 A         0.6    0.4    20.2      0  30.5  -0.511      42       -0.916
-#>  3     1 A         1      0.4    20.2      0  30.5   0          42       -0.916
-#>  4     1 A         1.4    0.4    20.4      0  30.5   0.336      42       -0.916
-#>  5     1 A         1.8    0.4    20.4      0  30.5   0.588      42       -0.916
-#>  6     1 A         2.2    0.400  20.6      0  30.5   0.788      42       -0.916
-#>  7     1 A         2.6    0.4    20.6      0  30.5   0.956      42       -0.916
-#>  8     1 A         3      0.4    20.8      0  30.5   1.10       42       -0.916
-#>  9     1 A         3.4    0.4    20.8      0  30.5   1.22       42       -0.916
-#> 10     1 A         3.8    0.4    21.0      0  30.5   1.34       42       -0.916
-#> # ℹ 96 more rows
+#>  1     1 A       0.167    0.333  20.0      0  30.5  -1.79       42        -1.10
+#>  2     1 A       0.5      0.333  20.1      0  30.5  -0.693      42        -1.10
+#>  3     1 A       0.833    0.333  20.2      0  30.5  -0.182      42        -1.10
+#>  4     1 A       1.17     0.333  20.3      0  30.5   0.154      42        -1.10
+#>  5     1 A       1.5      0.333  20.4      0  30.5   0.405      42        -1.10
+#>  6     1 A       1.83     0.333  20.5      0  30.5   0.606      42        -1.10
+#>  7     1 A       2.17     0.333  20.5      0  30.5   0.773      42        -1.10
+#>  8     1 A       2.5      0.333  20.6      0  30.5   0.916      42        -1.10
+#>  9     1 A       2.83     0.333  20.7      0  30.5   1.04       42        -1.10
+#> 10     1 A       3.17     0.333  20.8      0  30.5   1.15       42        -1.10
+#> # ℹ 117 more rows
 
-# A finer, regular integration grid instead of the checks (known-time only);
+# A regular integration grid instead of the checks (known-time only);
 # the last interval still closes exactly on the failure time.
 build_hazard_data(ind_c, path, "continuous", grid_dt = 5)
 #> ℹ The intervals at risk were divided further, into 110 rows from 9, so that
@@ -291,60 +308,50 @@ ind_m <- data.frame(id = 1:2, path_id = "A", event = 1,
                     obs_type = c("interval", "continuous"),
                     t_upper = c(30, NA), t_event = c(NA, 42))
 build_hazard_data(ind_m, path, "mixed", checks = checks)
-#> ℹ The intervals at risk were divided further, into 157 rows from 8, so that
+#> ℹ The intervals at risk were divided further, into 215 rows from 72, so that
 #>   temperature changes by at most 0.1 degrees within each.
 #> ℹ The hazard is taken as constant within an interval, which biases the fit when
 #>   temperature changes much within it. Failures at a known time are also given a
 #>   short closing interval, so their hazard is that of the moment of failure.
 #> ℹ Set `grid_dT` to change the step, or to `Inf` to keep the intervals as given.
-#> Warning: ! For 1 individual, temperature changes by up to 2.5 degrees within the
-#>   interval in which failure was found.
-#> ℹ That interval cannot be divided, since where in it the individual failed is
-#>   not known, and the hazard is taken at its midpoint, so the estimates may be
-#>   somewhat biased.
-#> # A tibble: 157 × 11
+#> # A tibble: 215 × 11
 #>       id path_id   tau exposure    Ta failed exact    Tr log_tau tau_ref
 #>    <int> <chr>   <dbl>    <dbl> <dbl>  <int> <int> <dbl>   <dbl>   <dbl>
-#>  1     1 A         0.2    0.4    20.0      0     0  28.4  -1.61       36
-#>  2     1 A         0.6    0.4    20.2      0     0  28.4  -0.511      36
-#>  3     1 A         1      0.4    20.2      0     0  28.4   0          36
-#>  4     1 A         1.4    0.4    20.4      0     0  28.4   0.336      36
-#>  5     1 A         1.8    0.4    20.4      0     0  28.4   0.588      36
-#>  6     1 A         2.2    0.400  20.6      0     0  28.4   0.788      36
-#>  7     1 A         2.6    0.4    20.6      0     0  28.4   0.956      36
-#>  8     1 A         3      0.4    20.8      0     0  28.4   1.10       36
-#>  9     1 A         3.4    0.4    20.8      0     0  28.4   1.22       36
-#> 10     1 A         3.8    0.4    21.0      0     0  28.4   1.34       36
-#> # ℹ 147 more rows
+#>  1     1 A       0.167    0.333  20.0      0     0  28.9  -1.79       36
+#>  2     1 A       0.5      0.333  20.1      0     0  28.9  -0.693      36
+#>  3     1 A       0.833    0.333  20.2      0     0  28.9  -0.182      36
+#>  4     1 A       1.17     0.333  20.3      0     0  28.9   0.154      36
+#>  5     1 A       1.5      0.333  20.4      0     0  28.9   0.405      36
+#>  6     1 A       1.83     0.333  20.5      0     0  28.9   0.606      36
+#>  7     1 A       2.17     0.333  20.5      0     0  28.9   0.773      36
+#>  8     1 A       2.5      0.333  20.6      0     0  28.9   0.916      36
+#>  9     1 A       2.83     0.333  20.7      0     0  28.9   1.04       36
+#> 10     1 A       3.17     0.333  20.8      0     0  28.9   1.15       36
+#> # ℹ 205 more rows
 #> # ℹ 1 more variable: log_exposure <dbl>
 
 # A covariate carried through to every row, and a shared reference Tr.
 ind$mass <- c(12.1, 9.8)
 build_hazard_data(ind, path, "interval", covariates = "mass", Tr = 15, checks = checks)
-#> ℹ The intervals at risk were divided further, into 201 rows from 9, so that
+#> ℹ The intervals at risk were divided further, into 268 rows from 90, so that
 #>   temperature changes by at most 0.1 degrees within each.
 #> ℹ The hazard is taken as constant within an interval, which biases the fit when
 #>   temperature changes much within it. Failures at a known time are also given a
 #>   short closing interval, so their hazard is that of the moment of failure.
 #> ℹ Set `grid_dT` to change the step, or to `Inf` to keep the intervals as given.
-#> Warning: ! For 1 individual, temperature changes by up to 2.5 degrees within the
-#>   interval in which failure was found.
-#> ℹ That interval cannot be divided, since where in it the individual failed is
-#>   not known, and the hazard is taken at its midpoint, so the estimates may be
-#>   somewhat biased.
-#> # A tibble: 201 × 11
+#> # A tibble: 268 × 11
 #>       id  mass path_id   tau exposure    Ta failed    Tr log_tau tau_ref
 #>    <int> <dbl> <chr>   <dbl>    <dbl> <dbl>  <int> <dbl>   <dbl>   <dbl>
-#>  1     1  12.1 A         0.2    0.4    20.0      0    15  -1.61       30
-#>  2     1  12.1 A         0.6    0.4    20.2      0    15  -0.511      30
-#>  3     1  12.1 A         1      0.4    20.2      0    15   0          30
-#>  4     1  12.1 A         1.4    0.4    20.4      0    15   0.336      30
-#>  5     1  12.1 A         1.8    0.4    20.4      0    15   0.588      30
-#>  6     1  12.1 A         2.2    0.400  20.6      0    15   0.788      30
-#>  7     1  12.1 A         2.6    0.4    20.6      0    15   0.956      30
-#>  8     1  12.1 A         3      0.4    20.8      0    15   1.10       30
-#>  9     1  12.1 A         3.4    0.4    20.8      0    15   1.22       30
-#> 10     1  12.1 A         3.8    0.4    21.0      0    15   1.34       30
-#> # ℹ 191 more rows
+#>  1     1  12.1 A       0.167    0.333  20.0      0    15  -1.79       30
+#>  2     1  12.1 A       0.5      0.333  20.1      0    15  -0.693      30
+#>  3     1  12.1 A       0.833    0.333  20.2      0    15  -0.182      30
+#>  4     1  12.1 A       1.17     0.333  20.3      0    15   0.154      30
+#>  5     1  12.1 A       1.5      0.333  20.4      0    15   0.405      30
+#>  6     1  12.1 A       1.83     0.333  20.5      0    15   0.606      30
+#>  7     1  12.1 A       2.17     0.333  20.5      0    15   0.773      30
+#>  8     1  12.1 A       2.5      0.333  20.6      0    15   0.916      30
+#>  9     1  12.1 A       2.83     0.333  20.7      0    15   1.04       30
+#> 10     1  12.1 A       3.17     0.333  20.8      0    15   1.15       30
+#> # ℹ 258 more rows
 #> # ℹ 1 more variable: log_exposure <dbl>
 ```

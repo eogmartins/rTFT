@@ -65,6 +65,16 @@ The weights rest on one value per unit left out, so they are less
 certain the fewer units there are, as when the unit is one of a handful
 of trials. A message says how many units there were.
 
+A model can give a unit left out no chance at all, a log predictive
+density of `-Inf`: in practice a model with a threshold, for a unit
+whose failures it places below the threshold in every posterior draw. A
+message names such a model, since it is likely wrong where it does so.
+Pseudo-BMA gives it a weight of zero, its summed density being `-Inf`.
+Stacking can still give it weight, even the most, as long as other
+models predict the unit: the combination then takes that unit's
+prediction from them, and the model's weight from how well it predicts
+the rest.
+
 Results from
 [`loo_hazard()`](https://eogmartins.github.io/rTFT/reference/loo_hazard.md)
 and
@@ -88,9 +98,9 @@ to average Bayesian predictive distributions. *Bayesian Analysis* 13,
 ``` r
 if (FALSE) { # \dontrun{
 # a model fitted to a small ramping trial: 20 individuals warmed from 20 to 35
-# degrees over 60 minutes and checked every 10, in two trials (see fit_hazard())
+# degrees over 60 minutes and checked every minute, in two trials (see fit_hazard())
 path   <- data.frame(path_id = "A", time = c(0, 60), temp = c(20, 35))
-checks <- data.frame(path_id = "A", time = seq(0, 60, by = 10))
+checks <- data.frame(path_id = "A", time = seq(0, 60, by = 1))
 ind    <- data.frame(id = 1:20, path_id = "A", event = 1, mass = runif(20, 8, 12),
                      trial = rep(c("a", "b"), each = 10),
                      t_upper = sample(seq(10, 60, 10), 20, replace = TRUE))

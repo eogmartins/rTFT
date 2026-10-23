@@ -195,30 +195,25 @@ for 1 in 50 failing over 120 minutes.
 ``` r
 # A ramp from 20 to 35 degrees over 60 minutes, with two failures.
 path   <- ramp_path("A", T_start = 20, rate = 0.25, t_max = 60)
-checks <- data.frame(path_id = "A", time = seq(0, 60, by = 10))
+checks <- data.frame(path_id = "A", time = seq(0, 60, by = 1))
 ind    <- data.frame(id = 1:3, path_id = "A", event = c(1, 1, 0),
                      t_upper = c(30, 40, 60), acclim = c(10, 15, 15))
 long   <- build_hazard_data(ind, path, "interval", covariates = "acclim",
                             checks = checks)
-#> ℹ The intervals at risk were divided further, into 277 rows from 13, so that
+#> ℹ The intervals at risk were divided further, into 386 rows from 130, so that
 #>   temperature changes by at most 0.1 degrees within each.
 #> ℹ The hazard is taken as constant within an interval, which biases the fit when
 #>   temperature changes much within it. Failures at a known time are also given a
 #>   short closing interval, so their hazard is that of the moment of failure.
 #> ℹ Set `grid_dT` to change the step, or to `Inf` to keep the intervals as given.
-#> Warning: ! For 2 individuals, temperature changes by up to 2.5 degrees within the
-#>   interval in which failure was found.
-#> ℹ That interval cannot be divided, since where in it the individual failed is
-#>   not known, and the hazard is taken at its midpoint, so the estimates may be
-#>   somewhat biased.
 
 # Default weakly-informative priors for an exponential-threshold + Weibull model.
 build_hazard_prior("exp_threshold", baseline = "weibull", long = long)
-#>            prior class      coef group resp dpar    nlpar   lb   ub tag source
-#>    normal(-1, 2)     b Intercept                     loga <NA> <NA>       user
-#>  normal(-0.7, 1)     b Intercept                     logb <NA> <NA>       user
-#>  normal(27.5, 3)     b Intercept                       Tc <NA> <NA>       user
-#>     normal(0, 1)     b Intercept                 logshape <NA> <NA>       user
+#>             prior class      coef group resp dpar    nlpar   lb   ub tag source
+#>     normal(-1, 2)     b Intercept                     loga <NA> <NA>       user
+#>   normal(-0.7, 1)     b Intercept                     logb <NA> <NA>       user
+#>  normal(28.62, 3)     b Intercept                       Tc <NA> <NA>       user
+#>      normal(0, 1)     b Intercept                 logshape <NA> <NA>       user
 
 # Override a couple of priors (a cooler species, a tighter amplitude) and narrow
 # the covariate-slope prior; every other parameter keeps its default.

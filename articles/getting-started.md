@@ -253,10 +253,11 @@ a divergent transition. A single divergent transition is not a concern
 in itself, but divergent transitions are common in models with a
 group-level standard deviation that is poorly informed by the data (12
 trials here), and a smaller step size usually removes them at little
-cost. We kept this setting for every model fitted in these vignettes.
-The models were fitted with the `cmdstanr` backend, which is given in
-the code because the default backend produces different draws for the
-same seed, so the results below are reproduced exactly only with it.
+cost. We kept this setting for every model fitted in these vignettes,
+except where a vignette says otherwise. The models were fitted with the
+`cmdstanr` backend, which is given in the code because the default
+backend produces different draws for the same seed, so the results below
+are reproduced exactly only with it.
 
 ## Convergence
 
@@ -275,11 +276,11 @@ posterior::summarise_draws(posterior::as_draws_array(fit),
 
 | variable                   | median |    sd |  rhat | ess_bulk | ess_tail |
 |:---------------------------|-------:|------:|------:|---------:|---------:|
-| b_loga_Intercept           | -1.278 | 0.193 | 1.002 |     1741 |     2125 |
-| b_loga_ImassM15            |  0.036 | 0.015 | 1.002 |     3295 |     2168 |
-| b_logb_Intercept           |  0.486 | 0.099 | 1.002 |     1820 |     2164 |
-| b_logshape_Intercept       |  0.321 | 0.097 | 1.001 |     1781 |     2318 |
-| sd_trial\_\_loga_Intercept |  0.227 | 0.157 | 1.003 |     1458 |     1587 |
+| b_loga_Intercept           | -1.278 | 0.193 | 1.001 |     2180 |     2450 |
+| b_loga_ImassM15            |  0.036 | 0.015 | 1.001 |     3462 |     2362 |
+| b_logb_Intercept           |  0.487 | 0.099 | 1.000 |     2167 |     2500 |
+| b_logshape_Intercept       |  0.322 | 0.095 | 1.000 |     2294 |     2686 |
+| sd_trial\_\_loga_Intercept |  0.219 | 0.155 | 1.002 |     1519 |     1648 |
 
 All values of $`\hat{R}`$ were below 1.01, all effective sample sizes
 were above 400 and there were 0 divergent transitions in 4,000 draws.
@@ -341,10 +342,28 @@ residuals of the `DHARMa` package ([Hartig
 2024](https://doi.org/10.32614/CRAN.package.DHARMa)), on which they are
 modelled).
 
+Most residuals are drawn at random within what was observed of the fish.
+A fish found to have failed at a check failed at some time in the
+interval since the check before, so its residual is drawn between the
+fractions the model predicts to have failed at the start and at the end
+of that interval, and a fish that outlasted the trial has its residual
+drawn between the fraction predicted to have failed by its last check
+and 1. Only a fish whose failure was seen at the moment it happened has
+a single residual, which no draw changes, so when every failure is seen
+at its time (as in a ramping assay watched throughout; see the vignette
+[*Ramping
+assays*](https://eogmartins.github.io/rTFT/articles/ramping-assays.md))
+only the fish that outlasted the trial are drawn, and one draw is nearly
+the whole answer. A seed makes the draw repeat, but not hold: a pattern
+seen in one draw may be absent from another. The residuals are therefore
+drawn several times (here 20, with `n_randomisations`), and a pattern of
+the data persists across the draws, where one seen in a single draw is
+the draw’s own.
+
 ``` r
 
 set.seed(20261006)
-res <- hazard_residuals(fit)
+res <- hazard_residuals(fit, n_randomisations = 20)
 ```
 
 ``` r
@@ -362,16 +381,20 @@ plot_residuals(res, against = "trial") +
 
 \(b\)
 
-Figure 2: Residuals of the fitted model. (a) Residuals against the
-values expected of a uniform distribution, with the dashed line showing
-equality. (b) Residuals by trial, with the dashed line at 0.5.
+Figure 2: Residuals of the fitted model, drawn repeatedly. (a) Residuals
+against the values expected of a uniform distribution, one faint line
+for each draw, with the dashed line showing equality. (b) Residuals by
+trial, over all the draws, with the dashed line at 0.5.
 
-The residuals followed the uniform distribution closely and showed no
-trial whose fish consistently failed earlier or later than predicted
-([Figure 2](#fig-residuals)). Residuals should be examined against
-variables that were set before the outcome was known (e.g., a covariate,
-a treatment or a trial), and not against the time of failure, with which
-they increase under any model (see
+In each of the 20 draws the residuals followed the uniform distribution
+closely (Kolmogorov–Smirnov tests against the uniform distribution: D
+from 0.035 to 0.074, n = 120, P ≥ 0.53), and no trial’s fish
+consistently failed earlier or later than predicted: the middle half of
+every trial’s residuals included 0.5 ([Figure 2](#fig-residuals)).
+Residuals should be examined against variables that were set before the
+outcome was known (e.g., a covariate, a treatment or a trial), and not
+against the time of failure, with which they increase under any model
+(see
 [`?hazard_residuals`](https://eogmartins.github.io/rTFT/reference/hazard_residuals.md)).
 
 ## Thermal tolerance derived from the fit
@@ -408,10 +431,10 @@ head(tol$params, 4)
 #> # A tibble: 4 × 8
 #>    mass quantity median lower upper  prob n_draws n_unreached
 #>   <dbl> <chr>     <dbl> <dbl> <dbl> <dbl>   <int>       <int>
-#> 1    10 a         0.232 0.149 0.359  0.95    1000           0
-#> 2    10 b         1.62  1.32  1.96   0.95    1000           0
-#> 3    10 shape     1.37  1.12  1.65   0.95    1000           0
-#> 4    10 z         1.95  1.73  2.17   0.95    1000           0
+#> 1    10 a         0.231 0.142 0.357  0.95    1000           0
+#> 2    10 b         1.63  1.32  1.97   0.95    1000           0
+#> 3    10 shape     1.37  1.13  1.62   0.95    1000           0
+#> 4    10 z         1.95  1.75  2.17   0.95    1000           0
 ```
 
 It is easier to compare the two masses with one row per parameter, which
@@ -431,10 +454,10 @@ knitr::kable(data.frame(
 
 | parameter | 10 g             | 20 g             |
 |:----------|:-----------------|:-----------------|
-| a         | 0.23 (0.15–0.36) | 0.34 (0.23–0.47) |
-| b         | 1.62 (1.32–1.96) | 1.62 (1.32–1.96) |
-| shape     | 1.37 (1.12–1.65) | 1.37 (1.12–1.65) |
-| z         | 1.95 (1.73–2.17) | 1.95 (1.73–2.17) |
+| a         | 0.23 (0.14–0.36) | 0.33 (0.23–0.46) |
+| b         | 1.63 (1.32–1.97) | 1.63 (1.32–1.97) |
+| shape     | 1.37 (1.13–1.62) | 1.37 (1.13–1.62) |
+| z         | 1.95 (1.75–2.17) | 1.95 (1.75–2.17) |
 
 Table 1: Posterior medians (95% credible intervals) of the parameters
 for fish of 10 and 20 g. The amplitude $`a`$ and the thermal sensitivity
@@ -447,8 +470,8 @@ the shape $`k`$ do not depend on mass in this model, so their estimates
 are the same in both columns. In the failure rate,
 $`M(T) = a \exp\{b (T - T_r)\}`$, $`b`$ multiplies the temperature
 inside the exponential, so each degree of warming multiplies the failure
-rate by $`\exp(b)`$ (here $`\exp(1.62)`$ = 5.0). The posterior
-probability that $`k`$ is greater than 1 is 0.999, which provides strong
+rate by $`\exp(b)`$ (here $`\exp(1.63)`$ = 5.1). The posterior
+probability that $`k`$ is greater than 1 is 1.000, which provides strong
 support for a hazard that increased with exposure time. The quantity
 $`z`$ is the increase in temperature that shortens the time to failure
 tenfold. It is reported only for models in which it is a single number
@@ -464,12 +487,12 @@ knitr::kable(tol$sctmax[c("mass", "p", "t_ref", "median", "lower", "upper")], di
 
 | mass |   p | t_ref | median | lower | upper |
 |-----:|----:|------:|-------:|------:|------:|
-|   10 | 0.1 |    60 |  26.03 | 25.62 | 26.37 |
-|   10 | 0.5 |    60 |  27.20 | 26.85 | 27.51 |
-|   10 | 0.9 |    60 |  27.93 | 27.58 | 28.32 |
-|   20 | 0.1 |    60 |  25.81 | 25.41 | 26.11 |
-|   20 | 0.5 |    60 |  26.97 | 26.70 | 27.24 |
-|   20 | 0.9 |    60 |  27.71 | 27.40 | 28.06 |
+|   10 | 0.1 |    60 |  26.03 | 25.63 | 26.37 |
+|   10 | 0.5 |    60 |  27.19 | 26.89 | 27.53 |
+|   10 | 0.9 |    60 |  27.94 | 27.60 | 28.33 |
+|   20 | 0.1 |    60 |  25.81 | 25.44 | 26.13 |
+|   20 | 0.5 |    60 |  26.97 | 26.73 | 27.24 |
+|   20 | 0.9 |    60 |  27.71 | 27.42 | 28.05 |
 
 The static critical thermal maximum (sCTmax; [Jørgensen et
 al. 2021](https://doi.org/10.1038/s41598-021-92004-6)) is the constant
@@ -513,9 +536,9 @@ knitr::kable(dct[c("rate", "T_start", "p", "median", "lower", "upper")], digits 
 
 | rate | T_start |   p | median | lower | upper |
 |-----:|--------:|----:|-------:|------:|------:|
-|  0.1 |      14 | 0.5 |  28.10 | 27.77 | 28.49 |
-|  0.2 |      14 | 0.5 |  28.67 | 28.31 | 29.13 |
-|  0.3 |      14 | 0.5 |  29.01 | 28.62 | 29.50 |
+|  0.1 |      14 | 0.5 |  28.11 | 27.78 | 28.50 |
+|  0.2 |      14 | 0.5 |  28.68 | 28.32 | 29.13 |
+|  0.3 |      14 | 0.5 |  29.02 | 28.63 | 29.49 |
 
 Table 2: Predicted dynamic critical thermal maximum (the temperature at
 which half of the fish of 15 g are expected to have failed) under three
@@ -675,10 +698,10 @@ knitr::kable(pred$mortality[c("mass", "mean", "median", "lower", "upper")], digi
 
 | mass | mean | median | lower | upper |
 |-----:|-----:|-------:|------:|------:|
-|   15 | 0.59 |    0.6 |  0.35 |  0.84 |
+|   15 | 0.59 |   0.58 |  0.36 |  0.83 |
 
-The model predicts that 60% of fish of 15 g would fail by the end of the
-30 days (95% credible interval: 35–84%), with nearly all of the decrease
+The model predicts that 58% of fish of 15 g would fail by the end of the
+30 days (95% credible interval: 36–83%), with nearly all of the decrease
 in survival occurring during the heat wave ([Figure 6](#fig-survival)).
 The table gives both the median and the mean of the posterior draws of
 that probability. The mean (59% here) is the probability that a fish
@@ -807,11 +830,11 @@ The consequence of counting exposure from the first reading and of
 extending the baseline in this way can be seen by fitting the same model
 with the memoryless baseline, under which the hazard depends on the
 current temperature alone and the starting point of the record is
-irrelevant. That model predicts that 32% of the fish would fail by the
-end of the record (95% credible interval: 21–44%), against 60% under the
+irrelevant. That model predicts that 31% of the fish would fail by the
+end of the record (95% credible interval: 22–43%), against 58% under the
 Weibull baseline. The data of the assay support a hazard that increased
 with exposure time (the posterior probability that $`k`$ is greater than
-1 was 0.999), but that does not make the Weibull baseline the better
+1 was 1.000), but that does not make the Weibull baseline the better
 choice for a record that is six times longer than the trials of the
 assay. When the two predictions differ this much, both should be
 reported, and the vignette [*Comparing and averaging
@@ -855,8 +878,8 @@ predict_survival(fit, heat_wave, newdata = data.frame(mass = 15))$mortality
 
 | Model | 30 days | Heat wave, 5 days | Warmest day, 24 h |
 |:---|---:|---:|---:|
-| Weibull baseline | 60 (35–84) \[59\] | 34 (23–46) \[34\] | 9 (6–14) \[9\] |
-| Memoryless baseline | 32 (21–44) \[32\] | 29 (20–40) \[29\] | 12 (8–16) \[12\] |
+| Weibull baseline | 58 (36–83) \[59\] | 33 (22–45) \[33\] | 9 (6–14) \[9\] |
+| Memoryless baseline | 31 (22–43) \[32\] | 29 (21–39) \[29\] | 11 (8–16) \[12\] |
 | Model used to simulate the data | 81 | 45 | 12 |
 
 Table 3: Probability (%) that a 15 g fish fails by the end of the whole
@@ -867,9 +890,9 @@ medians and 95% credible intervals, with posterior means in brackets),
 with the value given by the model used to simulate the data. For the two
 shorter periods, the exposure is counted from their first reading.
 
-The model predicted that 34% of fish of 15 g would fail over the five
+The model predicted that 33% of fish of 15 g would fail over the five
 days of the heat wave and 9% over its warmest day
-([Table 3](#tbl-warm)). The two baselines, which differed by 28
+([Table 3](#tbl-warm)). The two baselines, which differed by 27
 percentage points over the 30 days, differed by 5 over the heat wave and
 by 2 over the warmest day. The shorter the period, the less the
 prediction depends on how the hazard changes with the time under
@@ -922,13 +945,13 @@ knitr::kable(comparison, digits = 2, row.names = FALSE)
 
 | quantity      | simulated | median | lower | upper |
 |:--------------|----------:|-------:|------:|------:|
-| a (10 g)      |      0.28 |   0.23 |  0.15 |  0.36 |
-| a (20 g)      |      0.37 |   0.34 |  0.23 |  0.47 |
-| b             |      1.70 |   1.62 |  1.32 |  1.96 |
-| k             |      1.50 |   1.37 |  1.12 |  1.65 |
-| z             |      2.03 |   1.95 |  1.73 |  2.17 |
-| sCTmax (10 g) |     27.12 |  27.20 | 26.85 | 27.51 |
-| sCTmax (20 g) |     26.95 |  26.97 | 26.70 | 27.24 |
+| a (10 g)      |      0.28 |   0.23 |  0.14 |  0.36 |
+| a (20 g)      |      0.37 |   0.33 |  0.23 |  0.46 |
+| b             |      1.70 |   1.63 |  1.32 |  1.97 |
+| k             |      1.50 |   1.37 |  1.13 |  1.62 |
+| z             |      2.03 |   1.95 |  1.75 |  2.17 |
+| sCTmax (10 g) |     27.12 |  27.19 | 26.89 | 27.53 |
+| sCTmax (20 g) |     26.95 |  26.97 | 26.73 | 27.24 |
 
 Table 4: Values used in the simulation and their estimates (posterior
 median and 95% credible interval).
@@ -944,16 +967,18 @@ the comparison and averaging of models with different failure rate and
 baseline functions, including their predictions along a record of
 temperature ([*Comparing and averaging
 models*](https://eogmartins.github.io/rTFT/articles/comparing-and-averaging-models.md)),
-and a second stressor such as dissolved oxygen ([*Temperature and a
-co-stressor*](https://eogmartins.github.io/rTFT/articles/temperature-and-a-co-stressor.md)).
+a second stressor such as dissolved oxygen ([*Temperature and a
+co-stressor*](https://eogmartins.github.io/rTFT/articles/temperature-and-a-co-stressor.md)),
+and the fitting of models on a computing cluster ([*Fitting models on a
+cluster*](https://eogmartins.github.io/rTFT/articles/fitting-models-on-a-cluster.md)).
 
 > **Precomputed results**
 >
-> The model in this vignette was fitted on 2026-10-08 with the
-> development version of `rTFT` that became 0.1.0 (0.0.0.9000), by the
-> script `vignettes/_precompute.R` in the package’s repository. The
-> vignette displays the saved summaries, and all other code runs when
-> the vignette is built.
+> The model in this vignette was fitted on 2026-10-21 with the
+> development version 0.1.1.9000 of `rTFT`, by the script
+> `vignettes/_precompute.R` in the package’s repository. The vignette
+> displays the saved summaries, and all other code runs when the
+> vignette is built.
 
 ## References
 

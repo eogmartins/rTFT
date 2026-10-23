@@ -64,6 +64,24 @@ samples of this size, which is wide for a group of ten. The simulation
 is random: call [`set.seed()`](https://rdrr.io/r/base/Random.html) first
 for the same result again.
 
+The smaller the group, the less the check can see. With fewer than about
+five individuals the band runs from 0 to 1 at many of the times, and an
+individual falls outside it only if it failed far earlier, or lasted far
+longer, than the model predicts; a model that is wrong in the same
+direction for every individual can then pass: in a simulation on the
+design of the stored exponential fit, with the hazard e times too high
+for every individual, the check caught 15% of groups of one and 64% of
+groups of five, against every group of 40. The function warns when a
+group holds fewer than five individuals, as every group does when each
+individual has a temperature trajectory of its own (its own logged
+temperatures, in the laboratory or in the field) or when `by` splits the
+groups finely. The residuals of
+[`hazard_residuals()`](https://eogmartins.github.io/rTFT/reference/hazard_residuals.md)
+pool every individual whatever the groups, and are then the check to
+judge the model by. In groups of any size, the band is read at every
+time of the group, so even under a model that describes the data a group
+leaves it at some time now and then.
+
 ## See also
 
 [`plot_check()`](https://eogmartins.github.io/rTFT/reference/plot_check.md)
@@ -76,9 +94,9 @@ for residuals by individual.
 ``` r
 if (FALSE) { # \dontrun{
 # a model fitted to a small ramping trial: 20 individuals warmed from 20 to 35
-# degrees over 60 minutes and checked every 10, in two trials (see fit_hazard())
+# degrees over 60 minutes and checked every minute, in two trials (see fit_hazard())
 path   <- data.frame(path_id = "A", time = c(0, 60), temp = c(20, 35))
-checks <- data.frame(path_id = "A", time = seq(0, 60, by = 10))
+checks <- data.frame(path_id = "A", time = seq(0, 60, by = 1))
 ind    <- data.frame(id = 1:20, path_id = "A", event = 1, mass = runif(20, 8, 12),
                      trial = rep(c("a", "b"), each = 10),
                      t_upper = sample(seq(10, 60, 10), 20, replace = TRUE))

@@ -251,6 +251,9 @@ many trials, the argument `K` of
 [`kfold_hazard()`](https://eogmartins.github.io/rTFT/reference/kfold_hazard.md)
 sets a smaller number of refits, each leaving out several trials (see
 [`?kfold_hazard`](https://eogmartins.github.io/rTFT/reference/kfold_hazard.md)).
+The fits and refits can also be run side by side on a computing cluster
+(see the vignette [*Fitting models on a
+cluster*](https://eogmartins.github.io/rTFT/articles/fitting-models-on-a-cluster.md)).
 
 ``` r
 

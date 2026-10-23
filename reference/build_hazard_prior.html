@@ -27,7 +27,7 @@ whole set with your own prior when fitting with fit_hazard()."><meta property="o
 
     <a class="navbar-brand me-2" href="../index.html">rTFT</a>
 
-    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.1.1</small>
+    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.2.0</small>
 
 
     <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbar" aria-controls="navbar" aria-expanded="false" aria-label="Toggle navigation">
@@ -41,6 +41,7 @@ whole set with your own prior when fitting with fit_hazard()."><meta property="o
     <li><a class="dropdown-item" href="../articles/ramping-assays.html">Ramping assays</a></li>
     <li><a class="dropdown-item" href="../articles/comparing-and-averaging-models.html">Comparing and averaging models</a></li>
     <li><a class="dropdown-item" href="../articles/temperature-and-a-co-stressor.html">Temperature and a co-stressor</a></li>
+    <li><a class="dropdown-item" href="../articles/fitting-models-on-a-cluster.html">Fitting models on a cluster</a></li>
   </ul></li>
 <li class="active nav-item"><a class="nav-link" href="../reference/index.html">Reference</a></li>
 <li class="nav-item"><a class="nav-link" href="../news/index.html">Changelog</a></li>
@@ -55,7 +56,7 @@ whole set with your own prior when fitting with fit_hazard()."><meta property="o
 <div class="row">
   <main id="main" class="col-md-9"><div class="page-header">
       <img src="../logo.png" class="logo" alt=""><h1>Weakly-informative default priors for a failure-rate hazard model</h1>
-      <small class="dont-index">Source: <a href="https://github.com/eogmartins/rTFT/blob/v0.1.1/R/discrete-time-hazard-brms.R" class="external-link"><code>R/discrete-time-hazard-brms.R</code></a></small>
+      <small class="dont-index">Source: <a href="https://github.com/eogmartins/rTFT/blob/main/R/discrete-time-hazard-brms.R" class="external-link"><code>R/discrete-time-hazard-brms.R</code></a></small>
       <div class="d-none name"><code>build_hazard_prior.Rd</code></div>
     </div>
 
@@ -223,30 +224,25 @@ of controls failed over a time t, c is about -log(1 - q) / t, so for instance
     <h2 id="ref-examples">Examples<a class="anchor" aria-label="anchor" href="#ref-examples"></a></h2>
     <div class="sourceCode"><pre class="sourceCode r"><code><span class="r-in"><span><span class="co"># A ramp from 20 to 35 degrees over 60 minutes, with two failures.</span></span></span>
 <span class="r-in"><span><span class="va">path</span>   <span class="op">&lt;-</span> <span class="fu"><a href="ramp_path.html">ramp_path</a></span><span class="op">(</span><span class="st">"A"</span>, T_start <span class="op">=</span> <span class="fl">20</span>, rate <span class="op">=</span> <span class="fl">0.25</span>, t_max <span class="op">=</span> <span class="fl">60</span><span class="op">)</span></span></span>
-<span class="r-in"><span><span class="va">checks</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/data.frame.html" class="external-link">data.frame</a></span><span class="op">(</span>path_id <span class="op">=</span> <span class="st">"A"</span>, time <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/seq.html" class="external-link">seq</a></span><span class="op">(</span><span class="fl">0</span>, <span class="fl">60</span>, by <span class="op">=</span> <span class="fl">10</span><span class="op">)</span><span class="op">)</span></span></span>
+<span class="r-in"><span><span class="va">checks</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/data.frame.html" class="external-link">data.frame</a></span><span class="op">(</span>path_id <span class="op">=</span> <span class="st">"A"</span>, time <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/seq.html" class="external-link">seq</a></span><span class="op">(</span><span class="fl">0</span>, <span class="fl">60</span>, by <span class="op">=</span> <span class="fl">1</span><span class="op">)</span><span class="op">)</span></span></span>
 <span class="r-in"><span><span class="va">ind</span>    <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/data.frame.html" class="external-link">data.frame</a></span><span class="op">(</span>id <span class="op">=</span> <span class="fl">1</span><span class="op">:</span><span class="fl">3</span>, path_id <span class="op">=</span> <span class="st">"A"</span>, event <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="fl">1</span>, <span class="fl">1</span>, <span class="fl">0</span><span class="op">)</span>,</span></span>
 <span class="r-in"><span>                     t_upper <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="fl">30</span>, <span class="fl">40</span>, <span class="fl">60</span><span class="op">)</span>, acclim <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="fl">10</span>, <span class="fl">15</span>, <span class="fl">15</span><span class="op">)</span><span class="op">)</span></span></span>
 <span class="r-in"><span><span class="va">long</span>   <span class="op">&lt;-</span> <span class="fu"><a href="build_hazard_data.html">build_hazard_data</a></span><span class="op">(</span><span class="va">ind</span>, <span class="va">path</span>, <span class="st">"interval"</span>, covariates <span class="op">=</span> <span class="st">"acclim"</span>,</span></span>
 <span class="r-in"><span>                            checks <span class="op">=</span> <span class="va">checks</span><span class="op">)</span></span></span>
-<span class="r-msg co"><span class="r-pr">#&gt;</span> <span style="color: #00BBBB;">ℹ</span> The intervals at risk were divided further, into 277 rows from 13, so that</span>
+<span class="r-msg co"><span class="r-pr">#&gt;</span> <span style="color: #00BBBB;">ℹ</span> The intervals at risk were divided further, into 386 rows from 130, so that</span>
 <span class="r-msg co"><span class="r-pr">#&gt;</span>   temperature changes by at most 0.1 degrees within each.</span>
 <span class="r-msg co"><span class="r-pr">#&gt;</span> <span style="color: #00BBBB;">ℹ</span> The hazard is taken as constant within an interval, which biases the fit when</span>
 <span class="r-msg co"><span class="r-pr">#&gt;</span>   temperature changes much within it. Failures at a known time are also given a</span>
 <span class="r-msg co"><span class="r-pr">#&gt;</span>   short closing interval, so their hazard is that of the moment of failure.</span>
 <span class="r-msg co"><span class="r-pr">#&gt;</span> <span style="color: #00BBBB;">ℹ</span> Set `grid_dT` to change the step, or to `Inf` to keep the intervals as given.</span>
-<span class="r-wrn co"><span class="r-pr">#&gt;</span> <span class="warning">Warning: </span><span style="color: #BBBB00;">!</span> For 2 individuals, temperature changes by up to 2.5 degrees within the</span>
-<span class="r-wrn co"><span class="r-pr">#&gt;</span>   interval in which failure was found.</span>
-<span class="r-wrn co"><span class="r-pr">#&gt;</span> <span style="color: #00BBBB;">ℹ</span> That interval cannot be divided, since where in it the individual failed is</span>
-<span class="r-wrn co"><span class="r-pr">#&gt;</span>   not known, and the hazard is taken at its midpoint, so the estimates may be</span>
-<span class="r-wrn co"><span class="r-pr">#&gt;</span>   somewhat biased.</span>
 <span class="r-in"><span></span></span>
 <span class="r-in"><span><span class="co"># Default weakly-informative priors for an exponential-threshold + Weibull model.</span></span></span>
 <span class="r-in"><span><span class="fu">build_hazard_prior</span><span class="op">(</span><span class="st">"exp_threshold"</span>, baseline <span class="op">=</span> <span class="st">"weibull"</span>, long <span class="op">=</span> <span class="va">long</span><span class="op">)</span></span></span>
-<span class="r-out co"><span class="r-pr">#&gt;</span>            prior class      coef group resp dpar    nlpar   lb   ub tag source</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span>    normal(-1, 2)     b Intercept                     loga &lt;NA&gt; &lt;NA&gt;       user</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span>  normal(-0.7, 1)     b Intercept                     logb &lt;NA&gt; &lt;NA&gt;       user</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span>  normal(27.5, 3)     b Intercept                       Tc &lt;NA&gt; &lt;NA&gt;       user</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span>     normal(0, 1)     b Intercept                 logshape &lt;NA&gt; &lt;NA&gt;       user</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span>             prior class      coef group resp dpar    nlpar   lb   ub tag source</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span>     normal(-1, 2)     b Intercept                     loga &lt;NA&gt; &lt;NA&gt;       user</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span>   normal(-0.7, 1)     b Intercept                     logb &lt;NA&gt; &lt;NA&gt;       user</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span>  normal(28.62, 3)     b Intercept                       Tc &lt;NA&gt; &lt;NA&gt;       user</span>
+<span class="r-out co"><span class="r-pr">#&gt;</span>      normal(0, 1)     b Intercept                 logshape &lt;NA&gt; &lt;NA&gt;       user</span>
 <span class="r-in"><span></span></span>
 <span class="r-in"><span><span class="co"># Override a couple of priors (a cooler species, a tighter amplitude) and narrow</span></span></span>
 <span class="r-in"><span><span class="co"># the covariate-slope prior; every other parameter keeps its default.</span></span></span>

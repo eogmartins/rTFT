@@ -67,8 +67,9 @@ brms](https://github.com/paul-buerkner/brms#how-do-i-install-brms)).
 `cmdstanr` is recommended and was used to fit the models of the
 vignettes; it is not on CRAN and is installed with
 `install.packages("cmdstanr", repos = c("https://stan-dev.r-universe.dev", getOption("repos")))`
-followed by `cmdstanr::install_cmdstan()`. It is asked for with
-`backend = "cmdstanr"` in
+followed by
+[`cmdstanr::install_cmdstan()`](https://mc-stan.org/cmdstanr/reference/install_cmdstan.html).
+It is asked for with `backend = "cmdstanr"` in
 [`fit_hazard()`](https://eogmartins.github.io/rTFT/reference/fit_hazard.md),
 as in the example below; without it, leave that argument out and brms
 uses `rstan`.
@@ -119,7 +120,7 @@ plot_survival(pred, temperature = TRUE)
 
 ## Vignettes
 
-Four vignettes describe the package, and are best read in this order.
+Five vignettes describe the package, and are best read in this order.
 They can be read, with the help pages, on the [website of the
 package](https://eogmartins.github.io/rTFT/).
 
@@ -141,6 +142,11 @@ package](https://eogmartins.github.io/rTFT/).
     ([`vignette("temperature-and-a-co-stressor", package = "rTFT")`](https://eogmartins.github.io/rTFT/articles/temperature-and-a-co-stressor.md)):
     dissolved oxygen as a second stressor, with and without an
     interaction with temperature.
+5.  *Fitting models on a cluster*
+    ([`vignette("fitting-models-on-a-cluster", package = "rTFT")`](https://eogmartins.github.io/rTFT/articles/fitting-models-on-a-cluster.md)):
+    the fits and refits of a comparison run side by side on a cluster of
+    the Digital Research Alliance of Canada, from the account to the
+    assembled results.
 
 ## Getting help
 
@@ -160,7 +166,7 @@ use the discussions page,
 If you use the package, please cite it as:
 
 > Martins, E. G. (2026). rTFT: hazard models for thermal failure time
-> data. R package version 0.1.1.
+> data. R package version 0.2.0.
 > <https://doi.org/10.5281/zenodo.23319254>
 
 The same reference is given by `citation("rTFT")`. The DOI stands for

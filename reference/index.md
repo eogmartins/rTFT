@@ -53,6 +53,10 @@ landscapes, each with its posterior uncertainty.
 
 ## Comparing and averaging models
 
+- [`build_hazard_models()`](https://eogmartins.github.io/rTFT/reference/build_hazard_models.md)
+  : A table of failure-rate models to fit and compare
+- [`fit_hazard_models()`](https://eogmartins.github.io/rTFT/reference/fit_hazard_models.md)
+  : Fit, check and cross-validate the models of a table
 - [`loo_hazard()`](https://eogmartins.github.io/rTFT/reference/loo_hazard.md)
   : Leave-one-out cross-validation that leaves out whole individuals or
   groups
@@ -68,6 +72,25 @@ landscapes, each with its posterior uncertainty.
 - [`average_survival()`](https://eogmartins.github.io/rTFT/reference/average_survival.md)
   : Survival along a record of temperature, averaged over several fitted
   models
+
+## Running on a cluster
+
+Fitting a table of models on a cluster that schedules its jobs with
+Slurm.
+
+- [`write_hpc_bundle()`](https://eogmartins.github.io/rTFT/reference/write_hpc_bundle.md)
+  : Write a table of models into a folder to fit on a cluster
+- [`check_hpc_bundle()`](https://eogmartins.github.io/rTFT/reference/check_hpc_bundle.md)
+  : Check a bundle and the R that will fit it, before anything is
+  submitted
+- [`run_hpc_task()`](https://eogmartins.github.io/rTFT/reference/run_hpc_task.md)
+  : Run one task of a bundle on the cluster
+- [`hpc_status()`](https://eogmartins.github.io/rTFT/reference/hpc_status.md)
+  : What each task of a bundle has done, and what to do next
+- [`collect_hpc()`](https://eogmartins.github.io/rTFT/reference/collect_hpc.md)
+  : Assemble the results of a bundle run on a cluster
+- [`next_hpc_round()`](https://eogmartins.github.io/rTFT/reference/next_hpc_round.md)
+  : Write the next round of a bundle, for some of its models
 
 ## Predicting survival
 

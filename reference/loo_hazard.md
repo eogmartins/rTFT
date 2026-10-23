@@ -64,7 +64,7 @@ Leaving out a large unit can change the posterior too much for PSIS to
 stand in for refitting. Where the Pareto k diagnostic of any unit is
 above the threshold for the number of draws, a warning says so, and
 [`kfold_hazard()`](https://eogmartins.github.io/rTFT/reference/kfold_hazard.md)
-gives an exact estimate by refitting.
+gives an estimate by refitting, without the approximation.
 
 Models compared with
 [`loo::loo_compare()`](https://mc-stan.org/loo/reference/loo_compare.html)
@@ -85,9 +85,9 @@ Research* 25(72), 1-58.
 ``` r
 if (FALSE) { # \dontrun{
 # a model fitted to a small ramping trial: 20 individuals warmed from 20 to 35
-# degrees over 60 minutes and checked every 10, in two trials (see fit_hazard())
+# degrees over 60 minutes and checked every minute, in two trials (see fit_hazard())
 path   <- data.frame(path_id = "A", time = c(0, 60), temp = c(20, 35))
-checks <- data.frame(path_id = "A", time = seq(0, 60, by = 10))
+checks <- data.frame(path_id = "A", time = seq(0, 60, by = 1))
 ind    <- data.frame(id = 1:20, path_id = "A", event = 1, mass = runif(20, 8, 12),
                      trial = rep(c("a", "b"), each = 10),
                      t_upper = sample(seq(10, 60, 10), 20, replace = TRUE))
