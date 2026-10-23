@@ -37,6 +37,11 @@ library(pkgload)
 if (!file.exists("DESCRIPTION")) {
   stop("run this from the package root, not from tests/testthat/fixtures/", call. = FALSE)
 }
+# The source references are left off, and the record of the CmdStan installation is
+# dropped before the fit is saved: both hold the paths of this computer, which a
+# stored fit has no use for (the record is needed only to recompile, which no test
+# does).
+options(keep.source = FALSE)
 load_all(quiet = TRUE)
 
 # Simulate failure times under the ramp ----------------------------------------
@@ -74,6 +79,7 @@ fit <- fit_hazard(long, "exp", dpar_formulas = list(loga = ~ 1 + mass),
                   backend = "cmdstanr", refresh = 0)
 
 stopifnot(brms::ndraws(fit) == 600)
+attr(fit$fit, "CmdStanModel") <- NULL
 saveRDS(fit, "tests/testthat/fixtures/hazard-fit-exp.rds", compress = "xz")
 
 # The same data under the zero-exponential rate, which is zero at the reference
@@ -83,4 +89,5 @@ fit_zeroexp <- fit_hazard(long, "zeroexp", dpar_formulas = list(loga = ~ 1 + mas
                           backend = "cmdstanr", refresh = 0)
 
 stopifnot(brms::ndraws(fit_zeroexp) == 600)
+attr(fit_zeroexp$fit, "CmdStanModel") <- NULL
 saveRDS(fit_zeroexp, "tests/testthat/fixtures/hazard-fit-zeroexp.rds", compress = "xz")
