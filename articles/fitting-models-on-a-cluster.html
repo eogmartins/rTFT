@@ -69,7 +69,7 @@
 
 
 
-      <small class="dont-index">Source: <a href="https://github.com/eogmartins/rTFT/blob/main/vignettes/fitting-models-on-a-cluster.qmd" class="external-link"><code>vignettes/fitting-models-on-a-cluster.qmd</code></a></small>
+      <small class="dont-index">Source: <a href="https://github.com/eogmartins/rTFT/blob/v0.2.0/vignettes/fitting-models-on-a-cluster.qmd" class="external-link"><code>vignettes/fitting-models-on-a-cluster.qmd</code></a></small>
       <div class="d-none name"><code></code></div>
     </div>
 
@@ -162,7 +162,7 @@
 <span><span class="co">#&gt; A bundle of models to fit on a cluster</span></span>
 <span><span class="co">#&gt; ======================================</span></span>
 <span><span class="co">#&gt; </span></span>
-<span><span class="co">#&gt; Written by rTFT::write_hpc_bundle() on 2026-10-23 20:09 UTC, with rTFT 0.2.0.</span></span>
+<span><span class="co">#&gt; Written by rTFT::write_hpc_bundle() on 2026-10-23 20:54 UTC, with rTFT 0.2.0.</span></span>
 <span><span class="co">#&gt; It holds 2 models to fit, as 2 tasks, and 8 refits for cross-validation by</span></span>
 <span><span class="co">#&gt; refitting.</span></span>
 <span><span class="co">#&gt; </span></span>
@@ -187,7 +187,7 @@
 <span><span class="co">#&gt;   1. Copy the folder to the cluster, from your own computer:</span></span>
 <span><span class="co">#&gt; </span></span>
 <span><span class="co">#&gt;        rsync -av --rsync-path="mkdir -p scratch/ramp-run &amp;&amp; rsync" \</span></span>
-<span><span class="co">#&gt;          "/tmp/RtmpxbxJth/ramp-run/" \</span></span>
+<span><span class="co">#&gt;          "/tmp/RtmpoYgL0o/ramp-run/" \</span></span>
 <span><span class="co">#&gt;          someone@fir.alliancecan.ca:scratch/ramp-run/</span></span>
 <span><span class="co">#&gt; </span></span>
 <span><span class="co">#&gt;      It is one command over three lines; copy all three. The --rsync-path part</span></span>
@@ -258,7 +258,7 @@
 <span><span class="co">#&gt; </span></span>
 <span><span class="co">#&gt;        rsync -av \</span></span>
 <span><span class="co">#&gt;          someone@fir.alliancecan.ca:scratch/ramp-run/results/ \</span></span>
-<span><span class="co">#&gt;          "/tmp/RtmpxbxJth/ramp-run/results/"</span></span>
+<span><span class="co">#&gt;          "/tmp/RtmpoYgL0o/ramp-run/results/"</span></span>
 <span><span class="co">#&gt; </span></span>
 <span><span class="co">#&gt;      results/ holds every fit, and can take some gigabytes. If you have moved</span></span>
 <span><span class="co">#&gt;      the bundle's folder on your computer since writing it, change the path</span></span>
@@ -266,7 +266,7 @@
 <span><span class="co">#&gt; </span></span>
 <span><span class="co">#&gt;   9. Assemble them in R, on your own computer:</span></span>
 <span><span class="co">#&gt; </span></span>
-<span><span class="co">#&gt;        out &lt;- rTFT::collect_hpc("/tmp/RtmpxbxJth/ramp-run")</span></span>
+<span><span class="co">#&gt;        out &lt;- rTFT::collect_hpc("/tmp/RtmpoYgL0o/ramp-run")</span></span>
 <span><span class="co">#&gt;        out$summary</span></span>
 <span><span class="co">#&gt; </span></span>
 <span><span class="co">#&gt;      You can collect before every task is done: models without a result yet</span></span>
