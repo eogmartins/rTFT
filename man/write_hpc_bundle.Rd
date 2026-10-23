@@ -136,7 +136,7 @@ and one for the refits, queued to start when the fits have ended; \code{task.sh}
 which Slurm runs for each task and which calls \code{\link[=run_hpc_task]{run_hpc_task()}}; and
 \code{status.sh}, which calls \code{\link[=hpc_status]{hpc_status()}} to say what each task has done.
 \item \code{README.txt}, the steps to take, with the commands filled in.
-\item \verb{bundle/}, the data (\code{data.rds}), the models (\code{models.rds}), the settings of the
+\item \verb{inputs/}, the data (\code{data.rds}), the models (\code{models.rds}), the settings of the
 run (\code{settings.rds}), the tasks as tables to read (\code{tasks-fit.csv}, and
 \code{tasks-kfold.csv} with \code{kfold = TRUE}), and \code{checksums.txt}, the checksum of
 each of these files, against which the cluster checks what it received.

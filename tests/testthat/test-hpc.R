@@ -159,25 +159,25 @@ said_by <- function(err) cli::ansi_strip(conditionMessage(err))
 test_that("write_hpc_bundle writes the scripts, the inputs and the empty folders", {
   dir <- write_quietly(chains = 2, seed = 1)
   expect_equal(bundle_files(dir),
-               c("README.txt", "bundle/checksums.txt", "bundle/data.rds",
-                 "bundle/models.rds", "bundle/settings.rds", "bundle/tasks-fit.csv",
-                 "check.sh", "install.R", "install.sh", "settings.sh", "status.sh",
-                 "submit.sh", "task.sh"))
+               c("README.txt", "check.sh", "inputs/checksums.txt", "inputs/data.rds",
+                 "inputs/models.rds", "inputs/settings.rds", "inputs/tasks-fit.csv",
+                 "install.R", "install.sh", "settings.sh", "status.sh", "submit.sh",
+                 "task.sh"))
   expect_true(all(dir.exists(file.path(dir, c("stan", "results", "logs")))))
   # without cross-validation by refitting there is no table of refits
-  expect_false(file.exists(file.path(dir, "bundle", "tasks-kfold.csv")))
+  expect_false(file.exists(file.path(dir, "inputs", "tasks-kfold.csv")))
 })
 
 
 test_that("the bundle holds the data, the models and the settings of the run", {
   dir <- write_quietly(chains = 2, iter = 1000, seed = 1, time = "02:30:00",
                        mem_per_cpu = "2000M", email = "me@example.org")
-  expect_identical(readRDS(file.path(dir, "bundle", "data.rds")), long)
+  expect_identical(readRDS(file.path(dir, "inputs", "data.rds")), long)
   # the formulas come back with environments of their own, so only their content is
   # compared
-  expect_equal(readRDS(file.path(dir, "bundle", "models.rds")), models,
+  expect_equal(readRDS(file.path(dir, "inputs", "models.rds")), models,
                ignore_formula_env = TRUE)
-  s <- readRDS(file.path(dir, "bundle", "settings.rds"))
+  s <- readRDS(file.path(dir, "inputs", "settings.rds"))
   expect_equal(s$rtft_version, as.character(utils::packageVersion("rTFT")))
   expect_equal(s$brms_version, as.character(utils::packageVersion("brms")))
   expect_equal(s$observation, "interval")
@@ -195,7 +195,7 @@ test_that("the bundle holds the data, the models and the settings of the run", {
                              mem_per_cpu = "2000M", cpus_per_task = 2,
                              email = "me@example.org",
                              modules = c("StdEnv/2023", "r/4.5.0"), r_library = NULL))
-  tasks <- utils::read.csv(file.path(dir, "bundle", "tasks-fit.csv"))
+  tasks <- utils::read.csv(file.path(dir, "inputs", "tasks-fit.csv"))
   expect_equal(tasks, data.frame(task = 1:2, model = c("exp_mem", "exp_weibull"),
                                  m_form = "exp", baseline = c("mem", "weibull")))
 })
@@ -203,9 +203,9 @@ test_that("the bundle holds the data, the models and the settings of the run", {
 
 test_that("the checksums of the bundle are those of its files", {
   dir <- write_quietly(kfold = TRUE)
-  sums <- utils::read.table(file.path(dir, "bundle", "checksums.txt"),
+  sums <- utils::read.table(file.path(dir, "inputs", "checksums.txt"),
                             col.names = c("md5", "file"), colClasses = "character")
-  expect_equal(sums$file, paste0("bundle/", c("data.rds", "models.rds", "settings.rds",
+  expect_equal(sums$file, paste0("inputs/", c("data.rds", "models.rds", "settings.rds",
                                               "tasks-fit.csv", "tasks-kfold.csv")))
   expect_equal(sums$md5, unname(tools::md5sum(file.path(dir, sums$file))))
 })
@@ -216,11 +216,11 @@ test_that("with kfold = TRUE the folds are assigned once and each refit is a tas
   dir <- write_quietly(kfold = TRUE)
   set.seed(4)
   expected <- .assign_folds(c("a", "b"), 2)
-  s <- readRDS(file.path(dir, "bundle", "settings.rds"))
+  s <- readRDS(file.path(dir, "inputs", "settings.rds"))
   expect_true(s$kfold)
   expect_equal(s$K, 2)
   expect_equal(s$folds, expected)
-  tasks <- utils::read.csv(file.path(dir, "bundle", "tasks-kfold.csv"))
+  tasks <- utils::read.csv(file.path(dir, "inputs", "tasks-kfold.csv"))
   expect_equal(tasks$task, 1:4)
   expect_equal(tasks$model, rep(c("exp_mem", "exp_weibull"), each = 2))
   expect_equal(tasks$fold, rep(1:2, 2))
@@ -274,8 +274,8 @@ test_that("the scripts are filled in from the template, with nothing left to fil
 
 test_that("every text file of a bundle has line feeds alone, on every system", {
   dir <- write_quietly(kfold = TRUE)
-  text_files <- c(scripts, "bundle/checksums.txt", "bundle/tasks-fit.csv",
-                  "bundle/tasks-kfold.csv")
+  text_files <- c(scripts, "inputs/checksums.txt", "inputs/tasks-fit.csv",
+                  "inputs/tasks-kfold.csv")
   for (file in text_files) {
     bytes <- readBin(file.path(dir, file), "raw", file.size(file.path(dir, file)))
     expect_false(any(bytes == as.raw(13)), label = file)       # no carriage return
@@ -512,7 +512,7 @@ round_quietly <- function(dir, models, ..., env = parent.frame()) {
 
 test_that("next_hpc_round copies what makes the rounds comparable, and changes the sampler", {
   dir <- trial_bundle()
-  first <- readRDS(file.path(dir, "bundle", "settings.rds"))
+  first <- readRDS(file.path(dir, "inputs", "settings.rds"))
   expect_message(
     next_hpc_round(dir, "exp_weibull", file.path(withr::local_tempdir(), "round"),
                    iter = 4000, rtft_source = src),
@@ -523,14 +523,14 @@ test_that("next_hpc_round copies what makes the rounds comparable, and changes t
   expect_equal(bundle_files(round), bundle_files(dir)[!grepl("^results/|^logs/",
                                                               bundle_files(dir))])
   # the data file itself, not written again
-  expect_equal(unname(tools::md5sum(file.path(round, "bundle", "data.rds"))),
-               unname(tools::md5sum(file.path(dir, "bundle", "data.rds"))))
+  expect_equal(unname(tools::md5sum(file.path(round, "inputs", "data.rds"))),
+               unname(tools::md5sum(file.path(dir, "inputs", "data.rds"))))
   # the whole table of models, and tasks for the models named, and only those
-  expect_equal(readRDS(file.path(round, "bundle", "models.rds"))$model,
+  expect_equal(readRDS(file.path(round, "inputs", "models.rds"))$model,
                c("exp_mem", "exp_weibull"))
   expect_equal(.read_tasks(round, "fit")$model, "exp_weibull")
   # copied: the unit, the folds, the rule, the observation, the account and modules
-  settings <- readRDS(file.path(round, "bundle", "settings.rds"))
+  settings <- readRDS(file.path(round, "inputs", "settings.rds"))
   for (what in c("observation", "unit", "units", "kfold", "K", "folds", "rule",
                  "rtft_version"))
     expect_identical(settings[[what]], first[[what]])
@@ -565,14 +565,14 @@ test_that("next_hpc_round copies what makes the rounds comparable, and changes t
 
 test_that("a round merges control into the bundle's, and changes the chains with the cores", {
   dir <- trial_bundle()
-  first <- readRDS(file.path(dir, "bundle", "settings.rds"))
+  first <- readRDS(file.path(dir, "inputs", "settings.rds"))
   first$dots$control <- list(max_treedepth = 12)
-  saveRDS(first, file.path(dir, "bundle", "settings.rds"))
+  saveRDS(first, file.path(dir, "inputs", "settings.rds"))
   sums <- .bundle_checksums(dir)
   .write_lines_lf(paste(sums, names(sums), sep = "  "),
-                  file.path(dir, "bundle", "checksums.txt"))
+                  file.path(dir, "inputs", "checksums.txt"))
   round <- round_quietly(dir, "exp_mem", chains = 4, control = list(adapt_delta = 0.99))
-  settings <- readRDS(file.path(round, "bundle", "settings.rds"))
+  settings <- readRDS(file.path(round, "inputs", "settings.rds"))
   expect_equal(settings$dots$control, list(max_treedepth = 12, adapt_delta = 0.99))
   expect_equal(settings$chains, 4)
   expect_equal(settings$slurm$cpus_per_task, 4)
@@ -585,7 +585,7 @@ test_that("each round follows the one before, and counts from the first bundle",
   dir <- trial_bundle()
   two   <- round_quietly(dir, c("exp_mem", "exp_weibull"), iter = 3000)
   three <- round_quietly(two, "exp_weibull", iter = 6000)
-  settings <- readRDS(file.path(three, "bundle", "settings.rds"))
+  settings <- readRDS(file.path(three, "inputs", "settings.rds"))
   expect_equal(settings$round, list(
     number = 3L, first = .bundle_id(dir), previous = .bundle_id(two),
     first_dir = normalizePath(dir, winslash = "/"),
@@ -599,7 +599,7 @@ test_that("each round follows the one before, and counts from the first bundle",
   only_one <- round_quietly(dir, "exp_weibull")
   back <- round_quietly(only_one, "exp_mem")
   expect_equal(.read_tasks(back, "fit")$model, "exp_mem")
-  expect_equal(readRDS(file.path(back, "bundle", "settings.rds"))$round$number, 3L)
+  expect_equal(readRDS(file.path(back, "inputs", "settings.rds"))$round$number, 3L)
 })
 
 
@@ -648,7 +648,7 @@ test_that("next_hpc_round refuses what would make another model or another run",
     suppressMessages(next_hpc_round(dir, "exp_mem", full, rtft_source = src)),
     class = "rTFT_dir_not_empty")
   # a bundle changed since it was written
-  writeLines("x", file.path(dir, "bundle", "extra.csv"))
+  writeLines("x", file.path(dir, "inputs", "extra.csv"))
   expect_error(round_quietly(dir, "exp_mem"), class = "rTFT_bundle_changed")
 })
 
@@ -697,22 +697,22 @@ test_that("a bundle with a file missing, changed or added is refused", {
   with_cmdstan()
   dir <- write_quietly(kfold = TRUE)
   # missing
-  file.rename(file.path(dir, "bundle", "models.rds"), file.path(dir, "models.rds"))
+  file.rename(file.path(dir, "inputs", "models.rds"), file.path(dir, "models.rds"))
   expect_error(check_hpc_bundle(dir), class = "rTFT_bad_bundle")
-  file.rename(file.path(dir, "models.rds"), file.path(dir, "bundle", "models.rds"))
+  file.rename(file.path(dir, "models.rds"), file.path(dir, "inputs", "models.rds"))
   expect_true(suppressMessages(check_hpc_bundle(dir)))
   # changed: a copy cut short
-  data_file <- file.path(dir, "bundle", "data.rds")
+  data_file <- file.path(dir, "inputs", "data.rds")
   whole <- readBin(data_file, "raw", file.size(data_file))
   writeBin(whole[seq_len(length(whole) %/% 2)], data_file)
   expect_error(check_hpc_bundle(dir), class = "rTFT_bundle_changed")
   writeBin(whole, data_file)
   # gone, though recorded
-  file.rename(file.path(dir, "bundle", "tasks-kfold.csv"), file.path(dir, "tasks.csv"))
+  file.rename(file.path(dir, "inputs", "tasks-kfold.csv"), file.path(dir, "tasks.csv"))
   expect_error(check_hpc_bundle(dir), class = "rTFT_bundle_changed")
-  file.rename(file.path(dir, "tasks.csv"), file.path(dir, "bundle", "tasks-kfold.csv"))
+  file.rename(file.path(dir, "tasks.csv"), file.path(dir, "inputs", "tasks-kfold.csv"))
   # added since
-  writeLines("x", file.path(dir, "bundle", "extra.csv"))
+  writeLines("x", file.path(dir, "inputs", "extra.csv"))
   expect_error(check_hpc_bundle(dir), class = "rTFT_bundle_changed")
   # and a folder that is not a bundle at all
   expect_error(check_hpc_bundle(withr::local_tempdir()), class = "rTFT_bad_bundle")
@@ -742,7 +742,7 @@ test_that("copies of one version are told apart by their commits, where both hav
   sha_b <- "e15b42aef00000000000000000000000000000bb"
   local_mocked_bindings(.installed_rtft_commit = function(...) sha_a)
   dir <- write_quietly()
-  expect_equal(readRDS(file.path(dir, "bundle", "settings.rds"))$rtft_commit, sha_a)
+  expect_equal(readRDS(file.path(dir, "inputs", "settings.rds"))$rtft_commit, sha_a)
   # the install reinstalls when the commit differs, and checks what it installed
   install <- readLines(file.path(dir, "install.R"))
   expect_true(any(grepl(paste0('^wanted_commit <- "', sha_a, '"$'), install)))
@@ -760,7 +760,7 @@ test_that("copies of one version are told apart by their commits, where both hav
   expect_true(suppressMessages(check_hpc_bundle(dir)))
   # and so is a bundle that recorded none
   plain <- write_quietly()
-  expect_true(is.na(readRDS(file.path(plain, "bundle", "settings.rds"))$rtft_commit))
+  expect_true(is.na(readRDS(file.path(plain, "inputs", "settings.rds"))$rtft_commit))
   expect_true('wanted_commit <- ""' %in% readLines(file.path(plain, "install.R")))
   local_mocked_bindings(.installed_rtft_commit = function(...) sha_b)
   expect_true(suppressMessages(check_hpc_bundle(plain)))
@@ -965,7 +965,7 @@ test_that("a refit starts from its model's fit and leaves out the units of its f
   local_mocked_bindings(fit_hazard = stand_in_fit(new_record()),
                         .refit_fold = stand_in_refit(refits))
   dir <- trial_bundle()
-  settings <- readRDS(file.path(dir, "bundle", "settings.rds"))
+  settings <- readRDS(file.path(dir, "inputs", "settings.rds"))
   tasks <- .read_tasks(dir, "kfold")
   # before its fit has ended, a refit cannot start
   err <- expect_error(.kfold_task(dir, settings, tasks[1, ], .bundle_id(dir)),
@@ -1002,7 +1002,7 @@ test_that("a refit run again draws the same effects for the units it leaves out"
   local_mocked_bindings(fit_hazard = stand_in_fit(new_record()),
                         .refit_fold = function(...) list(elpd = c(u = stats::runif(1))))
   dir <- trial_bundle()
-  settings <- readRDS(file.path(dir, "bundle", "settings.rds"))
+  settings <- readRDS(file.path(dir, "inputs", "settings.rds"))
   tasks <- .read_tasks(dir, "kfold")
   run_quietly(dir, "fit", 1)
   # each in a generator seeded at random, as a new R on the cluster is
@@ -1044,9 +1044,9 @@ test_that("run_hpc_task refuses a bundle that changed, or another version of rTF
   record <- new_record()
   local_mocked_bindings(fit_hazard = stand_in_fit(record))
   dir <- trial_bundle()
-  writeLines("x", file.path(dir, "bundle", "extra.csv"))
+  writeLines("x", file.path(dir, "inputs", "extra.csv"))
   expect_error(run_hpc_task(dir, "fit", 1), class = "rTFT_bundle_changed")
-  file.remove(file.path(dir, "bundle", "extra.csv"))
+  file.remove(file.path(dir, "inputs", "extra.csv"))
   expect_false(file.exists(.task_file(dir, "fit", 1, "started")))
   # another version stops the task before it fits, and the reason is recorded, so
   # that hpc_status() can say it
@@ -1287,7 +1287,7 @@ test_that("collect_hpc returns what fit_hazard_models() returns for the same run
                dplyr::select(ref$summary, -"seconds"))
   expect_false(anyNA(out$summary$seconds))
   # the refits are scored on the folds of the bundle, unit by unit
-  settings <- readRDS(file.path(dir, "bundle", "settings.rds"))
+  settings <- readRDS(file.path(dir, "inputs", "settings.rds"))
   for (m in names(out$kfold)) {
     expect_s3_class(out$kfold[[m]], c("kfold", "loo"))
     expect_equal(out$kfold[[m]]$estimates, ref$kfold[[m]]$estimates)
@@ -1443,7 +1443,7 @@ test_that("results are never assembled with a bundle other than their own", {
             file.path(dir, "results"))
   expect_error(suppressWarnings(collect_hpc(dir)), class = "rTFT_result_not_of_bundle")
   # nor with a bundle whose files changed after the run
-  writeLines("x", file.path(other, "bundle", "extra.csv"))
+  writeLines("x", file.path(other, "inputs", "extra.csv"))
   expect_error(collect_hpc(other), class = "rTFT_bundle_changed")
 })
 
@@ -1546,16 +1546,16 @@ test_that("collect_hpc refuses folders that are not a bundle and its rounds", {
   not_chain(c(dir, other), "more than one first bundle")
   not_chain(c(dir, two, also_two), "two of them are the same round")
   # a round whose data were changed, with its checksums written again
-  saveRDS(long_trials[-1, ], file.path(two, "bundle", "data.rds"))
+  saveRDS(long_trials[-1, ], file.path(two, "inputs", "data.rds"))
   sums <- .bundle_checksums(two)
   .write_lines_lf(paste(sums, names(sums), sep = "  "),
-                  file.path(two, "bundle", "checksums.txt"))
-  settings <- readRDS(file.path(three, "bundle", "settings.rds"))
+                  file.path(two, "inputs", "checksums.txt"))
+  settings <- readRDS(file.path(three, "inputs", "settings.rds"))
   settings$round$previous <- .bundle_id(two)
-  saveRDS(settings, file.path(three, "bundle", "settings.rds"))
+  saveRDS(settings, file.path(three, "inputs", "settings.rds"))
   sums <- .bundle_checksums(three)
   .write_lines_lf(paste(sums, names(sums), sep = "  "),
-                  file.path(three, "bundle", "checksums.txt"))
+                  file.path(three, "inputs", "checksums.txt"))
   not_chain(c(dir, two, three), "do not hold the same data")
   # and what is not a folder
   for (bad in list(character(0), NA_character_, 1))

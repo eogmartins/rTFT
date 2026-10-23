@@ -7,7 +7,7 @@
 #   bash submit.sh --fit 2,5                only fits 2 and 5
 #   bash submit.sh --fit 2 --kfold 3-4      fit 2, and refits 3 and 4 after it
 #
-# Each stage is one job array, with one task for each row of its table in bundle/,
+# Each stage is one job array, with one task for each row of its table in inputs/,
 # and each task is given the time, memory and cores of settings.sh. A refit for
 # cross-validation starts from its model's fit, so the refits are queued to start
 # only when every fit submitted with them has ended, whether it ended well or not; a
@@ -28,10 +28,10 @@ usage() {
 
 # the number of tasks of a stage: the rows of its table, without the header
 count() { echo $(( $(wc -l < "$1") - 1 )); }
-N_FIT=$(count bundle/tasks-fit.csv)
+N_FIT=$(count inputs/tasks-fit.csv)
 N_KFOLD=0
-if [ -f bundle/tasks-kfold.csv ]; then
-  N_KFOLD=$(count bundle/tasks-kfold.csv)
+if [ -f inputs/tasks-kfold.csv ]; then
+  N_KFOLD=$(count inputs/tasks-kfold.csv)
 fi
 
 FIT=""

@@ -18,8 +18,8 @@ folder, which is where \code{task.sh} runs it.}
 refit for cross-validation.}
 
 \item{task}{A single whole number, or a character string holding one, the number of
-the task among those of its stage, as the tables \code{bundle/tasks-fit.csv} and
-\code{bundle/tasks-kfold.csv} number them. Defaults to the number Slurm gives the
+the task among those of its stage, as the tables \code{inputs/tasks-fit.csv} and
+\code{inputs/tasks-kfold.csv} number them. Defaults to the number Slurm gives the
 array task, in the environment variable \code{SLURM_ARRAY_TASK_ID}.}
 }
 \value{

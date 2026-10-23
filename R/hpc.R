@@ -254,11 +254,11 @@
 
 # .bundle_files() / .bundle_checksums() / .verify_bundle() / .bundle_id() ------
 
-# The files of the folder `bundle/` of the bundle in `dir` that are checked for
+# The files of the folder `inputs/` of the bundle in `dir` that are checked for
 # changes, with paths relative to `dir`.
 .bundle_files <- function(dir) {
-  files <- setdiff(list.files(file.path(dir, "bundle")), "checksums.txt")
-  file.path("bundle", sort(files))
+  files <- setdiff(list.files(file.path(dir, "inputs")), "checksums.txt")
+  file.path("inputs", sort(files))
 }
 
 # The MD5 checksum of each of those files, named by its path within `dir`.
@@ -272,7 +272,7 @@
 # missing, changed since or added since is an error, so a copy that was cut short or
 # a file edited by hand is found before anything is fitted or assembled.
 .verify_bundle <- function(dir) {
-  needed <- file.path("bundle", c("data.rds", "models.rds", "settings.rds",
+  needed <- file.path("inputs", c("data.rds", "models.rds", "settings.rds",
                                   "tasks-fit.csv", "checksums.txt"))
   absent <- needed[!file.exists(file.path(dir, needed))]
   if (length(absent))
@@ -280,7 +280,7 @@
       "{.path {dir}} is not a complete bundle: {.file {absent}} {?is/are} missing.",
       "i" = "Copy the whole folder written by {.fn write_hpc_bundle} again."
     ), class = "rTFT_bad_bundle")
-  recorded <- utils::read.table(file.path(dir, "bundle", "checksums.txt"),
+  recorded <- utils::read.table(file.path(dir, "inputs", "checksums.txt"),
                                 col.names = c("md5", "file"), colClasses = "character")
   found <- .bundle_checksums(dir)
   now   <- unname(found[recorded$file])          # missing for a file no longer there
@@ -298,7 +298,7 @@
 # changes when any file of the bundle does. Every result of a task is stamped with
 # it, so that no result is assembled with a bundle other than the one it came from.
 .bundle_id <- function(dir) {
-  unname(tools::md5sum(file.path(dir, "bundle", "checksums.txt")))
+  unname(tools::md5sum(file.path(dir, "inputs", "checksums.txt")))
 }
 
 
@@ -428,21 +428,21 @@
     scripts[[file]] <- .fill_template(readLines(file.path(template_dir, file)), values)
 
   # the bundle itself
-  for (folder in c("bundle", "stan", "results", "logs"))
+  for (folder in c("inputs", "stan", "results", "logs"))
     dir.create(file.path(dir, folder), recursive = TRUE, showWarnings = FALSE)
   if (is.character(data)) {
-    file.copy(data, file.path(dir, "bundle", "data.rds"))
+    file.copy(data, file.path(dir, "inputs", "data.rds"))
   } else {
-    saveRDS(data, file.path(dir, "bundle", "data.rds"))
+    saveRDS(data, file.path(dir, "inputs", "data.rds"))
   }
-  saveRDS(models, file.path(dir, "bundle", "models.rds"))
-  saveRDS(settings, file.path(dir, "bundle", "settings.rds"))
-  .write_csv_lf(tasks_fit, file.path(dir, "bundle", "tasks-fit.csv"))
+  saveRDS(models, file.path(dir, "inputs", "models.rds"))
+  saveRDS(settings, file.path(dir, "inputs", "settings.rds"))
+  .write_csv_lf(tasks_fit, file.path(dir, "inputs", "tasks-fit.csv"))
   if (kfold)
-    .write_csv_lf(tasks_kfold, file.path(dir, "bundle", "tasks-kfold.csv"))
+    .write_csv_lf(tasks_kfold, file.path(dir, "inputs", "tasks-kfold.csv"))
   sums <- .bundle_checksums(dir)
   .write_lines_lf(paste(sums, names(sums), sep = "  "),
-                  file.path(dir, "bundle", "checksums.txt"))
+                  file.path(dir, "inputs", "checksums.txt"))
 
   for (file in .script_files) .write_lines_lf(scripts[[file]], file.path(dir, file))
   invisible(list(fit = nrow(tasks_fit), kfold = n_refits))
@@ -485,7 +485,7 @@
 #'   which Slurm runs for each task and which calls [run_hpc_task()]; and
 #'   `status.sh`, which calls [hpc_status()] to say what each task has done.
 #' * `README.txt`, the steps to take, with the commands filled in.
-#' * `bundle/`, the data (`data.rds`), the models (`models.rds`), the settings of the
+#' * `inputs/`, the data (`data.rds`), the models (`models.rds`), the settings of the
 #'   run (`settings.rds`), the tasks as tables to read (`tasks-fit.csv`, and
 #'   `tasks-kfold.csv` with `kfold = TRUE`), and `checksums.txt`, the checksum of
 #'   each of these files, against which the cluster checks what it received.
@@ -713,8 +713,8 @@ next_hpc_round <- function(dir, models, new_dir = NULL, ..., time = NULL,
     cli::cli_abort("{.arg dir} must be a single character string, a folder.",
                    class = "rTFT_bad_dir")
   .verify_bundle(dir)
-  before    <- readRDS(file.path(dir, "bundle", "settings.rds"))
-  all_models <- readRDS(file.path(dir, "bundle", "models.rds"))
+  before    <- readRDS(file.path(dir, "inputs", "settings.rds"))
+  all_models <- readRDS(file.path(dir, "inputs", "models.rds"))
   dots <- list(...)
   sampler <- c("chains", "iter", "warmup", "thin", "seed", "control", "init")
   other   <- setdiff(names(dots), sampler)
@@ -768,7 +768,7 @@ next_hpc_round <- function(dir, models, new_dir = NULL, ..., time = NULL,
   settings$created <- format(Sys.time(), "%Y-%m-%d %H:%M %Z")
   settings$brms_version <- as.character(utils::packageVersion("brms"))
   settings$round <- of_round
-  n <- .write_bundle(new_dir, all_models, file.path(dir, "bundle", "data.rds"),
+  n <- .write_bundle(new_dir, all_models, file.path(dir, "inputs", "data.rds"),
                      settings, rtft_source, remote, template_dir, to_fit = models)
 
   refits <- if (isTRUE(settings$kfold))
@@ -824,8 +824,8 @@ next_hpc_round <- function(dir, models, new_dir = NULL, ..., time = NULL,
 check_hpc_bundle <- function(dir = ".") {
   # every file as it was written
   found <- .verify_bundle(dir)
-  settings <- readRDS(file.path(dir, "bundle", "settings.rds"))
-  models   <- readRDS(file.path(dir, "bundle", "models.rds"))
+  settings <- readRDS(file.path(dir, "inputs", "settings.rds"))
+  models   <- readRDS(file.path(dir, "inputs", "models.rds"))
   # a round holds the whole table, and fits only the models with a task
   models   <- models[models$model %in% .read_tasks(dir, "fit")$model, ]
 
@@ -884,7 +884,7 @@ check_hpc_bundle <- function(dir = ".") {
 # none as missing, so that a model named "NA", "1" or "TRUE" keeps its name; the
 # numbers of the tasks and the folds are then made whole numbers.
 .read_tasks <- function(dir, stage) {
-  file <- file.path(dir, "bundle", paste0("tasks-", stage, ".csv"))
+  file <- file.path(dir, "inputs", paste0("tasks-", stage, ".csv"))
   if (!file.exists(file)) return(NULL)
   tasks <- utils::read.csv(file, colClasses = "character", na.strings = character(0))
   for (column in intersect(c("task", "fold"), names(tasks)))
@@ -998,8 +998,8 @@ check_hpc_bundle <- function(dir = ".") {
 # diagnostics and the number of units for which importance sampling cannot be
 # trusted.
 .fit_task <- function(dir, settings, row) {
-  models <- readRDS(file.path(dir, "bundle", "models.rds"))
-  long   <- readRDS(file.path(dir, "bundle", "data.rds"))
+  models <- readRDS(file.path(dir, "inputs", "models.rds"))
+  long   <- readRDS(file.path(dir, "inputs", "data.rds"))
   .fit_one_model(models[models$model == row$model, ], long, settings$observation,
                  settings$unit, settings$chains,
                  c(settings$dots, list(cores = settings$chains)))
@@ -1083,8 +1083,8 @@ check_hpc_bundle <- function(dir = ".") {
 #' @param stage A character string, `"fit"` (the default) for a fit, or `"kfold"` for a
 #'   refit for cross-validation.
 #' @param task A single whole number, or a character string holding one, the number of
-#'   the task among those of its stage, as the tables `bundle/tasks-fit.csv` and
-#'   `bundle/tasks-kfold.csv` number them. Defaults to the number Slurm gives the
+#'   the task among those of its stage, as the tables `inputs/tasks-fit.csv` and
+#'   `inputs/tasks-kfold.csv` number them. Defaults to the number Slurm gives the
 #'   array task, in the environment variable `SLURM_ARRAY_TASK_ID`.
 #' @return The path of the task's result, invisibly. A message says how the task
 #'   ended. A task that fails is an error, raised after its reason has been written
@@ -1105,7 +1105,7 @@ run_hpc_task <- function(dir = ".", stage = "fit",
                          task = Sys.getenv("SLURM_ARRAY_TASK_ID")) {
   stage <- .check_stage(stage)
   .verify_bundle(dir)
-  settings  <- readRDS(file.path(dir, "bundle", "settings.rds"))
+  settings  <- readRDS(file.path(dir, "inputs", "settings.rds"))
   tasks     <- .read_tasks(dir, stage)
   row       <- tasks[.check_task(task, tasks, stage), ]
   id     <- .bundle_id(dir)
@@ -1560,15 +1560,15 @@ hpc_status <- function(dir = ".") {
     ), class = "rTFT_bad_dir")
   bundles <- purrr::map(dirs, \(d) {
     .verify_bundle(d)
-    settings <- readRDS(file.path(d, "bundle", "settings.rds"))
+    settings <- readRDS(file.path(d, "inputs", "settings.rds"))
     id <- .bundle_id(d)
     list(dir = d, id = id, settings = settings,
-         models   = readRDS(file.path(d, "bundle", "models.rds")),
+         models   = readRDS(file.path(d, "inputs", "models.rds")),
          to_fit   = .read_tasks(d, "fit")$model,
          number   = if (is.null(settings$round)) 1L else settings$round$number,
          first    = if (is.null(settings$round)) id else settings$round$first,
          previous = settings$round$previous,
-         data     = unname(tools::md5sum(file.path(d, "bundle", "data.rds"))))
+         data     = unname(tools::md5sum(file.path(d, "inputs", "data.rds"))))
   })
   if (length(bundles) == 1L) return(bundles)
   ids     <- vapply(bundles, `[[`, character(1), "id")

@@ -13,7 +13,7 @@ What is in it
   submit.sh     submits the tasks to Slurm, the cluster's scheduler
   task.sh       what Slurm runs for each task; not run by hand
   status.sh     says what each task has done, and what to do next
-  bundle/       the data, the models and the settings of the run, with their
+  inputs/       the data, the models and the settings of the run, with their
                 checksums; nothing in it is to be edited
   stan/         where the compiled Stan programs will be kept
   results/      where the tasks will write what they find
