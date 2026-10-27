@@ -221,7 +221,7 @@ cat(readLines("ramp-run/README.txt"), sep = "\n")
 #> A bundle of models to fit on a cluster
 #> ======================================
 #> 
-#> Written by rTFT::write_hpc_bundle() on 2026-10-27 21:32 UTC, with rTFT 0.2.1.
+#> Written by rTFT::write_hpc_bundle() on 2026-10-27 21:48 UTC, with rTFT 0.2.1.
 #> It holds 2 models to fit, as 2 tasks, and 8 refits for cross-validation by
 #> refitting.
 #> 
@@ -246,7 +246,7 @@ cat(readLines("ramp-run/README.txt"), sep = "\n")
 #>   1. Copy the folder to the cluster, from your own computer:
 #> 
 #>        rsync -av --rsync-path="mkdir -p scratch/ramp-run && rsync" \
-#>          "/tmp/RtmprmjZKJ/ramp-run/" \
+#>          "/tmp/RtmpgXr81O/ramp-run/" \
 #>          someone@fir.alliancecan.ca:scratch/ramp-run/
 #> 
 #>      It is one command over three lines; copy all three. The --rsync-path part
@@ -317,7 +317,7 @@ cat(readLines("ramp-run/README.txt"), sep = "\n")
 #> 
 #>        rsync -av \
 #>          someone@fir.alliancecan.ca:scratch/ramp-run/results/ \
-#>          "/tmp/RtmprmjZKJ/ramp-run/results/"
+#>          "/tmp/RtmpgXr81O/ramp-run/results/"
 #> 
 #>      results/ holds every fit, and can take some gigabytes. If you have moved
 #>      the bundle's folder on your computer since writing it, change the path
@@ -325,7 +325,7 @@ cat(readLines("ramp-run/README.txt"), sep = "\n")
 #> 
 #>   9. Assemble them in R, on your own computer:
 #> 
-#>        out <- rTFT::collect_hpc("/tmp/RtmprmjZKJ/ramp-run")
+#>        out <- rTFT::collect_hpc("/tmp/RtmpgXr81O/ramp-run")
 #>        out$summary
 #> 
 #>      You can collect before every task is done: models without a result yet

@@ -262,7 +262,7 @@ write_hpc_bundle(models, long, bundle, account = "def-someone", kfold = TRUE,
 #>   effect in the model, so leaving out one individual would leave that effect in
 #>   the fit.
 #> ℹ Use `unit = "id"` to leave out individuals instead.
-#> ✔ Wrote a bundle of 2 models to /tmp/RtmpgF3dyK/my-run: 2 fits and 4 refits for
+#> ✔ Wrote a bundle of 2 models to /tmp/Rtmp48sKkX/my-run: 2 fits and 4 refits for
 #>   cross-validation, leaving out one trial at a time.
 #> ℹ Copy it to the cluster with the command in step 1 of README.txt, in that
 #>   folder.
