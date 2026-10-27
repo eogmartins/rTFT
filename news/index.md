@@ -1,5 +1,22 @@
 # Changelog
 
+## rTFT 0.2.1
+
+### Bug fixes
+
+- [`loo_hazard()`](https://eogmartins.github.io/rTFT/reference/loo_hazard.md)
+  stopped with “argument is not interpretable as logical” when loo could
+  not estimate the Pareto k of a unit, as loo 2.10.0 cannot for a fit
+  whose chains did not mix. On a cluster the fit was then lost with its
+  task. Such a unit is now counted among those for which PSIS cannot be
+  trusted, in the warning of
+  [`loo_hazard()`](https://eogmartins.github.io/rTFT/reference/loo_hazard.md)
+  and in `high_k` of the summary that
+  [`fit_hazard_models()`](https://eogmartins.github.io/rTFT/reference/fit_hazard_models.md)
+  and
+  [`collect_hpc()`](https://eogmartins.github.io/rTFT/reference/collect_hpc.md)
+  return.
+
 ## rTFT 0.2.0
 
 ### Comparing and averaging models
