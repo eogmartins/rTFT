@@ -166,7 +166,7 @@ use the discussions page,
 If you use the package, please cite it as:
 
 > Martins, E. G. (2026). rTFT: hazard models for thermal failure time
-> data. R package version 0.2.0.
+> data. R package version 0.2.1.
 > <https://doi.org/10.5281/zenodo.23319254>
 
 The same reference is given by `citation("rTFT")`. The DOI stands for
