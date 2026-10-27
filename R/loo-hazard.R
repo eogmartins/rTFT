@@ -166,6 +166,13 @@
 # reports against, computed here because loo does not export it.
 .k_threshold <- function(S) min(1 - 1 / log10(S), 0.7)
 
+# The number of units for which PSIS cannot be trusted: those whose Pareto k, in
+# `pareto_k`, is above `limit` or could not be estimated. loo returns a k of NA when a
+# unit's log-likelihood is too extreme to fit the Pareto tail (at least loo 2.10.0
+# does, for a fit whose chains did not mix), and that unit is no more to be trusted
+# than one whose k is high.
+.n_high_k <- function(pareto_k, limit) sum(is.na(pareto_k) | pareto_k > limit)
+
 # PSIS-LOO over the units of a draws-by-units log-likelihood matrix, with a warning
 # naming how many units it cannot be trusted for. Leaving out a large unit, such as
 # a whole trial, can change the posterior too much for reweighting the draws of one
@@ -182,10 +189,10 @@
   r_eff   <- loo::relative_eff(exp(centred), chain_id = chain_id, cores = 1)
   out     <- suppressWarnings(loo::loo(ll_unit, r_eff = r_eff, cores = 1))
   limit <- .k_threshold(nrow(ll_unit))
-  high  <- sum(out$diagnostics$pareto_k > limit)
-  if (high)
+  high  <- .n_high_k(out$diagnostics$pareto_k, limit)
+  if (high > 0)
     cli::cli_warn(c(
-      "!" = "PSIS cannot be trusted for {high} of the {ncol(ll_unit)} units left out (one {unit_label} each): Pareto k is above {round(limit, 2)}.",
+      "!" = "PSIS cannot be trusted for {high} of the {ncol(ll_unit)} units left out (one {unit_label} each): Pareto k is above {round(limit, 2)} or could not be estimated.",
       "i" = "Leaving them out changes the fit too much to be approximated from it. Use {.fn kfold_hazard} for an estimate by refitting, without the approximation."
     ), class = "rTFT_loo_unreliable")
   out$unit <- unit_name

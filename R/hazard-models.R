@@ -360,7 +360,7 @@ build_hazard_models <- function(m_form, baseline = "mem", dpar_formulas = list()
     rTFT_loo_leak = function(w) invokeRestart("muffleWarning"),
     rTFT_loo_unreliable = function(w) invokeRestart("muffleWarning"))
   list(fit = fit, loo = cv, convergence = .fit_convergence(fit),
-       high_k = sum(cv$diagnostics$pareto_k > .k_threshold(brms::ndraws(fit))))
+       high_k = .n_high_k(cv$diagnostics$pareto_k, .k_threshold(brms::ndraws(fit))))
 }
 
 # One row of the summary, as a table of one row, for the model of `row`: a model that

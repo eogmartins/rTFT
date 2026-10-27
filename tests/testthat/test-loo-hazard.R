@@ -140,6 +140,34 @@ test_that("the Pareto k threshold follows the number of draws", {
 })
 
 
+test_that("a Pareto k that could not be estimated counts as one that is too high", {
+  expect_identical(.n_high_k(c(0.1, 0.5, 0.69), 0.7), 0L)
+  expect_identical(.n_high_k(c(0.1, 0.9, Inf), 0.7), 2L)
+  expect_identical(.n_high_k(c(0.1, NA, NaN), 0.7), 2L)
+  expect_identical(.n_high_k(rep(NA_real_, 4), 0.7), 4L)
+})
+
+
+test_that(".loo_units warns, and does not stop, when loo cannot estimate Pareto k", {
+  set.seed(1)
+  steady <- matrix(stats::rnorm(600 * 4, -2, 0.05), ncol = 4)
+  chain  <- rep(1:2, each = 300)
+  # loo 2.10.0 returns a k of NA for every unit of a fit whose chains did not mix; the
+  # loo installed here may not, so its answer is stood in for
+  real_loo <- loo::loo
+  local_mocked_bindings(
+    loo = function(...) {
+      out <- real_loo(...)
+      out$diagnostics$pareto_k[] <- NA_real_
+      out
+    },
+    .package = "loo")
+  expect_warning(out <- .loo_units(steady, chain, "trial"),
+                 class = "rTFT_loo_unreliable")
+  expect_equal(out$unit, "trial")
+})
+
+
 test_that(".loo_units warns when PSIS cannot be trusted for some units", {
   set.seed(1)
   steady  <- matrix(stats::rnorm(600 * 4, -2, 0.05), ncol = 4)
