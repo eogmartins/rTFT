@@ -1623,24 +1623,16 @@ build_hazard_spec <- function(m_form, baseline = "mem", dpar_formulas = list(),
 }
 
 
-# .loga_prior() ----------------------------------------------------------------
+# .loga_term() / .loga_prior() -------------------------------------------------
 
-# The centre and standard deviation of the default Normal prior on loga. `centre`
-# is the centre of the log failure rate at the temperature where failures were
-# observed, where the prior is stated with a standard deviation of 2, and `distance`
-# how far that temperature lies above the reference Tr.
-#
-# For the rates anchored at Tr, the log rate at the failures is loga plus a term in
-# b and the distance: b d for exp, log(exp(b d) - 1) for zeroexp, b log(d) for
-# zeropower and for the a of power. loga is the log rate less that term, so its
-# centre takes the term at the prior median of b, and its variance adds the square
-# of (the term's slope in b times the prior standard deviation of b). At a distance
-# of zero this is the prior stated at the failures itself. The other rates do not
-# use Tr (const, and the threshold functions, anchored at Tc) and take it unchanged.
-# b has the default prior logb ~ normal(-0.7, 1).
-.loga_prior <- function(m_form, centre, distance) {
-  b_median <- exp(-0.7)
-  b_sd     <- sqrt((exp(1) - 1) * exp(2 * -0.7 + 1))
+# The term in b that separates the log failure rate at a temperature `distance`
+# above the reference Tr from loga, at `b_median`, the median of the prior on b, and
+# its slope in b: b d for exp, log(exp(b d) - 1) for zeroexp, b log(d) for zeropower
+# and for the a of power. The other rates do not use Tr (const, and the threshold
+# functions, anchored at Tc), and neither do zeroexp and the power rates at or below
+# Tr, where the term is not defined; for these the term and its slope are zero.
+# Returns a named vector of `value` and `slope`.
+.loga_term <- function(m_form, distance, b_median) {
   d <- distance
   term <- switch(m_form,
     exp       = c(value = b_median * d, slope = d),
@@ -1648,10 +1640,299 @@ build_hazard_spec <- function(m_form, baseline = "mem", dpar_formulas = list(),
                              slope = d * exp(b_median * d) / expm1(b_median * d)),
     zeropower = ,
     power     = if (d > 0) c(value = b_median * log(d), slope = log(d)))
-  if (is.null(term)) term <- c(value = 0, slope = 0)
-  list(centre = centre - term[["value"]],
-       sd     = sqrt(2^2 + (term[["slope"]] * b_sd)^2))
+  if (is.null(term)) c(value = 0, slope = 0) else term
 }
+
+# The centre and standard deviation of the default Normal prior on loga. `centre`
+# is the centre of the log failure rate at the temperature where failures were
+# observed, where the prior is stated with a standard deviation of 2, `distance`
+# how far that temperature lies above the reference Tr, `logb` the mean and
+# standard deviation (mu, s) of the Normal prior on log b, and `tc` the prior on Tc,
+# read only for the threshold functions: a named vector of `distance`, how far the
+# failures lie above its centre, and `reach`, half the width of its central 95%
+# interval.
+#
+# loga is the log rate at the failures less the term of .loga_term(), so its centre
+# takes the term at the prior median of b, exp(mu), and, to first order in b, its
+# variance adds the square of (the term's slope in b times the prior standard
+# deviation of b). b is log-normal, so that standard deviation is
+# sqrt((exp(s^2) - 1) exp(2 mu + s^2)), about 1.07 for the default (-0.7, 1). At a
+# distance of zero this is the prior stated at the failures itself, and so it is for
+# the rates that do not use Tr.
+#
+# A threshold function is anchored at Tc instead, so the term is the same function's
+# at the distance from the centre of the prior on Tc to the failures: zero for the
+# default prior, centred at the failures, and zero too for a prior centred above
+# them, where the rate at the failures is held near zero by the gate and no loga
+# reaches it. But Tc may lie anywhere in its prior, and the data fix only loga less
+# the term at the distance from Tc to the failures (loga - b Tc for exp_threshold,
+# well above Tc), so a narrow prior on loga holds Tc near the failures with a
+# confidence the data do not give. The variance therefore adds the square of (the
+# slope in b of the term at the reach of the prior on Tc times b_hi =
+# exp(mu + 1.96 s), the 97.5% quantile of the prior on b), the construction of
+# .loga_rule() with that reach as the distance: a standard deviation of about 21 for
+# exp_threshold with the defaults. const_threshold has no b, and its prior is left
+# as stated.
+.loga_prior <- function(m_form, centre, distance, logb, tc) {
+  mu <- logb[[1]]
+  s  <- logb[[2]]
+  b_sd <- sqrt((exp(s^2) - 1) * exp(2 * mu + s^2))
+  threshold <- grepl("_threshold$", m_form)
+  base <- sub("_threshold$", "", m_form)
+  term <- if (threshold) .loga_term(base, max(tc[["distance"]], 0), b_median = exp(mu))
+          else .loga_term(m_form, distance, b_median = exp(mu))
+  variance <- 2^2 + (term[["slope"]] * b_sd)^2
+  if (threshold) {
+    b_hi  <- exp(mu + stats::qnorm(0.975) * s)
+    reach <- .loga_term(base, tc[["reach"]], b_median = exp(mu))
+    variance <- variance + (reach[["slope"]] * b_hi)^2
+  }
+  list(centre = centre - term[["value"]], sd = sqrt(variance))
+}
+
+
+# .prior_args() / .prior_scale() / .normal_in_force() / .reach_in_force() ----
+
+# The functions a prior string may use in its arguments for them to be read as
+# numbers, e.g. "normal(log(60), 1)".
+.prior_arithmetic <- c("(", "+", "-", "*", "/", "^", "log", "exp", "sqrt", "log1p", "expm1")
+
+# Read a prior string as brms writes it, such as "normal(-0.7, 1)", into its family
+# and its arguments. The arguments are evaluated with arithmetic and the functions
+# of .prior_arithmetic only. Returns a list of `family` (a character string) and
+# `args` (a numeric vector), or NULL when `prior` is not a call whose arguments are
+# all finite numbers (e.g., a flat prior "" or an argument named by a Stan function).
+.prior_args <- function(prior) {
+  expr <- tryCatch(str2lang(prior), error = function(e) NULL)
+  if (!is.call(expr) || !is.name(expr[[1]])) return(NULL)
+  env  <- list2env(mget(.prior_arithmetic, envir = baseenv()), parent = emptyenv())
+  args <- tryCatch(lapply(as.list(expr)[-1], eval, envir = env),
+                   error = function(e) NULL)
+  number <- function(a) is.numeric(a) && length(a) == 1L && is.finite(a)
+  if (!length(args) || !all(vapply(args, number, logical(1)))) return(NULL)
+  list(family = as.character(expr[[1]]), args = unlist(args))
+}
+
+# The scale of a prior string: the standard deviation of a normal, the scale of a
+# Student-t (its third argument), and Inf for the flat prior "". Returns NA for a
+# prior whose scale cannot be read.
+.prior_scale <- function(prior) {
+  if (identical(prior, "")) return(Inf)
+  p <- .prior_args(prior)
+  if (is.null(p)) return(NA_real_)
+  if (p$family == "normal"    && length(p$args) == 2L) return(p$args[[2]])
+  if (p$family == "student_t" && length(p$args) == 3L) return(p$args[[3]])
+  NA_real_
+}
+
+# The mean and standard deviation of a prior in force that must be a normal for the
+# defaults on loga to be built with it (that on log b, whose b is then log-normal):
+# those of `prior` when it is a normal with a positive standard deviation, and
+# `default`, the mean and standard deviation of the default prior, otherwise.
+# Returns a numeric vector of length two.
+.normal_in_force <- function(prior, default) {
+  p <- .prior_args(prior)
+  if (is.null(p) || p$family != "normal" || length(p$args) != 2L || p$args[[2]] <= 0)
+    return(default)
+  p$args
+}
+
+# The centre and the reach of a prior in force on a temperature (that on Tc), the
+# reach being half the width of its central 95% interval: those of `prior` when it is
+# a normal or a Student-t with a positive scale (and positive degrees of freedom),
+# 1.96 times the standard deviation of a normal and the 97.5% quantile of the t times
+# its scale, and `default`, the centre and reach of the default prior, otherwise.
+# Returns a numeric vector of length two.
+.reach_in_force <- function(prior, default) {
+  p <- .prior_args(prior)
+  if (is.null(p)) return(default)
+  a <- p$args
+  if (p$family == "normal" && length(a) == 2L && a[[2]] > 0)
+    return(c(a[[1]], stats::qnorm(0.975) * a[[2]]))
+  if (p$family == "student_t" && length(a) == 3L && a[[1]] > 0 && a[[3]] > 0)
+    return(c(a[[2]], stats::qt(0.975, df = a[[1]]) * a[[3]]))
+  default
+}
+
+
+# .slope_priors() --------------------------------------------------------------
+
+# Check `slope_prior` and return the slope prior of each parameter in `needed`, as
+# a character vector named by parameter. A single unnamed string applies to every
+# parameter; a named list (or named character vector) gives a prior per parameter,
+# those left out taking "normal(0, 1)". A name that is not in `needed` is ignored
+# with a warning that names `m_form` and `baseline`, and so is a name whose parameter
+# has no slope for the prior to reach, as `has_slopes` (a logical vector named by
+# parameter) says: a formula with no covariate, or one without an intercept, whose
+# coefficients each take the intercept prior.
+.slope_priors <- function(slope_prior, needed, has_slopes, m_form, baseline) {
+  one_string <- function(x) is.character(x) && length(x) == 1L && !is.na(x)
+  if (one_string(slope_prior) && is.null(names(slope_prior)))
+    return(stats::setNames(rep(slope_prior, length(needed)), needed))
+  out <- stats::setNames(rep("normal(0, 1)", length(needed)), needed)
+  if (is.list(slope_prior) && !length(slope_prior)) return(out)
+  nm <- names(slope_prior)
+  named <- (is.list(slope_prior) || is.character(slope_prior)) && length(slope_prior) &&
+    !is.null(nm) && !anyNA(nm) && all(nzchar(nm)) && !anyDuplicated(nm)
+  if (!named || !all(vapply(slope_prior, one_string, logical(1))))
+    cli::cli_abort(c(
+      "{.arg slope_prior} must be one prior string, or a named list of prior strings with one per parameter.",
+      "i" = "For instance {.code \"normal(0, 1)\"} or {.code list(loga = \"normal(0, 5)\")}."
+    ), class = "rTFT_bad_slope_prior")
+  unused <- setdiff(nm, needed)
+  if (length(unused))
+    cli::cli_warn(c(
+      "!" = "Ignoring {.arg slope_prior} not used by {.val {m_form}} + {.val {baseline}}: {.val {unused}}.",
+      "i" = "The parameters in play are {.val {needed}}."
+    ), class = "rTFT_unused_slope_prior")
+  given <- intersect(nm, needed)
+  bare  <- given[!has_slopes[given]]
+  if (length(bare))
+    cli::cli_warn(c(
+      "!" = "Ignoring {.arg slope_prior} for {.val {bare}}: {?its formula has/their formulas have} no slope.",
+      "i" = "A slope prior reaches the covariates of a formula that keeps its intercept; without the intercept, each coefficient takes the intercept prior."
+    ), class = "rTFT_unused_slope_prior")
+  out[given] <- unlist(slope_prior[given])
+  out
+}
+
+
+# .is_group_column() / .brms_coef_names() / .median_failure_temps() ------------
+
+# Checks if a column of the data marks groups: a factor, a character or logical
+# column, or a numeric column with two values.
+.is_group_column <- function(x)
+  is.factor(x) || is.character(x) || is.logical(x) ||
+    (is.numeric(x) && is.null(dim(x)) && length(unique(x[!is.na(x)])) == 2L)
+
+# The names brms gives the columns `x` of a design matrix, which drop spaces,
+# brackets, commas and quotes and spell out the arithmetic signs (brms 2.23.0, its
+# internal rename()). A prior set on a coefficient must use these names.
+.brms_coef_names <- function(x) {
+  from <- c(" ", "(", ")", "[", "]", ",", "\"", "'", "?", "+", "-", "*", "/", "^", "=", "$")
+  to   <- c(rep("", 9), "P", "M", "MU", "D", "E", "EQ", "USD")
+  for (i in seq_along(from)) x <- gsub(from[i], to[i], x, fixed = TRUE)
+  x
+}
+
+# The median temperature at which failures were observed in each cell of `cells`, a
+# list of columns of `long` whose combinations of values are the cells, in the
+# manner of .typical_failure_temp(): with no failures in `long`, every at-risk
+# interval stands in. A cell without failures has no median and is left out.
+# Returns a numeric vector, one value per cell.
+.median_failure_temps <- function(long, cells) {
+  rows <- if (any(long$failed == 1)) long$failed == 1 else rep(TRUE, nrow(long))
+  by   <- interaction(lapply(cells, \(x) x[rows]), drop = TRUE)
+  c(tapply(long$Ta[rows], by, stats::median))
+}
+
+
+# .loga_group_terms() / .loga_rule() -------------------------------------------
+
+# The group terms of the fixed part of `f`, the formula of loga: the terms whose
+# variables, as evaluated on `long`, all mark groups (.is_group_column()), alone or
+# in an interaction. Variables of `f` that `long` lacks are refused, as the terms
+# cannot then be told apart, and so are missing values in them, which `fit_hazard()`
+# refuses too and which would leave a group without its failures, and a factor,
+# character or logical column with a single value, which separates no groups and
+# which a design matrix cannot code. Returns a list
+# with one element per group term, each a list of `label` (the term as R writes it),
+# `cells` (its variables' columns), `coefs` (its coefficients, named as brms names
+# them), `spacing` (the product of the gaps between the two values of its numeric
+# columns, 1 when it has none: the coefficient times the spacing is the difference
+# between groups) and `full` (TRUE for a term that gives a coefficient to every
+# level, as the first factor of a formula without an intercept does: its
+# coefficients are levels' own values, not differences).
+.loga_group_terms <- function(f, long) {
+  if (is.null(f)) return(list())
+  parts <- .rhs_terms(f)
+  fixed <- parts[!vapply(parts, .is_bar, logical(1))]
+  if (!length(fixed)) return(list())
+  f[[length(f)]] <- Reduce(\(a, b) call("+", a, b), fixed)
+  absent <- setdiff(all.vars(f), names(long))
+  if (length(absent))
+    cli::cli_abort(c(
+      "{.arg long} lacks {cli::qty(length(absent))}{?a column/columns} of the formula of {.field loga}: {.field {absent}}.",
+      "i" = "The default prior on {.field loga} depends on which of its terms mark groups, so it needs the table the model is fitted to."
+    ), class = "rTFT_no_prior_data")
+  used <- all.vars(f)
+  with_missing <- used[vapply(long[used], anyNA, logical(1))]
+  if (length(with_missing)) {
+    n_rows <- sum(!stats::complete.cases(long[with_missing]))
+    cli::cli_abort(c(
+      "{.arg long} has missing values in {cli::qty(length(with_missing))}{?a column/columns} of the formula of {.field loga}: {.field {with_missing}}.",
+      "x" = "{n_rows} of {nrow(long)} row{?s} {cli::qty(n_rows)}{?has/have} a missing value.",
+      "i" = "Remove the individuals concerned, or fill in the values; the model cannot be fitted to a table with missing values, and the default prior on {.field loga} is for that table."
+    ), class = "rTFT_missing_values")
+  }
+  tt <- stats::terms(f)
+  labels <- attr(tt, "term.labels")
+  if (!length(labels)) return(list())
+  mf <- stats::model.frame(tt, long, na.action = stats::na.pass, drop.unused.levels = TRUE)
+  categorical <- vapply(mf, \(x) is.factor(x) || is.character(x) || is.logical(x),
+                        logical(1))
+  one <- names(mf)[categorical & vapply(mf, \(x) length(unique(x)) < 2L, logical(1))]
+  if (length(one))
+    cli::cli_abort(c(
+      "{.field {one}} {cli::qty(length(one))}{?takes/take} a single value in {.arg long}, so {?it separates/they separate} no groups.",
+      "i" = "Leave {cli::qty(length(one))}{?it/them} out of the formula of {.field loga}."
+    ), class = "rTFT_one_level")
+  mm <- stats::model.matrix(tt, mf)
+  factors <- attr(tt, "factors")
+  out <- list()
+  for (j in seq_along(labels)) {
+    vars <- rownames(factors)[factors[, j] > 0]
+    cells <- lapply(vars, \(v) mf[[v]])
+    if (!all(vapply(cells, .is_group_column, logical(1)))) next
+    cols <- colnames(mm)[attr(mm, "assign") == j]
+    full <- attr(tt, "intercept") == 0 && length(vars) == 1L &&
+      length(cols) == length(unique(cells[[1]]))
+    gaps <- vapply(cells, \(x) if (is.numeric(x)) diff(range(x, na.rm = TRUE)) else 1,
+                   numeric(1))
+    out[[labels[j]]] <- list(label = labels[j], cells = cells,
+                             coefs = .brms_coef_names(cols), spacing = prod(gaps),
+                             full = full)
+  }
+  out
+}
+
+# The default standard deviations of the prior on loga where its formula `f` has
+# group terms, scaled to the design: groups whose failures lie far from the
+# reference Tr, or far from each other, need a wide prior on loga, which is
+# extrapolated from each group's failures to Tr by about b times the distance.
+# `logb` is the mean and standard deviation (mu, s) of the Normal prior on log b,
+# and b_hi = exp(mu + 1.96 s) the 97.5% quantile of the prior on b. The intercept
+# takes sqrt(2^2 + (slope b_hi)^2), the slope in b of .loga_term() at the largest
+# distance from Tr of the median failure temperature of any level of a group term's
+# variables or any cell of a group term (so d for exp): a cell of an interaction can
+# fail further from Tr than the levels it combines. Each group term takes
+# sqrt(1 + (b_hi max(D, 1))^2), D the range of the median failure temperatures over
+# its cells in degrees; the floor of 1 degree because a median mixes design with
+# effect (a treatment given only in the ramps can change tolerance while its median
+# barely moves). That is the standard deviation of a difference between groups, so
+# it is divided by the term's `spacing` for a coefficient taken per unit of a numeric
+# column. Returns NULL without group terms, or else a list of `intercept_sd` and
+# `terms`, the group terms of .loga_group_terms() each with its `sd` added.
+.loga_rule <- function(m_form, f, long, logb) {
+  terms <- .loga_group_terms(f, long)
+  if (!length(terms)) return(NULL)
+  Tr <- long$Tr[1]
+  b_hi <- exp(logb[[1]] + stats::qnorm(0.975) * logb[[2]])
+  # the levels of each variable of a group term, one variable at a time, then the
+  # cells of each term, so that the combinations of an interaction count too
+  vars <- unlist(lapply(terms, \(g) g$cells), recursive = FALSE)
+  level_temps <- c(unlist(lapply(vars, \(x) .median_failure_temps(long, list(x)))),
+                   unlist(lapply(terms, \(g) .median_failure_temps(long, g$cells))))
+  slopes <- vapply(level_temps - Tr,
+                   \(d) .loga_term(m_form, d, b_median = exp(logb[[1]]))[["slope"]],
+                   numeric(1))
+  for (k in seq_along(terms)) {
+    D <- diff(range(.median_failure_temps(long, terms[[k]]$cells)))
+    terms[[k]]$sd <- sqrt(1 + (b_hi * max(D, 1))^2) / terms[[k]]$spacing
+  }
+  list(intercept_sd = sqrt(2^2 + (max(abs(slopes)) * b_hi)^2), terms = terms)
+}
+
 
 # build_hazard_prior() ---------------------------------------------------------
 
@@ -1662,11 +1943,14 @@ build_hazard_spec <- function(m_form, baseline = "mem", dpar_formulas = list(),
 #' `dpar_formulas` add. For every parameter the chosen functions need, it sets a
 #' weakly-informative prior on the intercept (the parameter's value at the reference
 #' temperature and start of exposure), a generic Normal(0, 1) on any covariate
-#' slopes, and an Exponential(2) on the standard deviation of any random effect. The
+#' slopes, and an Exponential(2) on the standard deviation of any random effect;
+#' where the formula of log a has terms that mark groups, its priors are scaled to
+#' the groups instead (see *Groups whose failures lie far apart*). The
 #' slope and random-effect priors are added only when the parameter actually has
 #' those terms, so brms raises no "no parameter" warning. Override the centre of any
-#' parameter through `intercept_priors`, or the shared slope and random-effect
-#' standard-deviation priors through `slope_prior` and `sd_prior`; or replace the
+#' parameter through `intercept_priors`, the slope priors through `slope_prior` (one
+#' for every parameter, or one per parameter) and the random-effect
+#' standard-deviation priors through `sd_prior`; or replace the
 #' whole set with your own `prior` when fitting with [fit_hazard()].
 #'
 #' The defaults take three things from the data in `long`, so that they say the same
@@ -1692,8 +1976,9 @@ build_hazard_spec <- function(m_form, baseline = "mem", dpar_formulas = list(),
 #'   either way with 95% probability. It is centred at zero, the memoryless case, so
 #'   unless the data show a trend the fit stays near a flat baseline.
 #'
-#' with `normal(0, 1)` on any covariate slope and `exponential(2)` on any
-#' random-effect standard deviation. Each co-stressor in `costressors` adds a
+#' with `normal(0, 1)` on any covariate slope (except the group terms of log a, see
+#' below) and `exponential(2)` on any random-effect standard deviation. Each
+#' co-stressor in `costressors` adds a
 #' `normal(0, 1)` on its main effect `c<name>` and a tighter `normal(0, 0.5)` on its
 #' temperature interaction `dT<name>`, both overridable through `intercept_priors`.
 #'
@@ -1721,13 +2006,85 @@ build_hazard_spec <- function(m_form, baseline = "mem", dpar_formulas = list(),
 #' * its variance is 2^2 plus the square of (the change in the term per unit of b,
 #'   times the prior standard deviation of b).
 #'
-#' For `exp` this is `normal(centre - 0.5 d, sqrt(4 + (1.07 d)^2))`: the usual prior
-#' when the reference is at the failures (d = 0), and a much wider one 14 degrees
-#' below them. A prior of standard deviation 2 on loga at a distant reference would
-#' in effect be a tight prior on b, and biases it. The threshold functions are
-#' anchored at `Tc`, not `Tr`, and take the centre at T_f unchanged. The calculation
-#' uses the default prior on `logb`; if you change that prior and keep a distant
-#' reference, set `loga` to match.
+#' For `exp` with the default prior on `logb` this is
+#' `normal(centre - 0.5 d, sqrt(4 + (1.07 d)^2))`: the usual prior when the
+#' reference is at the failures (d = 0), and a much wider one 14 degrees below them.
+#' A prior of standard deviation 2 on loga at a distant reference would in effect be
+#' a tight prior on b, and biases it. The calculation uses the prior on
+#' `logb` in force: the one given in `intercept_priors` when it is a normal,
+#' normal(mu, s), whose b has median exp(mu) and standard deviation
+#' sqrt((exp(s^2) - 1) exp(2 mu + s^2)); the default for any other.
+#'
+#' The threshold functions are anchored at `Tc`, not `Tr`, so for them d is the
+#' distance from the centre of the prior on `Tc` in force to the failures. The default
+#' prior on `Tc` is centred at T_f, and so the centre of loga stays at T_f; so it does
+#' for a prior on `Tc` centred above the failures, where the rate is held near zero.
+#' But `Tc` may lie anywhere in its prior, and well above `Tc` the data fix only loga
+#' less the function's term at the distance from `Tc` to the failures (loga - b `Tc`
+#' for `exp_threshold`). A prior of standard deviation 2 on loga would then hold `Tc`
+#' close to the failures with a confidence the data do not give: in simulations with
+#' `Tc` 4 degrees below the failures it placed `Tc` about 1.2 degrees too high, with
+#' intervals that never covered the truth. Its variance therefore adds
+#' (slope b_hi)^2, where slope is the change per unit of b of the function's term at
+#' the reach of the prior on `Tc` in force, half the width of its central 95%
+#' interval (1.96 times the standard deviation of a normal, 3 by default, or the
+#' 97.5% quantile of a Student-t times its scale; the default reach for any other
+#' prior), and b_hi the 97.5% quantile of the prior on b (about 3.5 by default): with
+#' the defaults, about 21 for `exp_threshold`, 22 for `zeroexp_threshold` and 6.6 for
+#' `zeropower_threshold`. `const_threshold` has no b and keeps 2. Where the data do
+#' place `Tc`, the wider prior changes nothing; where they do not, the intervals on
+#' `Tc` and loga are as wide as the data leave them, and the fit may take longer.
+#'
+#' @section Groups whose failures lie far apart:
+#' The intercept prior on log a is centred at the failure temperature pooled over all
+#' individuals. Where log a differs between groups (species, say, or acclimation
+#' temperatures), a group's coefficient on log a is about -b times its distance in
+#' sCTmax from the reference group, so that with a steep b a tight prior holds it
+#' back. The result is a biased b and baseline shape while sCTmax looks right: in
+#' simulations of a three-species design with a Weibull shape of 4, the default
+#' priors of version 0.2.1 biased the shape of the reference species by about -0.7.
+#'
+#' Since version 0.2.2 the defaults on log a are therefore scaled to the groups,
+#' which removed that bias in the same simulations. A term of the formula of log a
+#' marks groups when each of its variables is a factor, a character or logical
+#' column, or a numeric column with two values, alone or in an interaction. Where
+#' there is such a term, with b_hi the 97.5% quantile of the prior on b
+#' (exp(-0.7 + 1.96), about 3.5, by default; read from `intercept_priors` when the
+#' prior on `logb` given there is a normal):
+#'
+#' * the intercept keeps its centre and takes standard deviation
+#'   sqrt(2^2 + (d_g b_hi)^2), where d_g is the largest distance from `Tr` of any
+#'   group's median failure temperature, a group being a level of one variable or a
+#'   combination of levels of an interaction (for the exponential function; for the
+#'   others, the change per unit of b of the function's term at that distance, as in
+#'   the section above), or the standard deviation of the section above if that is
+#'   wider, as it is for the threshold functions;
+#' * each group term's coefficients take `normal(0, s)`, with
+#'   s = sqrt(1 + (b_hi max(D, 1))^2), where D is the range in degrees of the median
+#'   failure temperatures over the term's groups (its levels, or the combinations of
+#'   levels of an interaction). The floor of 1 degree is there because a median
+#'   mixes design with effect: a treatment given only in the ramps can lower
+#'   tolerance while its median failure temperature barely moves. s is a prior on
+#'   the difference between groups, which is what the coefficient of a factor or of
+#'   a 0/1 column is; the coefficient of a numeric column with two other values is
+#'   per unit of the column (per percentage point of oxygen coded 30 and 100), so s
+#'   is divided by the gap between the two values, and across an interaction by the
+#'   product of such gaps. The model and its coefficients stay in the units of the
+#'   data;
+#' * a continuous covariate keeps the slope prior.
+#'
+#' A group term takes the wider of this prior and the `slope_prior` that applies to
+#' log a, so that setting `slope_prior` for the other terms never narrows it; a
+#' `slope_prior` whose scale cannot be read (other than a normal, a Student-t or the
+#' flat prior `""`) gives way to it. A prior named for `loga` in `intercept_priors`
+#' replaces the rule for the intercept. A group term given a narrower prior than the
+#' rule's must be set through a full `prior` passed to [fit_hazard()]. To widen
+#' further:
+#'
+#' ```r
+#' build_hazard_prior(..., intercept_priors = list(loga = "normal(-0.8, 20)"),
+#'                    slope_prior = list(loga = "normal(0, 20)"))
+#' ```
 #'
 #' @section The baseline term c of the power function:
 #' In M(T) = c + a (T - Tr)^b, c is the rate that remains at the reference
@@ -1756,7 +2113,13 @@ build_hazard_spec <- function(m_form, baseline = "mem", dpar_formulas = list(),
 #'   that is not a parameter of the chosen functions is ignored with a warning.
 #' @param slope_prior A single prior string for every covariate slope (a
 #'   population-level effect beyond the intercept), applied to each parameter that
-#'   has one. Defaults to `"normal(0, 1)"`.
+#'   has one; or a named list of prior strings, one per parameter, e.g.
+#'   `list(loga = "normal(0, 5)")`, the parameters left out taking `"normal(0, 1)"`.
+#'   A name that is not a parameter of the chosen functions is ignored with a
+#'   warning, as is one whose formula has no slope for it to reach (no covariate, or
+#'   no intercept, when each coefficient takes the intercept prior). The group terms
+#'   of log a take the wider of this and the prior scaled to the groups (see *Groups
+#'   whose failures lie far apart*). Defaults to `"normal(0, 1)"`.
 #' @param sd_prior A single prior string for every random-effect standard deviation,
 #'   applied to each parameter that has one. Defaults to `"exponential(2)"`.
 #' @param costressors An optional list of [costressor] objects, as in
@@ -1773,7 +2136,7 @@ build_hazard_spec <- function(m_form, baseline = "mem", dpar_formulas = list(),
 #' path   <- ramp_path("A", T_start = 20, rate = 0.25, t_max = 60)
 #' checks <- data.frame(path_id = "A", time = seq(0, 60, by = 1))
 #' ind    <- data.frame(id = 1:3, path_id = "A", event = c(1, 1, 0),
-#'                      t_upper = c(30, 40, 60), acclim = c(10, 15, 15))
+#'                      t_upper = c(30, 40, 60), acclim = c(10, 12.5, 15))
 #' long   <- build_hazard_data(ind, path, "interval", covariates = "acclim",
 #'                             checks = checks)
 #'
@@ -1781,11 +2144,18 @@ build_hazard_spec <- function(m_form, baseline = "mem", dpar_formulas = list(),
 #' build_hazard_prior("exp_threshold", baseline = "weibull", long = long)
 #'
 #' # Override a couple of priors (a cooler species, a tighter amplitude) and narrow
-#' # the covariate-slope prior; every other parameter keeps its default.
+#' # the slope prior of log a; every other parameter keeps its default.
 #' build_hazard_prior("exp_threshold", baseline = "weibull",
 #'   dpar_formulas = list(loga = ~ 1 + acclim),
 #'   intercept_priors = list(Tc = "normal(26, 4)", loga = "normal(-6, 1.5)"),
-#'   slope_prior = "normal(0, 0.5)", long = long)
+#'   slope_prior = list(loga = "normal(0, 0.5)"), long = long)
+#'
+#' # Two acclimation groups: log a has a group term, and its priors are scaled to
+#' # how far apart the groups fail.
+#' ind$acclim <- c(10, 15, 15)
+#' long <- build_hazard_data(ind, path, "interval", covariates = "acclim",
+#'                           checks = checks)
+#' build_hazard_prior("exp", dpar_formulas = list(loga = ~ 1 + acclim), long = long)
 #' @export
 build_hazard_prior <- function(m_form, baseline = "mem", dpar_formulas = list(),
                                intercept_priors = list(),
@@ -1816,15 +2186,26 @@ build_hazard_prior <- function(m_form, baseline = "mem", dpar_formulas = list(),
   # the memoryless and Gompertz baselines, whose cumulative baseline hazard at
   # tau_ref is about tau_ref, and the cumulative hazard itself with the Weibull and
   # log-logistic, where it is 1 or close to it.
+  # That prior is carried from the failures back to Tr, or for a threshold function
+  # across the prior on Tc, with the priors on log b and Tc in force: the user's,
+  # when it is a normal (or for Tc a Student-t), or the default.
+  # The default priors on log b (mean and standard deviation) and on Tc (its standard
+  # deviation about T_fail) are set here once, for both that reading and the priors.
   per_time <- if (baseline %in% c("mem", "gompertz")) -log(tau_ref) else 0
-  loga <- .loga_prior(m_form, centre = -1 + per_time, distance = T_fail - long$Tr[1])
+  logb_default <- c(-0.7, 1)
+  tc_sd <- 3
+  given <- function(par) if (par %in% names(intercept_priors)) intercept_priors[[par]] else ""
+  logb <- .normal_in_force(given("logb"), logb_default)
+  tc   <- .reach_in_force(given("Tc"), c(T_fail, stats::qnorm(0.975) * tc_sd))
+  loga <- .loga_prior(m_form, centre = -1 + per_time, distance = T_fail - long$Tr[1],
+                      logb = logb, tc = c(distance = T_fail - tc[[1]], reach = tc[[2]]))
 
   # Intercept prior per parameter, on the parameter's own scale (the log-scale
   # parameters carry priors in log units).
   normal <- function(centre, sd) paste0("normal(", signif(centre, 4), ", ", signif(sd, 4), ")")
   icpt <- c(loga = normal(loga$centre, loga$sd),
-            logb = "normal(-0.7, 1)",
-            Tc   = normal(T_fail, 3),
+            logb = normal(logb_default[1], logb_default[2]),
+            Tc   = normal(T_fail, tc_sd),
             # background failure of about 1% over tau_ref
             logc = normal(log(0.01) + per_time, 2),
             logshape = "normal(0, 1)",
@@ -1855,18 +2236,42 @@ build_hazard_prior <- function(m_form, baseline = "mem", dpar_formulas = list(),
       ), class = "rTFT_unused_intercept_prior")
     icpt[names(intercept_priors)] <- unlist(intercept_priors)
   }
+  has_slopes <- vapply(needed, \(dp) .has_intercept(dpar_formulas[[dp]]) &&
+                                       .has_slopes(dpar_formulas[[dp]]), logical(1))
+  slopes <- .slope_priors(slope_prior, needed, has_slopes, m_form, baseline)
+
+  # Where loga has group terms, its priors are scaled to the design (.loga_rule()),
+  # with the same prior on log b. The intercept keeps its centre and takes the wider
+  # of the rule's standard deviation and its own, which for a threshold function
+  # carries it across the prior on Tc, unless the user named a prior for it. Each group
+  # term takes the wider of the rule's prior and the slope prior given for loga, so
+  # that a slope prior set for the other terms does not bring back the pull of a
+  # narrow one; a prior whose scale cannot be read gives way to the rule.
+  rule <- if ("logb" %in% needed) .loga_rule(m_form, dpar_formulas$loga, long, logb)
+  coef_priors <- list()
+  if (!is.null(rule)) {
+    if (!"loga" %in% names(intercept_priors))
+      icpt[["loga"]] <- normal(loga$centre, max(rule$intercept_sd, loga$sd))
+    for (g in rule$terms) {
+      if (g$full) next
+      wider <- isTRUE(.prior_scale(slopes[["loga"]]) >= g$sd)
+      for (cf in g$coefs)
+        coef_priors <- c(coef_priors, list(brms::set_prior(
+          if (wider) slopes[["loga"]] else normal(0, g$sd),
+          class = "b", coef = cf, nlpar = "loga")))
+    }
+  }
 
   # Accumulate in a list and combine once with do.call(c, ...), which uses the
-  # brmsprior method for c() and preserves the class. The slope and
-  # standard-deviation priors are the same string across parameters (each
-  # overridable through slope_prior / sd_prior).
+  # brmsprior method for c() and preserves the class. The standard-deviation prior
+  # is the same string across parameters (overridable through sd_prior).
   plist <- list()
   for (dp in needed) {
     if (.has_intercept(dpar_formulas[[dp]])) {
       plist <- c(plist, list(brms::set_prior(icpt[[dp]], class = "b",
                                              coef = "Intercept", nlpar = dp)))
       if (.has_slopes(dpar_formulas[[dp]]))
-        plist <- c(plist, list(brms::set_prior(slope_prior, class = "b", nlpar = dp)))
+        plist <- c(plist, list(brms::set_prior(slopes[[dp]], class = "b", nlpar = dp)))
     } else {
       # Without an intercept, every population-level coefficient of the parameter
       # is a level's own value (`~ 0 + acclim` gives one per acclimation group), so
@@ -1876,7 +2281,7 @@ build_hazard_prior <- function(m_form, baseline = "mem", dpar_formulas = list(),
     if (.has_re(dpar_formulas[[dp]]))
       plist <- c(plist, list(brms::set_prior(sd_prior, class = "sd", nlpar = dp)))
   }
-  do.call(c, plist)
+  do.call(c, c(plist, coef_priors))
 }
 
 

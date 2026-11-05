@@ -1069,9 +1069,10 @@ test_that("build_hazard_spec returns the formula, family, and observation", {
 # (an intercept has coef "Intercept"; a slope and an sd have the empty coef).
 icpt_of  <- function(p, dp) p$prior[p$class == "b"  & p$coef == "Intercept" & p$nlpar == dp]
 # The least a table needs for the default priors: its reference time and
-# temperature, and a failure at the temperature failures are typical of.
+# temperature, failures at the temperature failures are typical of, and a
+# continuous covariate (three values, so not a group) for the formulas that use one.
 prior_long <- function(tau_ref = 60, Tr = 28, T_fail = 28)
-  data.frame(Ta = T_fail, failed = 1L, Tr = Tr, tau_ref = tau_ref)
+  data.frame(Ta = T_fail, failed = 1L, Tr = Tr, tau_ref = tau_ref, acclim = c(10, 12.5, 15))
 slope_of <- function(p, dp) p$prior[p$class == "b"  & p$coef == ""          & p$nlpar == dp]
 sd_of    <- function(p, dp) p$prior[p$class == "sd" & p$nlpar == dp]
 
@@ -1131,31 +1132,69 @@ test_that("the priors that depend on time are scaled by the reference time", {
 
 
 test_that(".loga_prior carries the prior from the failures back to the reference", {
+  dflt     <- c(-0.7, 1)                  # the default prior on log b
+  tc3      <- c(distance = 0, reach = stats::qnorm(0.975) * 3)   # and on Tc
   b_median <- exp(-0.7)
   b_sd     <- sqrt((exp(1) - 1) * exp(2 * -0.7 + 1))
   # at the failures it is the prior stated there
-  expect_equal(.loga_prior("exp", -1, 0), list(centre = -1, sd = 2))
+  expect_equal(.loga_prior("exp", -1, 0, dflt, tc3), list(centre = -1, sd = 2))
   # the exponential rate: log M at the failures is loga + b d
-  far <- .loga_prior("exp", -1, 14.3)
+  far <- .loga_prior("exp", -1, 14.3, dflt, tc3)
   expect_equal(far$centre, -1 - b_median * 14.3)
   expect_equal(far$sd, sqrt(4 + (14.3 * b_sd)^2))
   # a reference above the failures moves the centre the other way, as wide
-  above <- .loga_prior("exp", -1, -5)
+  above <- .loga_prior("exp", -1, -5, dflt, tc3)
   expect_equal(above$centre, -1 + b_median * 5)
   expect_equal(above$sd, sqrt(4 + (5 * b_sd)^2))
   # the zero-type exponential: loga + log(exp(b d) - 1), close to exp far away
-  zero <- .loga_prior("zeroexp", -1, 14.3)
+  zero <- .loga_prior("zeroexp", -1, 14.3, dflt, tc3)
   expect_equal(zero$centre, -1 - log(expm1(b_median * 14.3)))
   expect_equal(zero$centre, far$centre, tolerance = 1e-3)
   expect_gt(zero$sd, far$sd)
   # the power-type rates: loga + b log(d), a much gentler dependence
-  pw <- .loga_prior("zeropower", -1, 14.3)
+  pw <- .loga_prior("zeropower", -1, 14.3, dflt, tc3)
   expect_equal(pw$centre, -1 - b_median * log(14.3))
   expect_equal(pw$sd, sqrt(4 + (log(14.3) * b_sd)^2))
-  expect_equal(.loga_prior("power", -1, 14.3), pw)
-  # the rates that do not use the reference are left as stated
-  for (form in c("const", "exp_threshold", "zeroexp_threshold", "zeropower_threshold"))
-    expect_equal(.loga_prior(form, -1, 14.3), list(centre = -1, sd = 2))
+  expect_equal(.loga_prior("power", -1, 14.3, dflt, tc3), pw)
+  # the constant rate uses neither the reference nor a Tc, and neither prior on Tc
+  # nor log b reaches it
+  for (form in c("const", "const_threshold"))
+    expect_equal(.loga_prior(form, -1, 14.3, dflt, tc3), list(centre = -1, sd = 2))
+})
+
+
+test_that(".loga_prior carries a threshold function across the prior on Tc", {
+  dflt  <- c(-0.7, 1)
+  b_hi  <- exp(-0.7 + stats::qnorm(0.975))
+  reach <- stats::qnorm(0.975) * 3                 # the 95% reach of normal(T_f, 3)
+  tc3   <- c(distance = 0, reach = reach)
+  tc1   <- c(distance = 0, reach = stats::qnorm(0.975))
+  # exp_threshold: the term is b (T - Tc), its slope in b the distance itself
+  et <- .loga_prior("exp_threshold", -1, 14.3, dflt, tc3)
+  expect_equal(et, list(centre = -1, sd = sqrt(4 + (reach * b_hi)^2)))
+  expect_equal(et$sd, 20.82, tolerance = 1e-3)
+  # the centre stays at the failures and the distance from Tr plays no part
+  expect_equal(.loga_prior("exp_threshold", -1, 0, dflt, tc3), et)
+  # zeropower_threshold: b log(T - Tc), a gentler slope, log of the reach
+  expect_equal(.loga_prior("zeropower_threshold", -1, 14.3, dflt, tc3)$sd,
+               sqrt(4 + (log(reach) * b_hi)^2))
+  # zeroexp_threshold: log(exp(b d) - 1), a little steeper than exp_threshold
+  expect_gt(.loga_prior("zeroexp_threshold", -1, 14.3, dflt, tc3)$sd, et$sd)
+  # a narrower prior on Tc reaches less far, a wider prior on b further
+  expect_equal(.loga_prior("exp_threshold", -1, 14.3, dflt, tc1)$sd,
+               sqrt(4 + (stats::qnorm(0.975) * b_hi)^2))
+  expect_gt(.loga_prior("exp_threshold", -1, 14.3, c(-0.7, 1.5), tc3)$sd, et$sd)
+  # a prior on Tc centred 4 degrees below the failures carries the centre there, as
+  # a reference would be, and adds the spread of b over that distance
+  b_sd  <- sqrt((exp(1) - 1) * exp(2 * -0.7 + 1))
+  below <- .loga_prior("exp_threshold", -1, 14.3, dflt, c(distance = 4, reach = reach))
+  expect_equal(below, list(centre = -1 - exp(-0.7) * 4,
+                           sd = sqrt(4 + (4 * b_sd)^2 + (reach * b_hi)^2)))
+  expect_equal(.loga_prior("zeropower_threshold", -1, 14.3, dflt,
+                           c(distance = 4, reach = reach))$centre, -1 - exp(-0.7) * log(4))
+  # a prior on Tc centred above the failures leaves the centre at them
+  expect_equal(.loga_prior("exp_threshold", -1, 14.3, dflt, c(distance = -2, reach = reach)),
+               et)
 })
 
 
@@ -1172,10 +1211,97 @@ test_that("the priors on loga and Tc follow where the failures are", {
     expect_equal(icpt_of(build_hazard_prior("exp_threshold",
                                             long = prior_long(Tr = 14, T_fail = T_fail)), "Tc"),
                  sprintf("normal(%d, 3)", T_fail))
-  # and loga of a threshold function does not depend on the reference
+  # and loga of a threshold function does not depend on the reference: it is
+  # carried across the prior on Tc instead
   expect_equal(icpt_of(build_hazard_prior("exp_threshold", "weibull",
                                           long = prior_long(Tr = 14, T_fail = 28)), "loga"),
+               "normal(-1, 20.82)")
+  expect_equal(icpt_of(build_hazard_prior("exp_threshold", "weibull",
+                                          long = prior_long(Tr = 28, T_fail = 28)), "loga"),
+               "normal(-1, 20.82)")
+})
+
+
+test_that("the prior on log a of a threshold function follows the prior on Tc in force", {
+  long <- prior_long()
+  b_hi <- exp(-0.7 + stats::qnorm(0.975))
+  b_sd <- sqrt((exp(1) - 1) * exp(2 * -0.7 + 1))
+  # a normal prior on Tc given by the user sets the reach, and its centre, 2 degrees
+  # below the failures at 28, carries the centre of log a there
+  p1 <- build_hazard_prior("exp_threshold", "weibull", long = long,
+                           intercept_priors = list(Tc = "normal(26, 1)"))
+  expect_equal(icpt_of(p1, "loga"),
+               paste0("normal(", signif(-1 - exp(-0.7) * 2, 4), ", ",
+                      signif(sqrt(4 + (2 * b_sd)^2 + (stats::qnorm(0.975) * b_hi)^2), 4),
+                      ")"))
+  expect_equal(icpt_of(p1, "Tc"), "normal(26, 1)")
+  # so does a Student-t, whose reach is its 97.5% quantile times its scale
+  pt <- build_hazard_prior("exp_threshold", "weibull", long = long,
+                           intercept_priors = list(Tc = "student_t(3, 28, 2)"))
+  expect_equal(icpt_of(pt, "loga"),
+               paste0("normal(-1, ",
+                      signif(sqrt(4 + (stats::qt(0.975, 3) * 2 * b_hi)^2), 4), ")"))
+  # any other prior on Tc leaves the default
+  pu <- build_hazard_prior("exp_threshold", "weibull", long = long,
+                           intercept_priors = list(Tc = "uniform(20, 30)"))
+  expect_equal(icpt_of(pu, "loga"), "normal(-1, 20.82)")
+  # the memoryless baseline moves the centre by the reference time, not the spread
+  expect_equal(icpt_of(build_hazard_prior("zeropower_threshold", "mem", long = long), "loga"),
+               "normal(-5.094, 6.558)")
+  # const_threshold has no b, and keeps the prior stated at the failures
+  expect_equal(icpt_of(build_hazard_prior("const_threshold", "weibull", long = long), "loga"),
                "normal(-1, 2)")
+  # a prior on log a given by the user is kept as given
+  own <- build_hazard_prior("exp_threshold", "weibull", long = long,
+                            intercept_priors = list(loga = "normal(-3, 1)"))
+  expect_equal(icpt_of(own, "loga"), "normal(-3, 1)")
+})
+
+
+test_that("the prior in force is the user's normal, or else the default", {
+  expect_equal(.normal_in_force("normal(-0.7, 1)", c(-0.7, 1)), c(-0.7, 1))
+  expect_equal(.normal_in_force("normal(log(0.3), 0.5)", c(-0.7, 1)), c(log(0.3), 0.5))
+  expect_equal(.normal_in_force("normal(26, 4)", c(28, 3)), c(26, 4))
+  for (other in c("student_t(3, -0.7, 1)", "", "normal(0, 0)", "normal(0, -1)", "lognormal(0)"))
+    expect_equal(.normal_in_force(other, c(-0.7, 1)), c(-0.7, 1))
+})
+
+
+test_that("the reach of a prior on Tc is half its central 95% interval", {
+  dflt <- c(28, stats::qnorm(0.975) * 3)
+  expect_equal(.reach_in_force("normal(26, 2)", dflt), c(26, stats::qnorm(0.975) * 2))
+  expect_equal(.reach_in_force("student_t(4, 25, 1.5)", dflt),
+               c(25, stats::qt(0.975, 4) * 1.5))
+  for (other in c("", "normal(26, 0)", "student_t(0, 26, 1)", "student_t(3, 26, -1)",
+                  "uniform(20, 30)", "normal(26)"))
+    expect_equal(.reach_in_force(other, dflt), dflt)
+})
+
+
+test_that("the default on loga is carried back to the reference with the user's log b", {
+  long <- prior_long(Tr = 14, T_fail = 28)
+  # a wider prior on log b, normal(-0.7, 1.5): b's median is unchanged, its spread
+  # is sqrt((exp(2.25) - 1) exp(-1.4 + 2.25)), so loga widens with it
+  b_sd <- sqrt((exp(1.5^2) - 1) * exp(2 * -0.7 + 1.5^2))
+  wide <- build_hazard_prior("exp", "weibull", long = long,
+                             intercept_priors = list(logb = "normal(-0.7, 1.5)"))
+  expect_equal(icpt_of(wide, "loga"),
+               paste0("normal(", signif(-1 - exp(-0.7) * 14, 4), ", ",
+                      signif(sqrt(4 + (14 * b_sd)^2), 4), ")"))
+  expect_equal(icpt_of(wide, "logb"), "normal(-0.7, 1.5)")
+  # a different centre moves the centre of loga: b's median is exp(0) = 1
+  steep <- build_hazard_prior("exp", "weibull", long = long,
+                              intercept_priors = list(logb = "normal(0, 1)"))
+  expect_equal(centre(steep, "loga"), -1 - 14, tolerance = 1e-3)
+  # a prior on log b that is not a normal leaves the default calculation
+  dflt <- build_hazard_prior("exp", "weibull", long = long)
+  t3 <- build_hazard_prior("exp", "weibull", long = long,
+                           intercept_priors = list(logb = "student_t(3, 0, 1)"))
+  expect_equal(icpt_of(t3, "loga"), icpt_of(dflt, "loga"))
+  # and a user's prior on log a is kept as given
+  own <- build_hazard_prior("exp", "weibull", long = long,
+                            intercept_priors = list(logb = "normal(0, 1)", loga = "normal(-3, 1)"))
+  expect_equal(icpt_of(own, "loga"), "normal(-3, 1)")
 })
 
 
@@ -1264,6 +1390,354 @@ test_that("intercept_priors is validated: unnamed errors, an unused name warns",
   # Tc is not a parameter of the plain exponential form
   expect_warning(build_hazard_prior("exp", intercept_priors = list(Tc = "normal(1, 1)"), long = prior_long()),
                  class = "rTFT_unused_intercept_prior")
+})
+
+
+test_that(".prior_args and .prior_scale read a prior string as brms writes it", {
+  expect_equal(.prior_args("normal(-0.7, 1)"), list(family = "normal", args = c(-0.7, 1)))
+  # arithmetic in an argument is evaluated
+  expect_equal(.prior_args("normal(log(60), 2^2)")$args, c(log(60), 4))
+  expect_equal(.prior_args("student_t(3, 0, 2.5)"), list(family = "student_t", args = c(3, 0, 2.5)))
+  # a flat prior, a Stan function, a word and any other function of R are not read
+  expect_null(.prior_args(""))
+  expect_null(.prior_args("normal(0, inv_sqrt(4))"))
+  expect_null(.prior_args("normal"))
+  expect_null(.prior_args("normal(0, Sys.getpid())"))
+  expect_equal(.prior_scale("normal(0, 2.5)"), 2.5)
+  expect_equal(.prior_scale("student_t(3, 0, 4)"), 4)
+  expect_equal(.prior_scale(""), Inf)
+  expect_true(is.na(.prior_scale("cauchy(0, 1)")))
+  expect_true(is.na(.prior_scale("normal(0, inv_sqrt(4))")))
+})
+
+
+test_that("slope_prior by parameter reaches the named parameter only", {
+  forms <- list(loga = ~ 1 + acclim, logb = ~ 1 + acclim)
+  p <- build_hazard_prior("exp", dpar_formulas = forms,
+                          slope_prior = list(logb = "normal(0, 0.3)"), long = prior_long())
+  expect_equal(slope_of(p, "logb"), "normal(0, 0.3)")
+  expect_equal(slope_of(p, "loga"), "normal(0, 1)")          # left out: the default
+  # a named character vector reads as the list
+  pv <- build_hazard_prior("exp", dpar_formulas = forms,
+                           slope_prior = c(logb = "normal(0, 0.3)"), long = prior_long())
+  expect_identical(pv, p)
+  # an empty list leaves every slope at the default, as the default string does
+  expect_identical(build_hazard_prior("exp", dpar_formulas = forms, slope_prior = list(),
+                                      long = prior_long()),
+                   build_hazard_prior("exp", dpar_formulas = forms, long = prior_long()))
+  # the single string still applies to every parameter
+  ps <- build_hazard_prior("exp", dpar_formulas = forms, slope_prior = "normal(0, 0.3)",
+                           long = prior_long())
+  expect_equal(c(slope_of(ps, "loga"), slope_of(ps, "logb")), rep("normal(0, 0.3)", 2))
+})
+
+
+test_that("slope_prior is validated: a wrong type errors, an unused name warns", {
+  bad <- list(1, c("normal(0, 1)", "normal(0, 2)"), NA_character_, list("normal(0, 1)"),
+              list(loga = 1), list(loga = c("normal(0, 1)", "normal(0, 2)")),
+              list(loga = "normal(0, 1)", loga = "normal(0, 2)"),
+              stats::setNames(list("normal(0, 1)"), ""))
+  for (sp in bad)
+    expect_error(build_hazard_prior("exp", slope_prior = sp, long = prior_long()),
+                 class = "rTFT_bad_slope_prior")
+  # Tc is not a parameter of the plain exponential form
+  expect_warning(p <- build_hazard_prior("exp", dpar_formulas = list(loga = ~ 1 + acclim),
+                                         slope_prior = list(Tc = "normal(0, 5)"),
+                                         long = prior_long()),
+                 class = "rTFT_unused_slope_prior")
+  expect_equal(slope_of(p, "loga"), "normal(0, 1)")
+  # a parameter in play whose formula has no slope for the prior to reach: no
+  # covariate, or no intercept, where each coefficient takes the intercept prior
+  for (f in list(~ 1, ~ 0 + acclim))
+    expect_warning(build_hazard_prior("exp", dpar_formulas = list(loga = f),
+                                      slope_prior = list(loga = "normal(0, 5)"),
+                                      long = prior_long()),
+                   class = "rTFT_unused_slope_prior")
+  # but not the single string, meant for every parameter that has a slope
+  expect_no_warning(build_hazard_prior("exp", slope_prior = "normal(0, 5)",
+                                       long = prior_long()))
+})
+
+
+# A small table for the default prior on loga where it has group terms: three
+# species, two oxygen levels (an indicator `do`, 1 in normoxia, 0 at 30% of air
+# saturation) and a continuous mass, with the failure temperatures chosen so that
+# the medians are read by eye. Tr is 30. By species, the medians are
+# A 30, B-2 34 and C 26.5 (range 7.5); by oxygen, 30 at 30% and 30.5 at 100%
+# (range 0.5, under the floor of 1); by species and oxygen, 30, 31, 34, 32.5, 26
+# and 27 (range 8). The largest distance of a level from Tr is 4 (B-2).
+rule_long <- function()
+  data.frame(Ta = c(30, 31, 34, 35, 26, 27, 30, 30), failed = 1L, Tr = 30, tau_ref = 60,
+             species = factor(c("A", "A", "B-2", "B-2", "C", "C", "A", "B-2")),
+             do = c(0, 1, 0, 1, 0, 1, 0, 1), mass = 1:8)
+b_hi    <- exp(-0.7 + stats::qnorm(0.975))     # 97.5% quantile of the default prior on b
+rule_sd <- function(D) sqrt(1 + (b_hi * max(D, 1))^2)
+coef_of <- function(p, cf, dp = "loga") p$prior[p$class == "b" & p$coef == cf & p$nlpar == dp]
+rule_f  <- ~ 1 + species * do + mass + (1 | trial)
+
+
+test_that("the columns of a group term are told from continuous covariates", {
+  expect_true(.is_group_column(factor(c("a", "b", "c"))))
+  expect_true(.is_group_column(c("m", "f", "f")))
+  expect_true(.is_group_column(c(TRUE, FALSE)))
+  expect_true(.is_group_column(c(30, 100, 30, NA)))       # two values
+  expect_false(.is_group_column(c(10, 12.5, 15)))         # three values
+  expect_false(.is_group_column(c(5, 5)))                 # one value
+  expect_false(.is_group_column(cbind(c(1, 2), c(2, 1)))) # a matrix, as poly() gives
+  # the medians are those of the failures in each cell, a cell without failures left out
+  long <- data.frame(Ta = c(30, 32, 40, 26), failed = c(1, 1, 0, 1), g = c("a", "a", "b", "c"))
+  expect_equal(.median_failure_temps(long, list(long$g)), c(a = 31, c = 26))
+  # with no failures, every at-risk interval stands in
+  long$failed <- 0
+  expect_equal(.median_failure_temps(long, list(long$g)), c(a = 31, b = 40, c = 26))
+})
+
+
+test_that("a formula of log a without group terms keeps the prior of version 0.2.1", {
+  p <- build_hazard_prior("exp", dpar_formulas = list(loga = ~ 1 + mass + (1 | trial)),
+                          long = rule_long())
+  expect_equal(icpt_of(p, "loga"), "normal(-5.094, 2)")
+  expect_equal(slope_of(p, "loga"), "normal(0, 1)")
+  expect_equal(sd_of(p, "loga"), "exponential(2)")
+  expect_equal(icpt_of(p, "logb"), "normal(-0.7, 1)")
+  expect_setequal(p$coef, c("Intercept", ""))             # no prior on a single coefficient
+  # a group term on another parameter leaves log a alone
+  pb <- build_hazard_prior("exp", dpar_formulas = list(logb = ~ 1 + species), long = rule_long())
+  expect_equal(icpt_of(pb, "loga"), "normal(-5.094, 2)")
+  expect_equal(slope_of(pb, "logb"), "normal(0, 1)")
+  expect_setequal(pb$coef, c("Intercept", ""))
+})
+
+
+test_that("the group terms of log a take priors scaled to how far apart groups fail", {
+  p <- build_hazard_prior("exp", dpar_formulas = list(loga = rule_f), long = rule_long())
+  # the intercept keeps its centre, with the largest distance from Tr (4) in its spread
+  expect_equal(icpt_of(p, "loga"), paste0("normal(-5.094, ", signif(sqrt(4 + (4 * b_hi)^2), 4), ")"))
+  expect_equal(icpt_of(p, "loga"), "normal(-5.094, 14.24)")
+  # species: range 7.5; oxygen: range 0.5, so the floor; species by oxygen: range 8
+  for (cf in c("speciesBM2", "speciesC"))
+    expect_equal(coef_of(p, cf), "normal(0, 26.46)")
+  expect_equal(coef_of(p, "speciesBM2"), paste0("normal(0, ", signif(rule_sd(7.5), 4), ")"))
+  expect_equal(coef_of(p, "do"), paste0("normal(0, ", signif(rule_sd(0.5), 4), ")"))
+  expect_equal(coef_of(p, "do"), paste0("normal(0, ", signif(rule_sd(1), 4), ")"))
+  for (cf in c("speciesBM2:do", "speciesC:do"))
+    expect_equal(coef_of(p, cf), paste0("normal(0, ", signif(rule_sd(8), 4), ")"))
+  # mass, continuous, keeps the slope prior, and the trial SD its own
+  expect_equal(slope_of(p, "loga"), "normal(0, 1)")
+  expect_length(coef_of(p, "mass"), 0)
+  expect_equal(sd_of(p, "loga"), "exponential(2)")
+  # every coefficient is named as brms names it
+  d <- rule_long(); d$y <- 0; d$trial <- rep(1:2, 4)
+  bp <- brms::default_prior(brms::bf(y ~ loga, loga ~ 1 + species * do + mass + (1 | trial),
+                                     nl = TRUE), data = d, family = stats::gaussian())
+  set <- p$coef[p$nlpar == "loga" & p$class == "b" & !p$coef %in% c("", "Intercept")]
+  expect_length(set, 5)
+  expect_true(all(set %in% bp$coef[bp$nlpar == "loga"]))
+})
+
+
+test_that("the intercept of log a reads the cells of an interaction as groups", {
+  # Tr is 30. By species, the medians are A 30 and B 29; by oxygen, 33.5 at 0 and 29
+  # at 1, so no level lies more than 3.5 from Tr. The cell of B at 0 fails at 37, 7
+  # from Tr.
+  long <- data.frame(Ta = c(30, 30, 37, 29, 29), failed = 1L, Tr = 30, tau_ref = 60,
+                     species = factor(c("A", "A", "B", "B", "B")), do = c(0, 1, 0, 1, 1))
+  crossed <- build_hazard_prior("exp", dpar_formulas = list(loga = ~ 1 + species * do),
+                                long = long)
+  expect_equal(icpt_of(crossed, "loga"),
+               paste0("normal(-5.094, ", signif(sqrt(4 + (7 * b_hi)^2), 4), ")"))
+  # without the interaction, the levels alone set the distance
+  main <- build_hazard_prior("exp", dpar_formulas = list(loga = ~ 1 + species + do),
+                             long = long)
+  expect_equal(icpt_of(main, "loga"),
+               paste0("normal(-5.094, ", signif(sqrt(4 + (3.5 * b_hi)^2), 4), ")"))
+  expect_equal(coef_of(crossed, "speciesB:do"),
+               paste0("normal(0, ", signif(rule_sd(8), 4), ")"))
+})
+
+
+test_that("the prior on a two-valued numeric column is that of the difference between groups", {
+  coded <- function(lo, hi, ...) {
+    long <- rule_long()
+    long$do <- ifelse(long$do == 0, lo, hi)
+    build_hazard_prior("exp", dpar_formulas = list(loga = rule_f), long = long, ...)
+  }
+  ind <- coded(0, 1)
+  # oxygen coded 30 and 100: the coefficient is per percentage point, so the rule's
+  # spread of the difference is divided by the gap of 70, and the default slope
+  # prior, wider than that, is the one taken
+  per_point <- coded(30, 100, slope_prior = "normal(0, 0.01)")
+  expect_equal(coef_of(per_point, "do"), paste0("normal(0, ", signif(rule_sd(1) / 70, 4), ")"))
+  expect_equal(coef_of(per_point, "speciesC:do"),
+               paste0("normal(0, ", signif(rule_sd(8) / 70, 4), ")"))
+  expect_equal(coef_of(coded(30, 100), "do"), "normal(0, 1)")
+  # a gap below 1 widens the prior per unit, so the difference keeps its spread
+  expect_equal(coef_of(coded(0, 0.1), "do"),
+               paste0("normal(0, ", signif(rule_sd(1) / 0.1, 4), ")"))
+  # the order of the codes plays no part, and the species terms are untouched
+  expect_identical(coded(1, 0)$prior, ind$prior)
+  expect_equal(coef_of(coded(0, 0.1), "speciesC"), coef_of(ind, "speciesC"))
+  # an interaction of two numeric columns is divided by the product of their gaps
+  long <- rule_long()
+  long$warm <- rep(c(0, 2), 4)
+  pw <- build_hazard_prior("exp", dpar_formulas = list(loga = ~ 1 + do * warm), long = long)
+  D <- diff(range(.median_failure_temps(long, list(long$do, long$warm))))
+  expect_equal(coef_of(pw, "do:warm"), paste0("normal(0, ", signif(rule_sd(D) / 2, 4), ")"))
+})
+
+
+test_that("coefficients are renamed as brms renames them", {
+  # the copy of brms's renaming is checked against brms itself, on every character
+  # it replaces and on level names a user might write
+  every <- "a (b)[c],d\"e'f?g+h-i*j/k^l=m$n"
+  levels <- c("speciesB-2", "do30%", "trtlow O2 (hypoxia)", "groupa/b", "sp:trtx+y")
+  expect_identical(.brms_coef_names(every), brms:::rename(every))
+  expect_identical(.brms_coef_names(levels), brms:::rename(levels))
+})
+
+
+test_that("character and logical columns are group terms, named as brms names them", {
+  long <- rule_long()
+  long$sex <- rep(c("f", "m"), 4)
+  long$heated <- rep(c(TRUE, FALSE), each = 4)
+  p <- build_hazard_prior("exp", dpar_formulas = list(loga = ~ 1 + sex + heated), long = long)
+  d <- long; d$y <- 0
+  bp <- brms::default_prior(brms::bf(y ~ loga, loga ~ 1 + sex + heated, nl = TRUE),
+                            data = d, family = stats::gaussian())
+  expect_setequal(p$coef[p$nlpar == "loga" & !p$coef %in% c("", "Intercept")],
+                  setdiff(bp$coef[bp$nlpar == "loga"], c("", "Intercept")))
+  # sex: f 30, m 30.5 (the floor); heated: TRUE 32.5, FALSE 28.5
+  expect_equal(coef_of(p, "sexm"), paste0("normal(0, ", signif(rule_sd(1), 4), ")"))
+  expect_equal(coef_of(p, "heatedTRUE"), paste0("normal(0, ", signif(rule_sd(4), 4), ")"))
+})
+
+
+test_that("a slope prior wider than the rule wins, a narrower one loses", {
+  wide <- build_hazard_prior("exp", dpar_formulas = list(loga = rule_f),
+                             slope_prior = list(loga = "normal(0, 50)"), long = rule_long())
+  for (cf in c("speciesBM2", "speciesC", "do", "speciesBM2:do", "speciesC:do"))
+    expect_equal(coef_of(wide, cf), "normal(0, 50)")
+  expect_equal(slope_of(wide, "loga"), "normal(0, 50)")
+  # a slope prior between the rule's widths: wider for oxygen only
+  mid <- build_hazard_prior("exp", dpar_formulas = list(loga = rule_f),
+                            slope_prior = "normal(0, 5)", long = rule_long())
+  expect_equal(coef_of(mid, "do"), "normal(0, 5)")
+  expect_equal(coef_of(mid, "speciesC"), "normal(0, 26.46)")
+  expect_equal(slope_of(mid, "loga"), "normal(0, 5)")      # mass takes it as given
+  # narrower, it gives way to the rule on every group term
+  narrow <- build_hazard_prior("exp", dpar_formulas = list(loga = rule_f),
+                               slope_prior = list(loga = "normal(0, 0.5)"), long = rule_long())
+  expect_equal(coef_of(narrow, "do"), paste0("normal(0, ", signif(rule_sd(1), 4), ")"))
+  expect_equal(coef_of(narrow, "speciesC"), "normal(0, 26.46)")
+  expect_equal(slope_of(narrow, "loga"), "normal(0, 0.5)")
+  # a Student-t is compared by its scale, a flat prior is the widest, and a prior
+  # whose scale cannot be read gives way
+  t5 <- build_hazard_prior("exp", dpar_formulas = list(loga = rule_f),
+                           slope_prior = "student_t(3, 0, 5)", long = rule_long())
+  expect_equal(coef_of(t5, "do"), "student_t(3, 0, 5)")
+  expect_equal(coef_of(t5, "speciesC"), "normal(0, 26.46)")
+  flat <- build_hazard_prior("exp", dpar_formulas = list(loga = rule_f),
+                             slope_prior = list(loga = ""), long = rule_long())
+  expect_equal(coef_of(flat, "speciesC"), "")
+  other <- build_hazard_prior("exp", dpar_formulas = list(loga = rule_f),
+                              slope_prior = "double_exponential(0, 100)", long = rule_long())
+  expect_equal(coef_of(other, "speciesC"), "normal(0, 26.46)")
+})
+
+
+test_that("an intercept prior given for log a replaces the rule's, and b_hi follows log b", {
+  p <- build_hazard_prior("exp", dpar_formulas = list(loga = rule_f),
+                          intercept_priors = list(loga = "normal(-3, 1)"), long = rule_long())
+  expect_equal(icpt_of(p, "loga"), "normal(-3, 1)")
+  expect_equal(coef_of(p, "speciesC"), "normal(0, 26.46)")  # the group terms keep the rule
+  # a normal prior on log b sets b_hi: exp(0 + 1.96 x 0.5)
+  hi <- exp(stats::qnorm(0.975) * 0.5)
+  pb <- build_hazard_prior("exp", dpar_formulas = list(loga = rule_f),
+                           intercept_priors = list(logb = "normal(0, 0.5)"), long = rule_long())
+  expect_equal(icpt_of(pb, "loga"), paste0("normal(-5.094, ", signif(sqrt(4 + (4 * hi)^2), 4), ")"))
+  expect_equal(coef_of(pb, "speciesC"),
+               paste0("normal(0, ", signif(sqrt(1 + (hi * 7.5)^2), 4), ")"))
+  # any other prior on log b leaves the default b_hi
+  pt <- build_hazard_prior("exp", dpar_formulas = list(loga = rule_f),
+                           intercept_priors = list(logb = "student_t(3, -0.7, 1)"),
+                           long = rule_long())
+  expect_equal(coef_of(pt, "speciesC"), "normal(0, 26.46)")
+})
+
+
+test_that("the floor of one degree applies when the groups fail alike", {
+  long <- rule_long()
+  long$Ta <- 30
+  p <- build_hazard_prior("exp", dpar_formulas = list(loga = rule_f), long = long)
+  for (cf in c("speciesBM2", "do", "speciesC:do"))
+    expect_equal(coef_of(p, cf), paste0("normal(0, ", signif(sqrt(1 + b_hi^2), 4), ")"))
+  # and every group at Tr leaves the intercept its usual spread
+  expect_equal(icpt_of(p, "loga"), "normal(-5.094, 2)")
+})
+
+
+test_that("without an intercept, the levels take the intercept's scaled prior", {
+  p <- build_hazard_prior("exp", dpar_formulas = list(loga = ~ 0 + species + do),
+                          long = rule_long())
+  rows <- p[p$nlpar == "loga", ]
+  # the species levels are log a itself: the class-wide prior, with the rule's spread
+  expect_equal(rows$prior[rows$coef == ""], "normal(-5.094, 14.24)")
+  expect_false(any(grepl("^species", rows$coef)))
+  # oxygen is still a difference between groups
+  expect_equal(coef_of(p, "do"), paste0("normal(0, ", signif(rule_sd(1), 4), ")"))
+})
+
+
+test_that("the rule follows the function's term in b, and needs a b", {
+  # a threshold function is anchored at Tc: the rule's intercept would keep its spread
+  # of 2, so the intercept takes its own, wider, carried across the prior on Tc
+  pt <- build_hazard_prior("exp_threshold", dpar_formulas = list(loga = rule_f), long = rule_long())
+  expect_equal(icpt_of(pt, "loga"), "normal(-5.094, 20.82)")
+  expect_equal(coef_of(pt, "speciesC"), "normal(0, 26.46)")
+  # the power function: the term in b is b log(d), d the largest distance from Tr (14)
+  long <- rule_long()
+  long$Tr <- 20
+  pp <- build_hazard_prior("power", dpar_formulas = list(loga = rule_f), long = long)
+  expect_equal(spread(pp, "loga"), signif(sqrt(4 + (log(14) * b_hi)^2), 4))
+  # a constant rate has no b to extrapolate with: the prior of version 0.2.1
+  pc <- build_hazard_prior("const", dpar_formulas = list(loga = rule_f), long = rule_long())
+  expect_equal(icpt_of(pc, "loga"), "normal(-5.094, 2)")
+  expect_setequal(pc$coef, c("Intercept", ""))
+})
+
+
+test_that("the rule refuses missing values in the columns of the formula of log a", {
+  # missing at every failure (the medians would be empty), everywhere, and in part
+  # (the medians would rest on fewer failures than the model is fitted to)
+  at_failures <- rule_long()
+  at_failures <- rbind(at_failures, transform(at_failures[1:2, ], failed = 0L))
+  at_failures$species[at_failures$failed == 1] <- NA
+  everywhere <- transform(rule_long(), species = factor(NA))
+  in_part <- rule_long()
+  in_part$mass[3] <- NA
+  for (long in list(at_failures, everywhere, in_part))
+    expect_error(build_hazard_prior("exp", dpar_formulas = list(loga = rule_f), long = long),
+                 class = "rTFT_missing_values")
+})
+
+
+test_that("the rule refuses a group column with a single value", {
+  long <- rule_long()
+  long$site <- factor("a")
+  long$tank <- "t1"
+  for (f in list(~ 1 + species + site, ~ 1 + tank))
+    expect_error(build_hazard_prior("exp", dpar_formulas = list(loga = f), long = long),
+                 class = "rTFT_one_level")
+})
+
+
+test_that("the rule needs the columns of the formula of log a", {
+  expect_error(build_hazard_prior("exp", dpar_formulas = list(loga = ~ 1 + species),
+                                  long = prior_long()),
+               class = "rTFT_no_prior_data")
+  # a grouping inside a random-effect term is not read
+  expect_no_error(build_hazard_prior("exp", dpar_formulas = list(loga = ~ 1 + (1 | site)),
+                                     long = prior_long()))
 })
 
 
@@ -1381,7 +1855,9 @@ test_that("the default prior is built when none is supplied, and a supplied prio
 
 
 test_that("prior-override arguments are forwarded to build_hazard_prior", {
-  a <- .hazard_brm_args(long_int, "exp",
+  long_ac <- long_int
+  long_ac$acclim <- seq_len(nrow(long_ac))           # a continuous covariate
+  a <- .hazard_brm_args(long_ac, "exp",
          dpar_formulas = list(loga = ~ 1 + acclim),
          intercept_priors = list(loga = "normal(-6, 1)"),
          slope_prior = "normal(0, 0.5)")
@@ -1389,6 +1865,12 @@ test_that("prior-override arguments are forwarded to build_hazard_prior", {
                "normal(-6, 1)")
   expect_equal(a$prior$prior[a$prior$nlpar == "loga" & a$prior$coef == ""],
                "normal(0, 0.5)")
+  # a slope prior by parameter is forwarded as it is
+  b <- .hazard_brm_args(long_ac, "exp",
+         dpar_formulas = list(loga = ~ 1 + acclim, logb = ~ 1 + acclim),
+         slope_prior = list(logb = "normal(0, 0.3)"))
+  expect_equal(b$prior$prior[b$prior$nlpar == "logb" & b$prior$coef == ""], "normal(0, 0.3)")
+  expect_equal(b$prior$prior[b$prior$nlpar == "loga" & b$prior$coef == ""], "normal(0, 1)")
 })
 
 
