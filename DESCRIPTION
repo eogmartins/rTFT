@@ -45,6 +45,7 @@ Suggests:
     knitr,
     plotly,
     posterior,
+    priorsense (>= 1.4.0),
     quarto,
     testthat (>= 3.0.0),
     withr
