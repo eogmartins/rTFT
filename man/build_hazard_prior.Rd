@@ -213,6 +213,9 @@ further:
 \if{html}{\out{<div class="sourceCode r">}}\preformatted{build_hazard_prior(..., intercept_priors = list(loga = "normal(-0.8, 20)"),
                    slope_prior = list(loga = "normal(0, 20)"))
 }\if{html}{\out{</div>}}
+
+Whether the priors of a fitted model pull its estimates, with these defaults or
+any others, can be checked without refitting with \code{\link[=check_prior]{check_prior()}}.
 }
 
 \section{The baseline term c of the power function}{

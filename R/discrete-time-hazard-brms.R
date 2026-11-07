@@ -2086,6 +2086,9 @@ build_hazard_spec <- function(m_form, baseline = "mem", dpar_formulas = list(),
 #'                    slope_prior = list(loga = "normal(0, 20)"))
 #' ```
 #'
+#' Whether the priors of a fitted model pull its estimates, with these defaults or
+#' any others, can be checked without refitting with [check_prior()].
+#'
 #' @section The baseline term c of the power function:
 #' In M(T) = c + a (T - Tr)^b, c is the rate that remains at the reference
 #' temperature: failure that happens whatever the warming. Its default is centred so
