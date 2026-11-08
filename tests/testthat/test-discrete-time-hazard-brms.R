@@ -1895,6 +1895,87 @@ test_that(".check_Tr is strict for zeroexp/zeropower but allows power at Ta == T
 })
 
 
+test_that("a threshold function's Tc starts at the centre of its prior", {
+  thr <- rule_long()                                 # median failure temperature 30
+  p <- build_hazard_prior("exp_threshold", long = thr)
+  start <- .tc_start("exp_threshold", NULL, thr, p)
+  expect_equal(start, list(centre = 30, spread = 3, at_centre = TRUE))
+  expect_null(.tc_start("exp", NULL, thr, build_hazard_prior("exp", long = thr)))
+  # the prior in force: a normal or a Student-t of the user's, else the failures
+  given <- function(tc) build_hazard_prior("exp_threshold", long = thr,
+                                           intercept_priors = list(Tc = tc))
+  expect_equal(.tc_start("exp_threshold", NULL, thr, given("normal(33, 2)"))[1:2],
+               list(centre = 33, spread = 2))
+  expect_equal(.tc_start("exp_threshold", NULL, thr, given("student_t(3, 33, 2)"))$spread,
+               qt(0.975, 3) * 2 / qnorm(0.975))
+  expect_equal(.tc_start("exp_threshold", NULL, thr, given("uniform(20, 40)"))[1:2],
+               list(centre = 30, spread = 3))
+  # a slope starts at 0; without an intercept, each level starts at the centre
+  expect_equal(.tc_start("exp_threshold", ~ 1 + mass, thr, p)$at_centre, c(TRUE, FALSE))
+  expect_equal(.tc_start("exp_threshold", ~ 1 + (1 | trial), thr, p)$at_centre, TRUE)
+  p0 <- build_hazard_prior("exp_threshold", dpar_formulas = list(Tc = ~ 0 + species),
+                           long = thr)
+  expect_equal(.tc_start("exp_threshold", ~ 0 + species, thr, p0)$at_centre,
+               c(TRUE, TRUE, TRUE))
+  expect_equal(.tc_start("exp_threshold", ~ 0 + species + mass, thr, p0)$at_centre,
+               c(TRUE, TRUE, TRUE, FALSE))
+  # a bound on the coefficients of Tc leaves their start to brms
+  bounded <- p
+  bounded$lb[bounded$nlpar == "Tc"] <- "20"
+  expect_null(.tc_start("exp_threshold", NULL, thr, bounded))
+})
+
+
+test_that("each chain starts Tc at its own offset within half the prior's spread", {
+  start <- list(centre = 30, spread = 3, at_centre = c(TRUE, FALSE))
+  init <- .tc_init(start, 4L)
+  expect_length(init, 4)
+  expect_equal(vapply(init, \(i) i$b_Tc[1], numeric(1)), 30 + c(-1.5, -0.5, 0.5, 1.5))
+  expect_equal(vapply(init, \(i) i$b_Tc[2], numeric(1)), rep(0, 4))
+  expect_equal(.tc_init(start, 1L), list(list(b_Tc = array(c(30, 0)))))
+  expect_identical(.tc_init(start, 4L), init)          # the same again, with no seed
+  # the number of chains, as given to brms
+  expect_identical(.chains_of(NULL, 4L), 4L)
+  expect_identical(.chains_of(2, 4L), 2L)
+  for (bad in list(0, 2.5, "2", c(2, 3), NA))
+    expect_error(.chains_of(bad, 4L), class = "rTFT_bad_chains")
+})
+
+
+test_that("fit_hazard starts Tc for a threshold function unless given starting values", {
+  seen <- NULL
+  warn_inits <- NULL
+  local_mocked_bindings(brm = function(...) {
+    seen <<- list(...)
+    warn_inits <<- getOption("cmdstanr_warn_inits")
+    structure(list(), class = "brmsfit")
+  }, .package = "brms")
+  withr::local_options(cmdstanr_warn_inits = TRUE)
+  fit <- fit_hazard(long_int, "exp_threshold", chains = 2)
+  start <- fit$rtft$tc_start
+  expect_equal(start$centre, .typical_failure_temp(long_int))
+  expect_equal(seen[["init"]], .tc_init(start, 2L))
+  # cmdstanr's note on a partial start is held back during the fit, then restored
+  expect_false(warn_inits)
+  expect_true(getOption("cmdstanr_warn_inits"))
+  fit_hazard(long_int, "exp_threshold")              # four chains, as brms has
+  expect_length(seen[["init"]], 4)
+  # starting values given are passed on as they are, under either name
+  fit <- fit_hazard(long_int, "exp_threshold", init = 0)
+  expect_identical(seen[["init"]], 0)
+  expect_null(fit$rtft$tc_start)
+  expect_true(warn_inits)                            # a start of the user's keeps it
+  fit_hazard(long_int, "exp_threshold", inits = "random")
+  expect_null(seen[["init"]])
+  expect_identical(seen[["inits"]], "random")
+  # a function without Tc keeps the start of brms
+  fit <- fit_hazard(long_int, "exp")
+  expect_null(seen[["init"]])
+  expect_null(fit$rtft$tc_start)
+  expect_error(fit_hazard(long_int, "exp_threshold", chains = 0), class = "rTFT_bad_chains")
+})
+
+
 # ===========================================================================
 # 6. Fixed-ramp helper (ramp_path)
 # ===========================================================================

@@ -17,7 +17,10 @@ number of units. \code{NULL} (the default) gives one fold per unit, leaving out 
 unit on its own.}
 
 \item{...}{Further arguments for the refits, passed to \code{\link[brms:brm]{brms::brm()}} through
-\code{\link[stats:update]{stats::update()}}, such as \code{chains}, \code{iter} or \code{cores}.}
+\code{\link[stats:update]{stats::update()}}, such as \code{chains}, \code{iter} or \code{cores}. Unless they hold
+starting values (\code{init}), the refits of a threshold function start Tc as
+\code{\link[=fit_hazard]{fit_hazard()}} started the model, and cmdstanr's note on a partial start is
+held back as it is there.}
 }
 \value{
 A \code{kfold} object in the layout of \code{\link[loo:kfold]{loo::kfold()}}, with one pointwise value

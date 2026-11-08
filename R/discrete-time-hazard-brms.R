@@ -2400,10 +2400,14 @@ build_hazard_prior <- function(m_form, baseline = "mem", dpar_formulas = list(),
 # individual and the temperature trajectory it belongs to and the elapsed time at
 # which its interval ends. The fitted data do not keep these: cross-validation needs
 # the individuals to leave whole individuals out, and the checks of the model need
-# all three to follow each individual through its exposure. fit_hazard() attaches
-# the record to the fit it returns. The steepness is resolved quietly here, since
-# build_hazard_spec() has already warned about a `k_sw` it ignores.
-.hazard_settings <- function(long, m_form, baseline, observation, k_sw, costressors) {
+# all three to follow each individual through its exposure. Last, `tc_start` is
+# where the chains of a threshold function started Tc (.tc_start()), or NULL where
+# they took brms's own start, so that the refits of cross-validation start alike.
+# fit_hazard() attaches the record to the fit it returns. The steepness is resolved
+# quietly here, since build_hazard_spec() has already warned about a `k_sw` it
+# ignores.
+.hazard_settings <- function(long, m_form, baseline, observation, k_sw, costressors,
+                             tc_start = NULL) {
   list(m_form      = m_form,
        baseline    = baseline,
        observation = .match_observation(observation),
@@ -2415,7 +2419,8 @@ build_hazard_prior <- function(m_form, baseline = "mem", dpar_formulas = list(),
        tau_range   = range(long$tau),
        id          = long$id,
        path_id     = long$path_id,
-       tau_end     = long$tau + long$exposure / 2)
+       tau_end     = long$tau + long$exposure / 2,
+       tc_start    = tc_start)
 }
 
 # Read the settings fit_hazard() attached to a fit, or stop when there are none: a
@@ -2432,6 +2437,72 @@ build_hazard_prior <- function(m_form, baseline = "mem", dpar_formulas = list(),
       "i" = "Fit the model with {.fn fit_hazard}, which records the settings the reporting functions need."
     ), class = "rTFT_no_settings")
   fit$rtft
+}
+
+
+# .tc_start() / .chains_of() / .tc_init() --------------------------------------
+
+# Where the chains of a threshold function start Tc, or NULL for a function without
+# Tc. brms starts every parameter between -2 and 2, which for Tc, a temperature with
+# no transform, is tens of degrees below the failures: the rate is enormous there,
+# log a can offset Tc along the ridge in log a - b Tc, and a chain can get stuck. The
+# start is the centre of the prior on Tc in force, read from `prior` (a brmsprior: the
+# prior on the intercept of Tc, else on all its coefficients), or the median failure
+# temperature of `long` when that prior is not a normal or a Student-t; `spread` is
+# the prior's standard deviation (for a Student-t, the half width of its central 95%
+# interval over 1.96), within half of which the chains start apart. `f` is the
+# formula of Tc (`~ 1` when NULL): its intercept starts at the centre and every other
+# coefficient at 0; without an intercept, each coefficient whose column marks a level
+# (0 and 1 only) starts at the centre. A bound on the coefficients of Tc is left to
+# brms, which then starts them inside it, and NULL is returned. Returns NULL or a
+# list of `centre`, `spread` and `at_centre` (one logical value per coefficient of
+# Tc, in the order brms gives them).
+.tc_start <- function(m_form, f, long, prior) {
+  if (!"Tc" %in% M_catalogue[[m_form]]$dpars) return(NULL)
+  pt   <- as.data.frame(prior)
+  rows <- pt$class == "b" & pt$nlpar == "Tc"
+  bounds <- c(pt$lb[rows], pt$ub[rows])
+  if (any(!is.na(bounds) & nzchar(bounds))) return(NULL)
+  own  <- pt$prior[rows & pt$coef == "Intercept"]
+  wide <- pt$prior[rows & pt$coef == ""]
+  given <- if (length(own) && nzchar(own[1])) own[1] else if (length(wide)) wide[1] else ""
+  tc <- .reach_in_force(given, c(.typical_failure_temp(long), stats::qnorm(0.975) * 3))
+
+  if (is.null(f)) f <- ~ 1
+  parts <- .rhs_terms(f)
+  fixed <- parts[!vapply(parts, .is_bar, logical(1))]
+  f[[length(f)]] <- if (length(fixed)) Reduce(\(a, b) call("+", a, b), fixed) else 1
+  mm <- stats::model.matrix(f, stats::model.frame(f, long))
+  at_centre <- if (attr(mm, "assign")[1] == 0L) seq_len(ncol(mm)) == 1L
+               else apply(mm, 2, \(x) all(x %in% c(0, 1)))
+  list(centre = tc[[1]], spread = tc[[2]] / stats::qnorm(0.975),
+       at_centre = unname(at_centre))
+}
+
+# The number of chains in `chains`, a value given to brms, or `default` when it is
+# NULL. Returns a single whole number.
+.chains_of <- function(chains, default) {
+  if (is.null(chains)) return(default)
+  if (!is.numeric(chains) || length(chains) != 1L || !is.finite(chains) ||
+      chains < 1 || chains != round(chains))
+    cli::cli_abort(c(
+      "{.arg chains} must be a single whole number of chains, at least 1.",
+      "x" = "You supplied {.val {chains}}."
+    ), class = "rTFT_bad_chains")
+  as.integer(chains)
+}
+
+# The starting values of Tc for `chains` chains, from `start` (.tc_start()): the
+# coefficients at the centre are offset, chain by chain, at evenly spaced points from
+# half the spread below the centre to half above it, so the chains start apart and a
+# refit starts at the same values again; the other coefficients start at 0.
+# Returns a list with one element per chain, each a list holding `b_Tc`, the vector of
+# coefficients of Tc as brms names it in Stan. Every other parameter is left to the
+# random start of brms.
+.tc_init <- function(start, chains) {
+  offset <- if (chains > 1L) seq(-0.5, 0.5, length.out = chains) * start$spread else 0
+  lapply(offset, \(o)
+    list(b_Tc = array(ifelse(start$at_centre, start$centre + o, 0))))
 }
 
 
@@ -2453,6 +2524,22 @@ build_hazard_prior <- function(m_form, baseline = "mem", dpar_formulas = list(),
 #' `power`, `zeropower`): these are undefined where the temperature reaches `Tr`
 #' (`zeroexp`, `zeropower`) or drops below it (`power`), so a run that would hit
 #' that is stopped with a clear error rather than a cryptic sampler failure.
+#'
+#' For a threshold function, unless `...` holds starting values (`init`), each chain
+#' starts Tc around the centre of the prior on Tc in force (the default, or a normal
+#' or Student-t of your own; the median failure temperature otherwise), at its own
+#' fixed offset within half the prior's standard deviation, so that the chains start
+#' apart and a refit starts at the same values again; any slope of a formula for Tc
+#' starts at 0. Every other parameter keeps the random start of brms. brms would
+#' start Tc, a temperature with no transform, between -2 and 2 degrees, tens of
+#' degrees below the failures, and a chain can get stuck there: in one simulated fit
+#' of an exponential threshold function, a chain started that way stuck with Tc near
+#' -0.8 degrees and Rhat was 1.60, while the same data and seed with Tc started at
+#' its prior's centre converged. Starting values given in `init` are used as they
+#' are, and a bound set on the coefficients of Tc leaves their start to brms. Since
+#' only Tc is given a start, cmdstanr would note that the other parameters have none;
+#' that note is held back for the fits whose start rTFT sets, and still shown for
+#' starting values of your own.
 #'
 #' @param long A data frame, the row-per-interval table from [build_hazard_data].
 #' @param m_form,baseline,dpar_formulas,observation As in [build_hazard_spec].
@@ -2483,7 +2570,8 @@ build_hazard_prior <- function(m_form, baseline = "mem", dpar_formulas = list(),
 #'   temperature `Tr` and reference time `tau_ref`, the softening steepness, the
 #'   co-stressors, the ranges of temperature and elapsed exposure time the data
 #'   cover, and, for each row of `long`, the individual and the temperature
-#'   trajectory it belongs to and the elapsed time at which its interval ends. The
+#'   trajectory it belongs to and the elapsed time at which its interval ends, and
+#'   where the chains started Tc (`tc_start`, `NULL` when they did not). The
 #'   reporting functions and the checks read them from there, so they are never
 #'   re-entered by hand.
 #' @examples
@@ -2517,8 +2605,21 @@ fit_hazard <- function(long, m_form, baseline = "mem", dpar_formulas = list(),
                        costressors = list(), k_sw = NULL, ...) {
   args <- .hazard_brm_args(long, m_form, baseline, dpar_formulas, observation, prior,
                            intercept_priors, slope_prior, sd_prior, costressors, k_sw)
-  fit <- do.call(brms::brm, c(args, list(...)))
-  fit$rtft <- .hazard_settings(long, m_form, baseline, observation, k_sw, costressors)
+  # A threshold function's Tc starts at the centre of its prior, unless the user gave
+  # starting values (`inits` is the older name brms still accepts).
+  dots <- list(...)
+  tc_start <- if (!any(c("init", "inits") %in% names(dots)))
+    .tc_start(m_form, dpar_formulas$Tc, long, args$prior)
+  if (!is.null(tc_start)) {
+    dots$init <- .tc_init(tc_start, .chains_of(dots$chains, 4L))
+    # cmdstanr would say, on every such fit, that the other parameters have no start;
+    # they are left to brms on purpose, so the note is held back for this fit only.
+    old <- options(cmdstanr_warn_inits = FALSE)
+    on.exit(options(old), add = TRUE)
+  }
+  fit <- do.call(brms::brm, c(args, dots))
+  fit$rtft <- .hazard_settings(long, m_form, baseline, observation, k_sw, costressors,
+                               tc_start)
   fit
 }
 

@@ -296,7 +296,8 @@ stand_in_refit <- function(record) {
   function(fit, data, train, unit_values, ...) {
     record$calls[[length(record$calls) + 1]] <- list(
       train = train, held_out = unique(as.character(unit_values[!train])),
-      args = list(...), from = fit$from)
+      args = list(...), from = fit$from,
+      warn_inits = getOption("cmdstanr_warn_inits"))
     held <- unique(as.character(unit_values[!train]))
     # the "refit" is a stand-in object recording which fold made it
     list(elpd = stats::setNames(-match(held, unique(as.character(unit_values))), held),
@@ -344,6 +345,36 @@ test_that("kfold_hazard refits once per trial, leaving each trial out in turn", 
   expect_equal(out$unit, "trial")
   expect_equal(unname(out$pointwise[, "elpd_kfold"]), -(1:8))
   expect_equal(unname(out$estimates["elpd_kfold", ]), c(-36, sqrt(8 * var(-(1:8)))))
+})
+
+
+test_that("the refits of a threshold function start Tc as the fit did", {
+  record <- new.env()
+  record$calls <- list()
+  local_mocked_bindings(.refit_fold = stand_in_refit(record))
+  fit <- fit_trials
+  fit$rtft$tc_start <- list(centre = 28, spread = 3, at_centre = TRUE)
+  withr::local_options(cmdstanr_warn_inits = TRUE)
+  suppressMessages(kfold_hazard(fit, chains = 3))
+  init <- record$calls[[1]]$args$init
+  expect_equal(init, .tc_init(fit$rtft$tc_start, 3L))
+  expect_true(all(vapply(record$calls, \(cl) identical(cl$args$init, init), logical(1))))
+  # cmdstanr's note on a partial start is held back during the refits, then restored
+  expect_false(any(vapply(record$calls, \(cl) cl$warn_inits, logical(1))))
+  expect_true(getOption("cmdstanr_warn_inits"))
+  # as many chains as the fit, unless given
+  record$calls <- list()
+  suppressMessages(kfold_hazard(fit))
+  expect_length(record$calls[[1]]$args$init, brms::nchains(fit_trials))
+  # starting values given are passed on as they are
+  record$calls <- list()
+  suppressMessages(kfold_hazard(fit, init = 0))
+  expect_identical(record$calls[[1]]$args$init, 0)
+  expect_true(record$calls[[1]]$warn_inits)          # a start of the user's keeps it
+  # a fit that took the start of brms gives its refits none
+  record$calls <- list()
+  suppressMessages(kfold_hazard(fit_trials))
+  expect_null(record$calls[[1]]$args$init)
 })
 
 
