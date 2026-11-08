@@ -366,6 +366,26 @@ test_that("brms_log_M threshold guards stay finite below and at Tc; zero forms v
 })
 
 
+test_that("the switch of a threshold function stays finite far below Tc", {
+  # At 20 degrees below Tc and k_sw = 50, exp(-k_sw (Ta - Tc)) = exp(1000) overflows,
+  # so a switch written plainly as log1p of it would make log M equal to -Inf, and
+  # Stan could not start a chain there. On the log scale, log M must instead be the
+  # rate of the function at Ta less k_sw (Tc - Ta), to within the last bits.
+  a <- 2.82e-7; b <- 6.13; Tc <- 36; k_sw <- 50; Ta <- Tc - 20
+  env <- list(loga = log(a), logb = log(b), Tc = Tc, k_sw = k_sw, Ta = Ta)
+  ev  <- function(s) eval(parse(text = s), env)
+  below <- list(
+    const_threshold     = log(a),
+    exp_threshold       = log(a) + b * (Ta - Tc),
+    zeroexp_threshold   = log(a) + log(1 - exp(b * (Ta - Tc))),
+    zeropower_threshold = log(a) + b * log(Tc - Ta))
+  for (k in names(below)) {
+    expect_true(is.finite(ev(brms_log_M[[k]])), info = k)
+    expect_equal(ev(brms_log_M[[k]]), below[[k]] - k_sw * (Tc - Ta), info = k)
+  }
+})
+
+
 # brms_log_h0 against the baseline hazards ------------------------------------
 
 test_that("brms_log_h0 reproduces the baseline hazards, and llogis is the hazard not the density", {
@@ -936,7 +956,8 @@ test_that("the linear predictor is log h0 + log M + log_exposure, in that order"
   # the catalogue k_sw = 50 substituted in for the placeholder
   eta_thr_wb <- paste(
     "logshape - log(tau_ref) + (exp(logshape) - 1) * (log_tau - log(tau_ref))",
-    "+ loga + exp(logb) * (Ta - Tc) - log1p(exp(-50 * (Ta - Tc)))",
+    "+ loga + exp(logb) * (Ta - Tc) - 50 * (abs(Ta - Tc) - (Ta - Tc)) / 2",
+    "- log1p(exp(-50 * abs(Ta - Tc)))",
     "+ log_exposure")
   expect_equal(main_rhs(build_hazard_spec("exp_threshold", "weibull")),
                str2lang(eta_thr_wb))
@@ -955,11 +976,11 @@ test_that("a memoryless baseline contributes no term to the predictor", {
 
 test_that("k_sw defaults to the catalogue value, and an override substitutes for it", {
   d <- deparse1(main_rhs(build_hazard_spec("exp_threshold")))
-  expect_true(grepl("-50 * (Ta - Tc)", d, fixed = TRUE))  # catalogue default
+  expect_true(grepl("-50 * abs(Ta - Tc)", d, fixed = TRUE))  # catalogue default
   expect_false(grepl("k_sw", d, fixed = TRUE))            # the placeholder is gone
 
   o <- deparse1(main_rhs(build_hazard_spec("exp_threshold", k_sw = 20)))
-  expect_true(grepl("-20 * (Ta - Tc)", o, fixed = TRUE))  # the override
+  expect_true(grepl("-20 * abs(Ta - Tc)", o, fixed = TRUE))  # the override
   expect_false(grepl("-50", o, fixed = TRUE))
 })
 
@@ -2261,7 +2282,7 @@ test_that("fit_hazard passes a custom k_sw into the formula", {
   # brms::brm() through `...`.
   expect_true("k_sw" %in% names(formals(fit_hazard)))
   a <- .hazard_brm_args(long_int, "exp_threshold", k_sw = 20)
-  expect_true(grepl("-20 * (Ta - Tc)", deparse1(main_rhs(a)), fixed = TRUE))
+  expect_true(grepl("-20 * abs(Ta - Tc)", deparse1(main_rhs(a)), fixed = TRUE))
 })
 
 

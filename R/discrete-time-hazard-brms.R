@@ -412,6 +412,11 @@ h0_catalogue <- list(
 #' is written `10^-12` and not `1e-12`, because brms spaces out the minus sign of a
 #' number in scientific notation when it writes the Stan program (`1e - 12`), which
 #' Stan does not accept.
+#' The switch of a threshold function, log(1 + exp(-k_sw (Ta - Tc))), is written in
+#' the equal form k_sw (|Ta - Tc| - (Ta - Tc)) / 2 + log(1 + exp(-k_sw |Ta - Tc|)),
+#' because the exponential of the plain form overflows once `Ta` lies more than about
+#' 709 / k_sw degrees below `Tc` (14 degrees at the default `k_sw` of 50), which
+#' leaves the rate and its gradient undefined there.
 #' The temperature column is named `Ta` rather than
 #' Kingsolver and Umbanhowar's `T`, because `T` is an alias for `TRUE` in R and a
 #' column of that name would silently shadow it in the data-handling code. The
@@ -425,14 +430,14 @@ h0_catalogue <- list(
 #' @export
 brms_log_M <- list(
   const               = "loga",
-  const_threshold     = "loga - log1p(exp(-k_sw * (Ta - Tc)))",
+  const_threshold     = "loga - k_sw * (abs(Ta - Tc) - (Ta - Tc)) / 2 - log1p(exp(-k_sw * abs(Ta - Tc)))",
   exp                 = "loga + exp(logb) * (Ta - Tr)",
-  exp_threshold       = "loga + exp(logb) * (Ta - Tc) - log1p(exp(-k_sw * (Ta - Tc)))",
+  exp_threshold       = "loga + exp(logb) * (Ta - Tc) - k_sw * (abs(Ta - Tc) - (Ta - Tc)) / 2 - log1p(exp(-k_sw * abs(Ta - Tc)))",
   zeroexp             = "loga + log(exp(exp(logb) * (Ta - Tr)) - 1)",
-  zeroexp_threshold   = "loga + log(abs(exp(exp(logb) * (Ta - Tc)) - 1) + 10^-12) - log1p(exp(-k_sw * (Ta - Tc)))",
+  zeroexp_threshold   = "loga + log(abs(exp(exp(logb) * (Ta - Tc)) - 1) + 10^-12) - k_sw * (abs(Ta - Tc) - (Ta - Tc)) / 2 - log1p(exp(-k_sw * abs(Ta - Tc)))",
   power               = "log(exp(logc) + exp(loga) * (Ta - Tr)^exp(logb))",
   zeropower           = "loga + exp(logb) * log(Ta - Tr)",
-  zeropower_threshold = "loga + exp(logb) * log(abs(Ta - Tc) + 10^-12) - log1p(exp(-k_sw * (Ta - Tc)))"
+  zeropower_threshold = "loga + exp(logb) * log(abs(Ta - Tc) + 10^-12) - k_sw * (abs(Ta - Tc) - (Ta - Tc)) / 2 - log1p(exp(-k_sw * abs(Ta - Tc)))"
 )
 
 

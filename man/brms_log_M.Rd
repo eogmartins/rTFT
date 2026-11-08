@@ -21,6 +21,11 @@ inside a logarithm so it stays finite at the critical temperature. The constant
 is written \code{10^-12} and not \code{1e-12}, because brms spaces out the minus sign of a
 number in scientific notation when it writes the Stan program (\verb{1e - 12}), which
 Stan does not accept.
+The switch of a threshold function, log(1 + exp(-k_sw (Ta - Tc))), is written in
+the equal form k_sw (|Ta - Tc| - (Ta - Tc)) / 2 + log(1 + exp(-k_sw |Ta - Tc|)),
+because the exponential of the plain form overflows once \code{Ta} lies more than about
+709 / k_sw degrees below \code{Tc} (14 degrees at the default \code{k_sw} of 50), which
+leaves the rate and its gradient undefined there.
 The temperature column is named \code{Ta} rather than
 Kingsolver and Umbanhowar's \code{T}, because \code{T} is an alias for \code{TRUE} in R and a
 column of that name would silently shadow it in the data-handling code. The
