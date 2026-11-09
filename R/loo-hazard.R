@@ -416,14 +416,6 @@ loo_hazard <- function(fit, unit = NULL) {
 # and assemble the result. The first fold is refitted from the fit given and each
 # later one from the refit before it.
 .kfold_refits <- function(fit, setup, ...) {
-  # The refits start Tc as the fit did (fit_hazard()), unless given starting values.
-  dots  <- list(...)
-  start <- fit$rtft$tc_start
-  if (!is.null(start) && !any(c("init", "inits") %in% names(dots))) {
-    dots$init <- .tc_init(start, .chains_of(dots$chains, brms::nchains(fit)))
-    old <- options(cmdstanr_warn_inits = FALSE)     # as in fit_hazard()
-    on.exit(options(old), add = TRUE)
-  }
   u <- setup$unit
   n <- length(setup$units)
   row_fold <- unname(setup$folds[as.character(u$values)])   # the fold of each row
@@ -435,7 +427,7 @@ loo_hazard <- function(fit, unit = NULL) {
     cli::cli_inform(
       "Refitting without fold {k} of {setup$K}: {sum(setup$folds == k)} of the {n} units left out, one {u$label} each.",
       class = "rTFT_kfold_progress")
-    fold <- do.call(.refit_fold, c(list(base, setup$data, row_fold != k, u$values), dots))
+    fold <- .refit_fold(base, setup$data, row_fold != k, u$values, ...)
     elpd[names(fold$elpd)] <- fold$elpd
     base <- fold$fit
   }
@@ -486,10 +478,7 @@ loo_hazard <- function(fit, unit = NULL) {
 #'   number of units. `NULL` (the default) gives one fold per unit, leaving out each
 #'   unit on its own.
 #' @param ... Further arguments for the refits, passed to [brms::brm()] through
-#'   [stats::update()], such as `chains`, `iter` or `cores`. Unless they hold
-#'   starting values (`init`), the refits of a threshold function start Tc as
-#'   [fit_hazard()] started the model, and cmdstanr's note on a partial start is
-#'   held back as it is there.
+#'   [stats::update()], such as `chains`, `iter` or `cores`.
 #' @return A `kfold` object in the layout of [loo::kfold()], with one pointwise value
 #'   per unit, which [loo::loo_compare()] accepts, and extra elements `unit` (its
 #'   name), `K`, and `folds` (the fold of each unit).

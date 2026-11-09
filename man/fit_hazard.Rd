@@ -57,8 +57,7 @@ failure-rate and baseline functions, the observation mode, the reference
 temperature \code{Tr} and reference time \code{tau_ref}, the softening steepness, the
 co-stressors, the ranges of temperature and elapsed exposure time the data
 cover, and, for each row of \code{long}, the individual and the temperature
-trajectory it belongs to and the elapsed time at which its interval ends, and
-where the chains started Tc (\code{tc_start}, \code{NULL} when they did not). The
+trajectory it belongs to and the elapsed time at which its interval ends. The
 reporting functions and the checks read them from there, so they are never
 re-entered by hand.
 }
@@ -78,22 +77,6 @@ failure rates that take a logarithm or fractional power of \code{Ta - Tr} (\code
 \code{power}, \code{zeropower}): these are undefined where the temperature reaches \code{Tr}
 (\code{zeroexp}, \code{zeropower}) or drops below it (\code{power}), so a run that would hit
 that is stopped with a clear error rather than a cryptic sampler failure.
-
-For a threshold function, unless \code{...} holds starting values (\code{init}), each chain
-starts Tc around the centre of the prior on Tc in force (the default, or a normal
-or Student-t of your own; the median failure temperature otherwise), at its own
-fixed offset within half the prior's standard deviation, so that the chains start
-apart and a refit starts at the same values again; any slope of a formula for Tc
-starts at 0. Every other parameter keeps the random start of brms. brms would
-start Tc, a temperature with no transform, between -2 and 2 degrees, tens of
-degrees below the failures, and a chain can get stuck there: in one simulated fit
-of an exponential threshold function, a chain started that way stuck with Tc near
--0.8 degrees and Rhat was 1.60, while the same data and seed with Tc started at
-its prior's centre converged. Starting values given in \code{init} are used as they
-are, and a bound set on the coefficients of Tc leaves their start to brms. Since
-only Tc is given a start, cmdstanr would note that the other parameters have none;
-that note is held back for the fits whose start rTFT sets, and still shown for
-starting values of your own.
 }
 \examples{
 \dontrun{
