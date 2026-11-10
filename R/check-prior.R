@@ -307,18 +307,22 @@
 #'
 #' @section Reading the sensitivity:
 #' priorsense reads the two sensitivities together, against a threshold of 0.05.
-#' When both are above it, the prior and the data disagree, and it reports a
-#' prior-data conflict. When only the sensitivity to the prior is above it, the
-#' prior rather than the data sets the estimate, and it reports a strong prior or a
-#' weak likelihood. The threshold marks a sensitivity that can be detected, not one
-#' that matters. In simulations of a
-#' design with three species whose failures lay some degrees apart, a sensitivity of
-#' the Weibull shape of 0.18 to 0.28 to the block `loga` came with a bias in the
-#' shape of about two and a half posterior standard deviations, while sensitivities
-#' up to 0.09 came with biases under a third of one; no fit fell between 0.09 and
-#' 0.18. Nor is the size of a sensitivity the size of a bias: in the same
-#' simulations sCTmax reached sensitivities of 0.06 to 0.12 while its bias was at
-#' most 0.08 degrees. The other blocks never exceeded 0.03.
+#' When both are at or above it, the prior and the data disagree, and it reports a
+#' "potential prior-likelihood conflict". When only the sensitivity to the prior is
+#' above it, the prior rather than the data sets the estimate, and it reports a
+#' "potential strong prior / weak likelihood"; every other row reads "-". In a model
+#' with group-level terms, scaling the likelihood is like changing the number of
+#' individuals within each group, not the number of groups, so a quantity that the
+#' groups inform, such as their standard deviation, can show little likelihood
+#' sensitivity without the likelihood being weak (Kallioinen et al. 2024, section
+#' 2.5). The threshold marks a sensitivity that can be detected, not one that
+#' matters. In simulations of a design with three species whose failures lay some
+#' degrees apart, a sensitivity of the Weibull shape of 0.18 to 0.28 to the block
+#' `loga` came with a bias in the shape of about two and a half posterior standard
+#' deviations, while sensitivities up to 0.09 came with biases under a third of one;
+#' no fit fell between 0.09 and 0.18. Nor is the size of a sensitivity the size of a
+#' bias: in the same simulations sCTmax reached sensitivities of 0.06 to 0.12 while
+#' its bias was at most 0.08 degrees. The other blocks never exceeded 0.03.
 #'
 #' The test of a flagged block is a refit with that block's priors widened (through
 #' `intercept_priors` and `slope_prior` of [build_hazard_prior()]), compared with
@@ -329,8 +333,9 @@
 #' @param newdata A data frame of covariate values, one row per setting at which to
 #'   check the reported parameters (and sCTmax, with `t_ref`), e.g. one row per
 #'   species. It must hold every covariate in the model's parameter formulas, as in
-#'   [derive_tdt_ttl()]. `NULL` (the default) checks the coefficients only.
-#' @param t_ref A single positive number, the reference exposure time of sCTmax, in
+#'   [derive_tdt_ttl()], and the quantities are computed with the random effects at
+#'   zero, as there. `NULL` (the default) checks the coefficients only.
+#' @param t_ref A single positive number, the reference exposure time for sCTmax, in
 #'   the time unit of the data the model was fitted to. `NULL` (the default) leaves
 #'   sCTmax out; it needs `newdata`.
 #' @param p A single number strictly between 0 and 1, the fraction failing within
@@ -344,7 +349,8 @@
 #'     `newdata`, a reported parameter (`a`, `b`, `shape`, ...) or `sCTmax`; the
 #'     columns of `newdata`, NA for a coefficient; `prior` and `likelihood`, the
 #'     sensitivity to scaling the block and to scaling the likelihood; and
-#'     `diagnosis`, priorsense's reading of the two.
+#'     `diagnosis`, priorsense's reading of the two, in its own words (see *Reading
+#'     the sensitivity*).
 #'   * `priors`, one row per population-level coefficient: `parameter`,
 #'     `coefficient`, `prior`; `prior_centre` and `prior_scale` (the mean and
 #'     standard deviation of a normal, the location and scale of a Student-t, NA for

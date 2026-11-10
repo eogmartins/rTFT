@@ -412,10 +412,11 @@ h0_catalogue <- list(
 #' is written `10^-12` and not `1e-12`, because brms spaces out the minus sign of a
 #' number in scientific notation when it writes the Stan program (`1e - 12`), which
 #' Stan does not accept.
-#' The switch of a threshold function, log(1 + exp(-k_sw (Ta - Tc))), is written in
-#' the equal form k_sw (|Ta - Tc| - (Ta - Tc)) / 2 + log(1 + exp(-k_sw |Ta - Tc|)),
-#' because the exponential of the plain form overflows once `Ta` lies more than about
-#' 709 / k_sw degrees below `Tc` (14 degrees at the default `k_sw` of 50), which
+#' The switch of a threshold function, log(1 + exp(-`k_sw` (Ta - Tc))), is written
+#' in the equal form `k_sw` (|Ta - Tc| - (Ta - Tc)) / 2 +
+#' log(1 + exp(-`k_sw` |Ta - Tc|)), because the exponential of the plain form
+#' overflows once `Ta` lies more than about 709 / `k_sw` degrees below `Tc` (14
+#' degrees at the default `k_sw` of 50), which
 #' leaves the rate and its gradient undefined there.
 #' The temperature column is named `Ta` rather than
 #' Kingsolver and Umbanhowar's `T`, because `T` is an alias for `TRUE` in R and a
@@ -1669,11 +1670,11 @@ build_hazard_spec <- function(m_form, baseline = "mem", dpar_formulas = list(),
 # at the distance from the centre of the prior on Tc to the failures: zero for the
 # default prior, centred at the failures, and zero too for a prior centred above
 # them, where the rate at the failures is held near zero by the gate and no loga
-# reaches it. But Tc may lie anywhere in its prior, and the data fix only loga less
-# the term at the distance from Tc to the failures (loga - b Tc for exp_threshold,
-# well above Tc), so a narrow prior on loga holds Tc near the failures with a
-# confidence the data do not give. The variance therefore adds the square of (the
-# slope in b of the term at the reach of the prior on Tc times b_hi =
+# reaches it. However, Tc may lie anywhere in its prior, and the data fix only loga
+# less the term at the distance from Tc to the failures (loga - b Tc for
+# exp_threshold, well above Tc), so a narrow prior on loga holds Tc near the
+# failures with a confidence the data do not give. The variance therefore adds the
+# square of (the slope in b of the term at the reach of the prior on Tc times b_hi =
 # exp(mu + 1.96 s), the 97.5% quantile of the prior on b), the construction of
 # .loga_rule() with that reach as the distance: a standard deviation of about 21 for
 # exp_threshold with the defaults. const_threshold has no b, and its prior is left
@@ -1840,14 +1841,14 @@ build_hazard_spec <- function(m_form, baseline = "mem", dpar_formulas = list(),
 # cannot then be told apart, and so are missing values in them, which `fit_hazard()`
 # refuses too and which would leave a group without its failures, and a factor,
 # character or logical column with a single value, which separates no groups and
-# which a design matrix cannot code. Returns a list
-# with one element per group term, each a list of `label` (the term as R writes it),
-# `cells` (its variables' columns), `coefs` (its coefficients, named as brms names
-# them), `spacing` (the product of the gaps between the two values of its numeric
-# columns, 1 when it has none: the coefficient times the spacing is the difference
-# between groups) and `full` (TRUE for a term that gives a coefficient to every
-# level, as the first factor of a formula without an intercept does: its
-# coefficients are levels' own values, not differences).
+# which a design matrix cannot code. Returns a list with one element per group term,
+# each a list of `label` (the term as R writes it), `cells` (its variables' columns),
+# `coefs` (its coefficients, named as brms names them), `spacing` (the product of the
+# gaps between the two values of its numeric columns, 1 when it has none: the
+# coefficient times the spacing is the difference between groups) and `full` (TRUE
+# for a term that gives a coefficient to every level, as the first factor of a
+# formula without an intercept does: its coefficients are levels' own values, not
+# differences).
 .loga_group_terms <- function(f, long) {
   if (is.null(f)) return(list())
   parts <- .rhs_terms(f)
@@ -2004,8 +2005,8 @@ build_hazard_spec <- function(m_form, baseline = "mem", dpar_formulas = list(),
 #' For the rates anchored at the reference temperature (`exp`, `zeroexp`,
 #' `zeropower`, `power`), a is the rate at `Tr`, or its scale there, and `Tr` may lie
 #' a distance d = T_f - Tr from where failures were observed. The log rate at T_f is
-#' then loga plus a term in b and d (b d for `exp`), so loga is the log rate at T_f
-#' less that term, and it inherits the uncertainty in b across the distance:
+#' then log a plus a term in b and d (b d for `exp`), so log a is the log rate at
+#' T_f less that term, and it inherits the uncertainty in b across the distance:
 #'
 #' * its centre is the centre at T_f less the term at the prior median of b;
 #' * its variance is 2^2 plus the square of (the change in the term per unit of b,
@@ -2014,31 +2015,32 @@ build_hazard_spec <- function(m_form, baseline = "mem", dpar_formulas = list(),
 #' For `exp` with the default prior on `logb` this is
 #' `normal(centre - 0.5 d, sqrt(4 + (1.07 d)^2))`: the usual prior when the
 #' reference is at the failures (d = 0), and a much wider one 14 degrees below them.
-#' A prior of standard deviation 2 on loga at a distant reference would in effect be
-#' a tight prior on b, and biases it. The calculation uses the prior on
-#' `logb` in force: the one given in `intercept_priors` when it is a normal,
-#' normal(mu, s), whose b has median exp(mu) and standard deviation
+#' A prior of standard deviation 2 on log a at a distant reference would in effect
+#' be a tight prior on b, and biases it. The calculation uses the prior on `logb` in
+#' force: the one given in `intercept_priors` when it is a normal, normal(mu, s),
+#' whose b has median exp(mu) and standard deviation
 #' sqrt((exp(s^2) - 1) exp(2 mu + s^2)); the default for any other.
 #'
 #' The threshold functions are anchored at `Tc`, not `Tr`, so for them d is the
 #' distance from the centre of the prior on `Tc` in force to the failures. The default
-#' prior on `Tc` is centred at T_f, and so the centre of loga stays at T_f; so it does
-#' for a prior on `Tc` centred above the failures, where the rate is held near zero.
-#' But `Tc` may lie anywhere in its prior, and well above `Tc` the data fix only loga
-#' less the function's term at the distance from `Tc` to the failures (loga - b `Tc`
-#' for `exp_threshold`). A prior of standard deviation 2 on loga would then hold `Tc`
-#' close to the failures with a confidence the data do not give: in simulations with
-#' `Tc` 4 degrees below the failures it placed `Tc` about 1.2 degrees too high, with
-#' intervals that never covered the truth. Its variance therefore adds
-#' (slope b_hi)^2, where slope is the change per unit of b of the function's term at
-#' the reach of the prior on `Tc` in force, half the width of its central 95%
-#' interval (1.96 times the standard deviation of a normal, 3 by default, or the
-#' 97.5% quantile of a Student-t times its scale; the default reach for any other
-#' prior), and b_hi the 97.5% quantile of the prior on b (about 3.5 by default): with
-#' the defaults, about 21 for `exp_threshold`, 22 for `zeroexp_threshold` and 6.6 for
-#' `zeropower_threshold`. `const_threshold` has no b and keeps 2. Where the data do
-#' place `Tc`, the wider prior changes nothing; where they do not, the intervals on
-#' `Tc` and loga are as wide as the data leave them, and the fit may take longer.
+#' prior on `Tc` is centred at T_f, and so the centre of log a stays at T_f; so it
+#' does for a prior on `Tc` centred above the failures, where the rate is held near
+#' zero. However, `Tc` may lie anywhere in its prior, and well above `Tc` the data
+#' fix only log a less the function's term at the distance from `Tc` to the failures
+#' (log a - b `Tc` for `exp_threshold`). A prior of standard deviation 2 on log a
+#' would then hold `Tc` close to the failures with a confidence the data do not give:
+#' in simulations with `Tc` 4 degrees below the failures it placed `Tc` about 1.2
+#' degrees too high, with intervals that never covered the truth. Its variance
+#' therefore adds (slope b_hi)^2, where slope is the change per unit of b of the
+#' function's term at the reach of the prior on `Tc` in force, half the width of its
+#' central 95% interval (1.96 times the standard deviation of a normal, 3 by default,
+#' or the 97.5% quantile of a Student-t times its scale; the default reach for any
+#' other prior), and b_hi the 97.5% quantile of the prior on b (about 3.5 by
+#' default): with the defaults, about 21 for `exp_threshold`, 22 for
+#' `zeroexp_threshold` and 6.6 for `zeropower_threshold`. `const_threshold` has no b
+#' and keeps 2. Where the data do place `Tc`, the wider prior changes nothing; where
+#' they do not, the intervals on `Tc` and log a are as wide as the data leave them,
+#' and the fit may take longer.
 #'
 #' @section Groups whose failures lie far apart:
 #' The intercept prior on log a is centred at the failure temperature pooled over all
@@ -2050,20 +2052,23 @@ build_hazard_spec <- function(m_form, baseline = "mem", dpar_formulas = list(),
 #' priors of version 0.2.1 biased the shape of the reference species by about -0.7.
 #'
 #' Since version 0.2.2 the defaults on log a are therefore scaled to the groups,
-#' which removed that bias in the same simulations. A term of the formula of log a
-#' marks groups when each of its variables is a factor, a character or logical
-#' column, or a numeric column with two values, alone or in an interaction. Where
-#' there is such a term, with b_hi the 97.5% quantile of the prior on b
-#' (exp(-0.7 + 1.96), about 3.5, by default; read from `intercept_priors` when the
-#' prior on `logb` given there is a normal):
+#' which removed that bias in the same simulations. The rule needs a b to
+#' extrapolate with, so `const` and `const_threshold` keep the priors of the section
+#' above for every term. A term of the formula of log a marks groups when each of
+#' its variables is a factor, a character or logical column, or a numeric column
+#' with two values, alone or in an interaction. Where there is such a term, with
+#' b_hi the 97.5% quantile of the prior on b (exp(-0.7 + 1.96), about 3.5, by
+#' default; read from `intercept_priors` when the prior on `logb` given there is a
+#' normal):
 #'
 #' * the intercept keeps its centre and takes standard deviation
 #'   sqrt(2^2 + (d_g b_hi)^2), where d_g is the largest distance from `Tr` of any
 #'   group's median failure temperature, a group being a level of one variable or a
 #'   combination of levels of an interaction (for the exponential function; for the
-#'   others, the change per unit of b of the function's term at that distance, as in
-#'   the section above), or the standard deviation of the section above if that is
-#'   wider, as it is for the threshold functions;
+#'   other functions anchored at `Tr`, the change per unit of b of the function's
+#'   term at that distance, as in the section above). For a threshold function,
+#'   anchored at `Tc`, the distance from `Tr` plays no part and the intercept takes
+#'   the standard deviation of the section above;
 #' * each group term's coefficients take `normal(0, s)`, with
 #'   s = sqrt(1 + (b_hi max(D, 1))^2), where D is the range in degrees of the median
 #'   failure temperatures over the term's groups (its levels, or the combinations of
@@ -2075,7 +2080,10 @@ build_hazard_spec <- function(m_form, baseline = "mem", dpar_formulas = list(),
 #'   per unit of the column (per percentage point of oxygen coded 30 and 100), so s
 #'   is divided by the gap between the two values, and across an interaction by the
 #'   product of such gaps. The model and its coefficients stay in the units of the
-#'   data;
+#'   data. A group none of whose individuals failed has no median failure
+#'   temperature and is left out of the rule, so its coefficient takes the width the
+#'   other groups set among themselves; where such a group may be much more
+#'   tolerant than the others, widen its prior through `slope_prior`;
 #' * a continuous covariate keeps the slope prior.
 #'
 #' A group term takes the wider of this prior and the `slope_prior` that applies to

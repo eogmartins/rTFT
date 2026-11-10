@@ -12,9 +12,10 @@ check_prior(fit, newdata = NULL, t_ref = NULL, p = 0.5, levels = NULL)
 \item{newdata}{A data frame of covariate values, one row per setting at which to
 check the reported parameters (and sCTmax, with \code{t_ref}), e.g. one row per
 species. It must hold every covariate in the model's parameter formulas, as in
-\code{\link[=derive_tdt_ttl]{derive_tdt_ttl()}}. \code{NULL} (the default) checks the coefficients only.}
+\code{\link[=derive_tdt_ttl]{derive_tdt_ttl()}}, and the quantities are computed with the random effects at
+zero, as there. \code{NULL} (the default) checks the coefficients only.}
 
-\item{t_ref}{A single positive number, the reference exposure time of sCTmax, in
+\item{t_ref}{A single positive number, the reference exposure time for sCTmax, in
 the time unit of the data the model was fitted to. \code{NULL} (the default) leaves
 sCTmax out; it needs \code{newdata}.}
 
@@ -33,7 +34,8 @@ coefficient as brms names its draws (\code{b_loga_Intercept}) or, for each row o
 \code{newdata}, a reported parameter (\code{a}, \code{b}, \code{shape}, ...) or \code{sCTmax}; the
 columns of \code{newdata}, NA for a coefficient; \code{prior} and \code{likelihood}, the
 sensitivity to scaling the block and to scaling the likelihood; and
-\code{diagnosis}, priorsense's reading of the two.
+\code{diagnosis}, priorsense's reading of the two, in its own words (see \emph{Reading
+the sensitivity}).
 \item \code{priors}, one row per population-level coefficient: \code{parameter},
 \code{coefficient}, \code{prior}; \code{prior_centre} and \code{prior_scale} (the mean and
 standard deviation of a normal, the location and scale of a Student-t, NA for
@@ -79,18 +81,22 @@ linear and group-level ones (splines, monotonic effects).
 \section{Reading the sensitivity}{
 
 priorsense reads the two sensitivities together, against a threshold of 0.05.
-When both are above it, the prior and the data disagree, and it reports a
-prior-data conflict. When only the sensitivity to the prior is above it, the
-prior rather than the data sets the estimate, and it reports a strong prior or a
-weak likelihood. The threshold marks a sensitivity that can be detected, not one
-that matters. In simulations of a
-design with three species whose failures lay some degrees apart, a sensitivity of
-the Weibull shape of 0.18 to 0.28 to the block \code{loga} came with a bias in the
-shape of about two and a half posterior standard deviations, while sensitivities
-up to 0.09 came with biases under a third of one; no fit fell between 0.09 and
-0.18. Nor is the size of a sensitivity the size of a bias: in the same
-simulations sCTmax reached sensitivities of 0.06 to 0.12 while its bias was at
-most 0.08 degrees. The other blocks never exceeded 0.03.
+When both are at or above it, the prior and the data disagree, and it reports a
+"potential prior-likelihood conflict". When only the sensitivity to the prior is
+above it, the prior rather than the data sets the estimate, and it reports a
+"potential strong prior / weak likelihood"; every other row reads "-". In a model
+with group-level terms, scaling the likelihood is like changing the number of
+individuals within each group, not the number of groups, so a quantity that the
+groups inform, such as their standard deviation, can show little likelihood
+sensitivity without the likelihood being weak (Kallioinen et al. 2024, section
+2.5). The threshold marks a sensitivity that can be detected, not one that
+matters. In simulations of a design with three species whose failures lay some
+degrees apart, a sensitivity of the Weibull shape of 0.18 to 0.28 to the block
+\code{loga} came with a bias in the shape of about two and a half posterior standard
+deviations, while sensitivities up to 0.09 came with biases under a third of one;
+no fit fell between 0.09 and 0.18. Nor is the size of a sensitivity the size of a
+bias: in the same simulations sCTmax reached sensitivities of 0.06 to 0.12 while
+its bias was at most 0.08 degrees. The other blocks never exceeded 0.03.
 
 The test of a flagged block is a refit with that block's priors widened (through
 \code{intercept_priors} and \code{slope_prior} of \code{\link[=build_hazard_prior]{build_hazard_prior()}}), compared with

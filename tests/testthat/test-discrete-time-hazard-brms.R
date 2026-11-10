@@ -1190,13 +1190,13 @@ test_that(".loga_prior carries a threshold function across the prior on Tc", {
   reach <- stats::qnorm(0.975) * 3                 # the 95% reach of normal(T_f, 3)
   tc3   <- c(distance = 0, reach = reach)
   tc1   <- c(distance = 0, reach = stats::qnorm(0.975))
-  # exp_threshold: the term is b (T - Tc), its slope in b the distance itself
+  # exp_threshold: the term is b (Ta - Tc), its slope in b the distance itself
   et <- .loga_prior("exp_threshold", -1, 14.3, dflt, tc3)
   expect_equal(et, list(centre = -1, sd = sqrt(4 + (reach * b_hi)^2)))
   expect_equal(et$sd, 20.82, tolerance = 1e-3)
   # the centre stays at the failures and the distance from Tr plays no part
   expect_equal(.loga_prior("exp_threshold", -1, 0, dflt, tc3), et)
-  # zeropower_threshold: b log(T - Tc), a gentler slope, log of the reach
+  # zeropower_threshold: b log(Ta - Tc), a gentler slope, log of the reach
   expect_equal(.loga_prior("zeropower_threshold", -1, 14.3, dflt, tc3)$sd,
                sqrt(4 + (log(reach) * b_hi)^2))
   # zeroexp_threshold: log(exp(b d) - 1), a little steeper than exp_threshold
