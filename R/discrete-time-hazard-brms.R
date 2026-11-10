@@ -926,6 +926,11 @@ costressor <- function(name, column, ref, scale, direction,
 # change within the interval of an interval-censored failure above which a warning
 # is given.
 .min_intervals     <- 20L
+
+# The most intervals one individual's exposure may be cut into by `grid_dT`, so that
+# a grid far too fine for the data (0.0001 degrees, say) is refused before a table of
+# millions of rows is built.
+.max_rows_per_individual <- 100000L
 .closing_fraction  <- 1e-4
 .wide_failure_span <- 0.5
 
@@ -1084,7 +1089,8 @@ costressor <- function(name, column, ref, scale, direction,
 #' @param grid_dT A single positive number, the largest change in temperature
 #'   allowed within an interval at risk, in degrees. An interval over which
 #'   temperature changes by more is divided into equal parts (see *The time grid*).
-#'   Defaults to 0.1; `Inf` keeps the intervals as given.
+#'   Defaults to 0.1; `Inf` keeps the intervals as given. A grid that would cut one
+#'   individual's exposure into more than 100,000 intervals is refused.
 #' @param costressors An optional list of [costressor] objects declaring
 #'   non-temperature stressors (dissolved oxygen and the like). Each adds a
 #'   standardised column `z_<name>`, read from its own trajectory (interpolated to
@@ -1325,6 +1331,11 @@ build_hazard_data <- function(ind, path, observation = c("interval", "continuous
     # in it the individual failed is not known, so it cannot be cut into parts.
     span  <- .temp_span(f, knots_of[[pid]], ts, te)
     parts <- pmax(1L, ceiling(span / grid_dT - 1e-9))
+    if (sum(parts) > .max_rows_per_individual)
+      cli::cli_abort(c(
+        "{.arg grid_dT} = {grid_dT} would cut the exposure of individual {.val {r$id}} into {format(sum(parts), big.mark = ',')} intervals, more than the {format(.max_rows_per_individual, big.mark = ',')} allowed.",
+        "i" = "Choose a coarser grid; the default of 0.1 degrees keeps the hazard accurate within each interval."
+      ), class = "rTFT_grid_too_fine")
     whole <- type == "interval" && failed
     if (whole) parts[n_given] <- 1L
     # With no checks and no grid given, a constant temperature would leave a single
@@ -1713,7 +1724,7 @@ build_hazard_spec <- function(m_form, baseline = "mem", dpar_formulas = list(),
   if (!is.call(expr) || !is.name(expr[[1]])) return(NULL)
   env  <- list2env(mget(.prior_arithmetic, envir = baseenv()), parent = emptyenv())
   args <- tryCatch(lapply(as.list(expr)[-1], eval, envir = env),
-                   error = function(e) NULL)
+                   error = function(e) NULL, warning = function(w) NULL)
   number <- function(a) is.numeric(a) && length(a) == 1L && is.finite(a)
   if (!length(args) || !all(vapply(args, number, logical(1)))) return(NULL)
   list(family = as.character(expr[[1]]), args = unlist(args))
@@ -1842,13 +1853,13 @@ build_hazard_spec <- function(m_form, baseline = "mem", dpar_formulas = list(),
 # refuses too and which would leave a group without its failures, and a factor,
 # character or logical column with a single value, which separates no groups and
 # which a design matrix cannot code. Returns a list with one element per group term,
-# each a list of `label` (the term as R writes it), `cells` (its variables' columns),
+# each a list of `label` (the term as brms writes it), `cells` (its variables' columns),
 # `coefs` (its coefficients, named as brms names them), `spacing` (the product of the
 # gaps between the two values of its numeric columns, 1 when it has none: the
 # coefficient times the spacing is the difference between groups) and `full` (TRUE
-# for a term that gives a coefficient to every level, as the first factor of a
-# formula without an intercept does: its coefficients are levels' own values, not
-# differences).
+# for a term that gives a coefficient to every level, or to every cell of an
+# interaction, as the first factor of a formula without an intercept does: its
+# coefficients are the levels' own values, not differences).
 .loga_group_terms <- function(f, long) {
   if (is.null(f)) return(list())
   parts <- .rhs_terms(f)
@@ -1874,6 +1885,13 @@ build_hazard_spec <- function(m_form, baseline = "mem", dpar_formulas = list(),
   tt <- stats::terms(f)
   labels <- attr(tt, "term.labels")
   if (!length(labels)) return(list())
+  # brms names the coefficients from the formula rebuilt out of its term labels, in
+  # which the variables of an interaction follow the order of the main effects
+  # (`~ 1 + species:do + do` gives `do:speciesB`, not `speciesB:do`); the same
+  # rebuild here gives the names brms will look for, whatever order was written.
+  tt <- stats::terms(stats::reformulate(labels,
+                                        intercept = attr(tt, "intercept") == 1L))
+  labels <- attr(tt, "term.labels")
   mf <- stats::model.frame(tt, long, na.action = stats::na.pass, drop.unused.levels = TRUE)
   categorical <- vapply(mf, \(x) is.factor(x) || is.character(x) || is.logical(x),
                         logical(1))
@@ -1891,8 +1909,10 @@ build_hazard_spec <- function(m_form, baseline = "mem", dpar_formulas = list(),
     cells <- lapply(vars, \(v) mf[[v]])
     if (!all(vapply(cells, .is_group_column, logical(1)))) next
     cols <- colnames(mm)[attr(mm, "assign") == j]
-    full <- attr(tt, "intercept") == 0 && length(vars) == 1L &&
-      length(cols) == length(unique(cells[[1]]))
+    # a term with a column for every level, or every cell of an interaction, in a
+    # formula without an intercept gives each its own value rather than a difference
+    full <- attr(tt, "intercept") == 0 &&
+      length(cols) == prod(vapply(cells, \(x) length(unique(x)), integer(1)))
     gaps <- vapply(cells, \(x) if (is.numeric(x)) diff(range(x, na.rm = TRUE)) else 1,
                    numeric(1))
     out[[labels[j]]] <- list(label = labels[j], cells = cells,
@@ -2252,10 +2272,6 @@ build_hazard_prior <- function(m_form, baseline = "mem", dpar_formulas = list(),
       ), class = "rTFT_unused_intercept_prior")
     icpt[names(intercept_priors)] <- unlist(intercept_priors)
   }
-  has_slopes <- vapply(needed, \(dp) .has_intercept(dpar_formulas[[dp]]) &&
-                                       .has_slopes(dpar_formulas[[dp]]), logical(1))
-  slopes <- .slope_priors(slope_prior, needed, has_slopes, m_form, baseline)
-
   # Where loga has group terms, its priors are scaled to the design (.loga_rule()),
   # with the same prior on log b. The intercept keeps its centre and takes the wider
   # of the rule's standard deviation and its own, which for a threshold function
@@ -2264,6 +2280,15 @@ build_hazard_prior <- function(m_form, baseline = "mem", dpar_formulas = list(),
   # that a slope prior set for the other terms does not bring back the pull of a
   # narrow one; a prior whose scale cannot be read gives way to the rule.
   rule <- if ("logb" %in% needed) .loga_rule(m_form, dpar_formulas$loga, long, logb)
+
+  # A slope prior reaches the covariates of a formula that keeps its intercept, and
+  # the group terms of loga whose coefficients are differences between groups,
+  # intercept or not; one that reaches nothing warns (.slope_priors()).
+  has_slopes <- vapply(needed, \(dp) .has_intercept(dpar_formulas[[dp]]) &&
+                                       .has_slopes(dpar_formulas[[dp]]), logical(1))
+  if (!is.null(rule) && !all(vapply(rule$terms, `[[`, logical(1), "full")))
+    has_slopes[["loga"]] <- TRUE
+  slopes <- .slope_priors(slope_prior, needed, has_slopes, m_form, baseline)
   coef_priors <- list()
   if (!is.null(rule)) {
     if (!"loga" %in% names(intercept_priors))

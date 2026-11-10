@@ -660,6 +660,9 @@ test_that("grid_dT sets the step, and Inf keeps the intervals as given", {
   for (bad in list(0, -0.1, c(0.1, 0.2), "0.1", NA_real_))
     expect_error(build_hazard_data(ind, ramp_traj, "interval", checks = ramp_checks,
                                    grid_dT = bad), class = "rTFT_bad_grid_dT")
+  # a grid far too fine for the data is refused before the table is built
+  expect_error(build_hazard_data(ind, ramp_traj, "interval", checks = ramp_checks,
+                                 grid_dT = 1e-6), class = "rTFT_grid_too_fine")
 })
 
 
@@ -1424,6 +1427,8 @@ test_that(".prior_args and .prior_scale read a prior string as brms writes it", 
   expect_null(.prior_args("normal(0, inv_sqrt(4))"))
   expect_null(.prior_args("normal"))
   expect_null(.prior_args("normal(0, Sys.getpid())"))
+  # an argument whose arithmetic warns is not read either, and the warning stays in
+  expect_no_warning(expect_null(.prior_args("normal(0, log(-1))")))
   expect_equal(.prior_scale("normal(0, 2.5)"), 2.5)
   expect_equal(.prior_scale("student_t(3, 0, 4)"), 4)
   expect_equal(.prior_scale(""), Inf)
@@ -1633,6 +1638,44 @@ test_that("character and logical columns are group terms, named as brms names th
 })
 
 
+test_that("an interaction is named as brms names it, whatever order it is written in", {
+  d <- rule_long()
+  d$sex    <- factor(rep(c("F", "M"), 4))
+  d$heated <- rep(c(TRUE, FALSE), each = 4)
+  d$y      <- 0
+  # the first five put an interaction before a main effect, where R and brms order
+  # the variables of the interaction differently; the last three agree either way
+  formulas <- list(~ 1 + species:do + do, ~ 1 + sex:species + species,
+                   ~ species * sex - species, ~ 1 + species:sex + sex,
+                   ~ 1 + heated:species + species,
+                   ~ 1 + do + species:do, ~ 0 + species:sex, ~ species * do)
+  for (f in formulas) {
+    ours   <- unlist(lapply(.loga_group_terms(f, d), `[[`, "coefs"), use.names = FALSE)
+    theirs <- brms::default_prior(brms::bf(stats::update(f, y ~ .)), data = d,
+                                  family = gaussian())
+    theirs <- theirs$coef[theirs$class == "b" & nzchar(theirs$coef) &
+                            theirs$coef != "Intercept"]
+    expect_setequal(ours, theirs)
+  }
+})
+
+
+test_that("a slope prior for a no-intercept formula reaches its group terms", {
+  # `do` has two values, so it is a group term whose coefficient is a difference, and
+  # the slope prior reaches it; the levels of species take the intercept's prior
+  expect_no_warning(
+    p <- build_hazard_prior("exp", dpar_formulas = list(loga = ~ 0 + species + do),
+                            slope_prior = list(loga = "normal(0, 50)"),
+                            long = rule_long()))
+  expect_equal(coef_of(p, "do"), "normal(0, 50)")
+  # with the levels alone there is nothing for it to reach
+  expect_warning(build_hazard_prior("exp", dpar_formulas = list(loga = ~ 0 + species),
+                                    slope_prior = list(loga = "normal(0, 50)"),
+                                    long = rule_long()),
+                 class = "rTFT_unused_slope_prior")
+})
+
+
 test_that("a slope prior wider than the rule wins, a narrower one loses", {
   wide <- build_hazard_prior("exp", dpar_formulas = list(loga = rule_f),
                              slope_prior = list(loga = "normal(0, 50)"), long = rule_long())
@@ -1706,6 +1749,15 @@ test_that("without an intercept, the levels take the intercept's scaled prior", 
   expect_false(any(grepl("^species", rows$coef)))
   # oxygen is still a difference between groups
   expect_equal(coef_of(p, "do"), paste0("normal(0, ", signif(rule_sd(1), 4), ")"))
+  # the cells of an interaction alone, without an intercept, are log a itself too
+  d <- rule_long()
+  d$sex <- factor(rep(c("F", "M"), 4))
+  expect_true(.loga_group_terms(~ 0 + species:sex, d)[[1]]$full)
+  cells <- build_hazard_prior("exp", dpar_formulas = list(loga = ~ 0 + species:sex),
+                              long = d)
+  expect_false(any(grepl("^species", cells$coef[cells$nlpar == "loga"])))
+  # a slope per species in a two-valued column is a difference, not a cell's value
+  expect_false(.loga_group_terms(~ 0 + species:do, d)[[1]]$full)
 })
 
 

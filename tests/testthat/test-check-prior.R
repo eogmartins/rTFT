@@ -164,7 +164,8 @@ test_that("the check gives each block's sensitivity for each quantity", {
   chk <- check_prior(fit_exp, newdata = data.frame(mass = c(8, 12)), t_ref = 60)
   expect_named(chk, c("sensitivity", "priors"))
   s <- chk$sensitivity
-  expect_named(s, c("block", "quantity", "mass", "prior", "likelihood", "diagnosis"))
+  expect_named(s, c("block", "quantity", "mass", "prior", "likelihood", "diagnosis",
+                    "k_prior", "k_likelihood"))
   expect_equal(unique(s$block), c("all", "loga", "logb"))
   expect_equal(nrow(s), 3 * 11)                 # 3 coefficients, 2 rows of 4
   expect_true(all(is.na(s$mass[startsWith(s$quantity, "b_")])))
@@ -176,7 +177,8 @@ test_that("the check gives each block's sensitivity for each quantity", {
   expect_equal(nrow(chk$priors), 3)
   # the coefficients alone, without newdata
   only <- check_prior(fit_exp)$sensitivity
-  expect_named(only, c("block", "quantity", "prior", "likelihood", "diagnosis"))
+  expect_named(only, c("block", "quantity", "prior", "likelihood", "diagnosis",
+                       "k_prior", "k_likelihood"))
   expect_equal(nrow(only), 9)
   # a model with a trial SD has the block sd; a model without covariates takes one row
   tr <- check_prior(fit_trials, newdata = data.frame(row.names = 1), t_ref = 30)$sensitivity
@@ -214,4 +216,73 @@ test_that("the check refuses what it cannot do", {
   expect_error(check_prior(fit_exp, nd, t_ref = 60, p = 1), class = "rTFT_bad_p")
   expect_error(check_prior(fit_exp, nd, t_ref = 60, p = c(0.1, 0.5)), class = "rTFT_bad_p")
   expect_error(check_prior(fit_exp, data.frame(size = 10)), class = "rTFT_missing_covariates")
+  # p is checked whether or not t_ref is given
+  expect_error(check_prior(fit_exp, nd, p = 2), class = "rTFT_bad_p")
+  # a column of newdata may not take a name of the table returned, nor hold NA
+  expect_error(check_prior(fit_exp, data.frame(mass = 10, prior = "x")),
+               class = "rTFT_newdata_names")
+  expect_error(check_prior(fit_exp, data.frame(mass = NA_real_)),
+               class = "rTFT_missing_values")
+  # levels without newdata reach nothing
+  expect_warning(check_prior(fit_exp, levels = c(do = 50)),
+                 class = "rTFT_unused_levels")
+})
+
+
+test_that("the tolerance on the rebuilt log prior follows the rounding of the draws", {
+  d <- as.data.frame(brms::as_draws_df(fit_exp))
+  # draws stored to six significant figures, as CmdStan writes them at its coarsest
+  rounded <- d
+  for (v in c("b_loga_Intercept", "b_loga_mass", "b_logb_Intercept", "lprior"))
+    rounded[[v]] <- signif(d[[v]], 6)
+  expect_no_error(.prior_blocks(fit_exp, rounded))
+  # the tolerance is 1e-5 of the size of the log prior (here about 4.7)
+  near <- d; near$lprior <- d$lprior + 3e-5
+  expect_no_error(.prior_blocks(fit_exp, near))
+  far <- d; far$lprior <- d$lprior + 1e-4
+  expect_error(.prior_blocks(fit_exp, far), class = "rTFT_prior_mismatch")
+})
+
+
+test_that("a block of flat priors is left out of the scaling, with a message", {
+  skip_if_not_installed("priorsense")
+  d  <- as.data.frame(brms::as_draws_df(fit_exp))
+  pb <- .prior_blocks(fit_exp, d)
+  ll <- .summed_log_lik(fit_exp)
+  flat <- pb$blocks
+  flat$logb <- rep(0, nrow(d))
+  expect_message(
+    s <- .sensitivity_table(list(d$b_loga_Intercept), flat, d$lprior - pb$blocks$logb,
+                            ll, d),
+    class = "rTFT_flat_block")
+  expect_equal(unique(s$block), c("all", "loga"))
+  # with every prior flat there is nothing to scale at all
+  expect_message(
+    none <- .sensitivity_table(list(d$b_loga_Intercept), list(loga = rep(0, nrow(d))),
+                               rep(0, nrow(d)), ll, d),
+    class = "rTFT_flat_block")
+  expect_equal(nrow(none), 0)
+  expect_named(none, c("block", "q", "prior", "likelihood", "diagnosis", "k_prior",
+                       "k_likelihood"))
+})
+
+
+test_that("each scaling reports its Pareto k and warns when it is unreliable", {
+  skip_if_not_installed("priorsense")
+  d  <- as.data.frame(brms::as_draws_df(fit_exp))
+  pb <- .prior_blocks(fit_exp, d)
+  ll <- .summed_log_lik(fit_exp)
+  s  <- .sensitivity_table(list(d$b_loga_Intercept), pb$blocks, d$lprior, ll, d)
+  threshold <- min(1 - 1 / log10(nrow(d)), 0.7)
+  expect_true(all(is.finite(s$k_prior)))
+  expect_equal(length(unique(s$k_likelihood)), 1L)
+  expect_true(all(c(s$k_prior, s$k_likelihood) < threshold))
+  # a block so steep across the draws that a few of them carry all the weight
+  steep <- pb$blocks
+  steep$loga <- 1e3 * d$b_loga_Intercept
+  expect_warning(
+    w <- .sensitivity_table(list(d$b_loga_Intercept), steep, d$lprior, ll, d),
+    class = "rTFT_unreliable_scaling")
+  expect_true(all(w$k_prior[w$block == "loga"] > threshold))
+  expect_true(all(w$k_prior[w$block == "logb"] < threshold))
 })

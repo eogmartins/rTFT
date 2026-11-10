@@ -24,7 +24,8 @@ sCTmax out; it needs \code{newdata}.}
 
 \item{levels}{A named numeric vector giving the level of each co-stressor, on its
 measurement scale, at which the parameters and sCTmax are checked; required
-with \code{newdata} when the model has co-stressors, as in \code{\link[=derive_tdt_ttl]{derive_tdt_ttl()}}.}
+with \code{newdata} when the model has co-stressors, as in \code{\link[=derive_tdt_ttl]{derive_tdt_ttl()}}, and
+ignored, with a warning, without \code{newdata}.}
 }
 \value{
 A list of two tibbles:
@@ -33,9 +34,10 @@ A list of two tibbles:
 coefficient as brms names its draws (\code{b_loga_Intercept}) or, for each row of
 \code{newdata}, a reported parameter (\code{a}, \code{b}, \code{shape}, ...) or \code{sCTmax}; the
 columns of \code{newdata}, NA for a coefficient; \code{prior} and \code{likelihood}, the
-sensitivity to scaling the block and to scaling the likelihood; and
-\code{diagnosis}, priorsense's reading of the two, in its own words (see \emph{Reading
-the sensitivity}).
+sensitivity to scaling the block and to scaling the likelihood; \code{diagnosis},
+priorsense's reading of the two, in its own words; and \code{k_prior} and
+\code{k_likelihood}, the Pareto k of the scaling of the block and of the
+likelihood (see \emph{Reading the sensitivity}).
 \item \code{priors}, one row per population-level coefficient: \code{parameter},
 \code{coefficient}, \code{prior}; \code{prior_centre} and \code{prior_scale} (the mean and
 standard deviation of a normal, the location and scale of a Student-t, NA for
@@ -75,7 +77,8 @@ at each draw, and \code{sd} is the rest of the log prior brms kept. Without grou
 terms that rest must be zero, which checks that the priors were read as brms used
 them. Normal and Student-t priors (and flat ones) on the coefficients can be
 read; any other is refused, as are bounds on the coefficients and terms other than
-linear and group-level ones (splines, monotonic effects).
+linear and group-level ones (splines, monotonic effects). A block whose priors are
+all flat has nothing to scale and is left out, with a message.
 }
 
 \section{Reading the sensitivity}{
@@ -97,6 +100,14 @@ deviations, while sensitivities up to 0.09 came with biases under a third of one
 no fit fell between 0.09 and 0.18. Nor is the size of a sensitivity the size of a
 bias: in the same simulations sCTmax reached sensitivities of 0.06 to 0.12 while
 its bias was at most 0.08 degrees. The other blocks never exceeded 0.03.
+
+Each scaling is an importance-sampling estimate, and the Pareto k of its weights
+says whether they can be trusted: \code{k_prior} is the larger k of the two scalings of
+the block and \code{k_likelihood} that of the likelihood's two. A k above priorsense's
+threshold (min(1 - 1 / log10(S), 0.7) for S draws; 0.7 from 4,000 draws) warns,
+and the sensitivities of that scaling are a sign at most. A block whose prior lies
+far from the posterior is where the weights degrade, and that is the case the
+check is for, so the warning is to be read rather than silenced.
 
 The test of a flagged block is a refit with that block's priors widened (through
 \code{intercept_priors} and \code{slope_prior} of \code{\link[=build_hazard_prior]{build_hazard_prior()}}), compared with

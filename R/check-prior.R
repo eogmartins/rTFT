@@ -79,8 +79,9 @@
 # co-stressor's parameters (`c<name>` and `dT<name>`) to the block `c<name>`, and its
 # prior (.coef_prior()) is evaluated at its draws (.prior_lpdf()). The block `sd` is
 # the rest of lprior, present when the model has group-level terms (columns `sd_` or
-# `cor_`); without them the rest must be zero to within 1e-6, or the priors were not
-# read as brms used them and the check stops. Returns a list of `blocks` (a named
+# `cor_`); without them the rest must be zero to within what the rounding of the
+# stored draws allows, or the priors were not read as brms used them and the check
+# stops. Returns a list of `blocks` (a named
 # list of numeric vectors, one value per draw) and `coefs` (a data frame with one
 # row per coefficient: `variable`, `nlpar`, `coef`, `block` and `prior`).
 .prior_blocks <- function(fit, draws) {
@@ -124,12 +125,15 @@
   blocks <- lapply(split(seq_len(nrow(coefs)), factor(coefs$block, unique(coefs$block))),
                    \(j) Reduce(`+`, lp[j]))
   rest <- draws$lprior - Reduce(`+`, blocks)
+  # The draws of a cmdstanr fit are stored to eight significant figures, so the
+  # rebuilt log prior differs from lprior by rounding, in proportion to its size.
+  tol  <- 1e-5 * max(1, max(abs(draws$lprior)))
   if (any(startsWith(vars, "sd_") | startsWith(vars, "cor_"))) {
     blocks$sd <- rest
-  } else if (max(abs(rest)) > 1e-6) {
+  } else if (max(abs(rest)) > tol) {
     cli::cli_abort(c(
       "The priors read from the fit do not add up to its log prior.",
-      "x" = "They differ by up to {signif(max(abs(rest)), 3)} in a model with no group-level terms, where they should agree.",
+      "x" = "They differ by up to {signif(max(abs(rest)), 3)}, more than the {signif(tol, 3)} that rounding of the stored draws allows, in a model with no group-level terms, where they should agree.",
       "i" = "A prior on a coefficient may have been changed after fitting, or set in a way the check does not read."
     ), class = "rTFT_prior_mismatch")
   }
@@ -215,15 +219,31 @@
 # log prior and the summed log-likelihood of each draw, and `draws` carries the
 # chain, iteration and draw of each. A quantity with one or more infinite draws (an
 # sCTmax that some draws never reach) gets NA, with a message, since a distance
-# between distributions with infinite values is undefined. Returns a tibble with one
-# row per block and quantity: `block`, `q` (the quantity's position in `values`),
-# `prior`, `likelihood` and `diagnosis`.
+# between distributions with infinite values is undefined. A block whose priors are
+# all flat is the same at every draw, so there is nothing to scale: it is left out,
+# with a message, and so is `all` when every prior is flat. Each scaling is an
+# importance-sampling estimate, and the Pareto k of its weights says whether they
+# can be trusted (Kallioinen et al. 2024, section 2.3): the larger k of a block's
+# two scalings, and of the likelihood's two, is returned, with a warning when one is
+# above priorsense's threshold, min(1 - 1 / log10(S), 0.7) for S draws. Returns a
+# tibble with one row per block and quantity: `block`, `q` (the quantity's position
+# in `values`), `prior`, `likelihood`, `diagnosis`, `k_prior` and `k_likelihood`.
 .sensitivity_table <- function(values, blocks, lprior, log_lik, draws) {
   finite <- vapply(values, \(x) all(is.finite(x)), logical(1))
   if (!all(finite))
     cli::cli_inform(c(
       "i" = "Some draws of {sum(!finite)} quantit{?y/ies} are infinite (an sCTmax never reached), so {?its/their} sensitivity is given as NA."
     ), class = "rTFT_unreached")
+  flat <- vapply(blocks, \(x) all(x == x[1]), logical(1))
+  if (any(flat))
+    cli::cli_inform(c(
+      "i" = "The priors of the block{?s} {.field {names(blocks)[flat]}} are all flat, so there is nothing to scale and {?it is/they are} left out."
+    ), class = "rTFT_flat_block")
+  scaled <- c(if (!all(lprior == lprior[1])) "all", names(blocks)[!flat])
+  empty  <- tibble::tibble(block = character(), q = integer(), prior = numeric(),
+                           likelihood = numeric(), diagnosis = character(),
+                           k_prior = numeric(), k_likelihood = numeric())
+  if (!length(scaled)) return(empty)
   q_names <- paste0("q", seq_along(values))[finite]
   tab <- data.frame(stats::setNames(values[finite], q_names), lprior = lprior,
                     stats::setNames(blocks, paste0("lprior_", names(blocks))),
@@ -235,17 +255,37 @@
     posterior::subset_draws(x, variable = q_names),
     log_prior = posterior::subset_draws(x, variable = c("lprior", paste0("lprior_", names(blocks)))),
     log_lik   = posterior::subset_draws(x, variable = "log_lik"))
-  dplyr::bind_rows(lapply(c("all", names(blocks)), \(b) {
-    s <- as.data.frame(priorsense::powerscale_sensitivity(
-      psd, prior_selection = if (b != "all") b))
+  # the larger Pareto k of the two scalings of one component (the block `selection`
+  # of the prior, or the likelihood), with priorsense's threshold for it
+  k_of <- function(component, selection = NULL) {
+    d <- lapply(c(0.99, 1.01), \(a) attr(priorsense::powerscale(
+      psd, component = component, alpha = a, selection = selection),
+      "powerscaling")$diagnostics)
+    c(k = max(d[[1]]$khat, d[[2]]$khat), threshold = d[[1]]$khat_threshold)
+  }
+  k_lik <- k_of("likelihood")
+  out <- dplyr::bind_rows(lapply(scaled, \(b) {
+    sel <- if (b != "all") b
+    s <- as.data.frame(priorsense::powerscale_sensitivity(psd, prior_selection = sel))
     out <- tibble::tibble(block = b, q = seq_along(values), prior = NA_real_,
-                          likelihood = NA_real_, diagnosis = NA_character_)
+                          likelihood = NA_real_, diagnosis = NA_character_,
+                          k_prior = k_of("prior", sel)[["k"]],
+                          k_likelihood = k_lik[["k"]])
     at <- match(s$variable, paste0("q", seq_along(values)))
     out$prior[at]      <- s$prior
     out$likelihood[at] <- s$likelihood
     out$diagnosis[at]  <- as.character(s$diagnosis)
     out
   }))
+  threshold <- k_lik[["threshold"]]
+  bad <- c(unique(out$block[out$k_prior > threshold]),
+           if (k_lik[["k"]] > threshold) "likelihood")
+  if (length(bad))
+    cli::cli_warn(c(
+      "!" = "The power-scaling of {.field {bad}} is unreliable: {?its/their} Pareto k is above {signif(threshold, 2)}.",
+      "i" = "The sensitivities of {cli::qty(length(bad))}{?that/those} scaling{?s} rest on importance weights that a few draws dominate. Read them as a sign at most, and test a flagged block by refitting with its priors widened."
+    ), class = "rTFT_unreliable_scaling")
+  out
 }
 
 # The prior of each population-level coefficient in `coefs` (from .prior_blocks())
@@ -303,7 +343,8 @@
 #' terms that rest must be zero, which checks that the priors were read as brms used
 #' them. Normal and Student-t priors (and flat ones) on the coefficients can be
 #' read; any other is refused, as are bounds on the coefficients and terms other than
-#' linear and group-level ones (splines, monotonic effects).
+#' linear and group-level ones (splines, monotonic effects). A block whose priors are
+#' all flat has nothing to scale and is left out, with a message.
 #'
 #' @section Reading the sensitivity:
 #' priorsense reads the two sensitivities together, against a threshold of 0.05.
@@ -324,6 +365,14 @@
 #' bias: in the same simulations sCTmax reached sensitivities of 0.06 to 0.12 while
 #' its bias was at most 0.08 degrees. The other blocks never exceeded 0.03.
 #'
+#' Each scaling is an importance-sampling estimate, and the Pareto k of its weights
+#' says whether they can be trusted: `k_prior` is the larger k of the two scalings of
+#' the block and `k_likelihood` that of the likelihood's two. A k above priorsense's
+#' threshold (min(1 - 1 / log10(S), 0.7) for S draws; 0.7 from 4,000 draws) warns,
+#' and the sensitivities of that scaling are a sign at most. A block whose prior lies
+#' far from the posterior is where the weights degrade, and that is the case the
+#' check is for, so the warning is to be read rather than silenced.
+#'
 #' The test of a flagged block is a refit with that block's priors widened (through
 #' `intercept_priors` and `slope_prior` of [build_hazard_prior()]), compared with
 #' the first fit. The table `priors` shows which coefficients lie far out in their
@@ -342,15 +391,17 @@
 #'   `t_ref` that defines sCTmax.
 #' @param levels A named numeric vector giving the level of each co-stressor, on its
 #'   measurement scale, at which the parameters and sCTmax are checked; required
-#'   with `newdata` when the model has co-stressors, as in [derive_tdt_ttl()].
+#'   with `newdata` when the model has co-stressors, as in [derive_tdt_ttl()], and
+#'   ignored, with a warning, without `newdata`.
 #' @return A list of two tibbles:
 #'   * `sensitivity`, one row per block and quantity: `block`; `quantity`, a
 #'     coefficient as brms names its draws (`b_loga_Intercept`) or, for each row of
 #'     `newdata`, a reported parameter (`a`, `b`, `shape`, ...) or `sCTmax`; the
 #'     columns of `newdata`, NA for a coefficient; `prior` and `likelihood`, the
-#'     sensitivity to scaling the block and to scaling the likelihood; and
-#'     `diagnosis`, priorsense's reading of the two, in its own words (see *Reading
-#'     the sensitivity*).
+#'     sensitivity to scaling the block and to scaling the likelihood; `diagnosis`,
+#'     priorsense's reading of the two, in its own words; and `k_prior` and
+#'     `k_likelihood`, the Pareto k of the scaling of the block and of the
+#'     likelihood (see *Reading the sensitivity*).
 #'   * `priors`, one row per population-level coefficient: `parameter`,
 #'     `coefficient`, `prior`; `prior_centre` and `prior_scale` (the mean and
 #'     standard deviation of a normal, the location and scale of a Student-t, NA for
@@ -386,6 +437,11 @@ check_prior <- function(fit, newdata = NULL, t_ref = NULL, p = 0.5, levels = NUL
       "{.fn check_prior} needs the package {.pkg priorsense}.",
       "i" = "Install it with {.code install.packages(\"priorsense\")}."
     ), class = "rTFT_needs_priorsense")
+  if (!is.numeric(p) || length(p) != 1L || is.na(p) || p <= 0 || p >= 1)
+    cli::cli_abort(c(
+      "{.arg p} must be a single fraction of individuals failing, strictly between 0 and 1.",
+      "x" = "You supplied {.val {p}}."
+    ), class = "rTFT_bad_p")
   if (!is.null(t_ref)) {
     if (is.null(newdata))
       cli::cli_abort(c(
@@ -397,11 +453,25 @@ check_prior <- function(fit, newdata = NULL, t_ref = NULL, p = 0.5, levels = NUL
         "{.arg t_ref} must be a single positive exposure time, in the time unit of the data the model was fitted to.",
         "x" = "You supplied {.val {t_ref}}."
       ), class = "rTFT_bad_t_ref")
-    if (!is.numeric(p) || length(p) != 1L || is.na(p) || p <= 0 || p >= 1)
+  }
+  if (is.data.frame(newdata)) {
+    taken <- intersect(names(newdata), c("block", "quantity", "prior", "likelihood",
+                                         "diagnosis", "k_prior", "k_likelihood"))
+    if (length(taken))
       cli::cli_abort(c(
-        "{.arg p} must be a single fraction of individuals failing, strictly between 0 and 1.",
-        "x" = "You supplied {.val {p}}."
-      ), class = "rTFT_bad_p")
+        "{.arg newdata} has {cli::qty(length(taken))}{?a column/columns} named {.field {taken}}, {?a name/names} the table of sensitivities uses.",
+        "i" = "Rename {cli::qty(length(taken))}{?it/them} in {.arg newdata}."
+      ), class = "rTFT_newdata_names")
+    if (anyNA(newdata))
+      cli::cli_abort(c(
+        "{.arg newdata} has missing values.",
+        "i" = "Each row sets the values at which the parameters are checked, so every value is needed."
+      ), class = "rTFT_missing_values")
+  } else if (is.null(newdata) && !is.null(levels)) {
+    cli::cli_warn(c(
+      "!" = "Ignoring {.arg levels}: without {.arg newdata} only the coefficients are checked, which no level of a co-stressor enters.",
+      "i" = "Give {.arg newdata} to check the parameters and sCTmax at those levels."
+    ), class = "rTFT_unused_levels")
   }
 
   draws <- as.data.frame(brms::as_draws_df(fit))
@@ -415,6 +485,7 @@ check_prior <- function(fit, newdata = NULL, t_ref = NULL, p = 0.5, levels = NUL
   if (!is.null(newdata))
     sensitivity <- dplyr::bind_cols(sensitivity,
                                     tibble::as_tibble(newdata[at$row, , drop = FALSE]))
-  sensitivity <- dplyr::bind_cols(sensitivity, sens[c("prior", "likelihood", "diagnosis")])
+  sensitivity <- dplyr::bind_cols(
+    sensitivity, sens[c("prior", "likelihood", "diagnosis", "k_prior", "k_likelihood")])
   list(sensitivity = sensitivity, priors = .prior_table(pb$coefs, draws))
 }

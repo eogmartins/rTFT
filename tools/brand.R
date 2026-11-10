@@ -44,7 +44,7 @@ library(scales)
 # The palette ------------------------------------------------------------------
 
 # Cold to hot. These four stops are the package's colour identity: the ground of
-# the sticker, the rule on the card and any temperature axis in the manuscript are
+# the sticker, the rule on the card and any temperature axis in the figures are
 # drawn from this vector rather than from a fresh guess.
 
 rtft_stops <- tribble(
