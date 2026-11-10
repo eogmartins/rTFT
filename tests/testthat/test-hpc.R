@@ -1547,7 +1547,9 @@ test_that("collecting with another rTFT than the one that fitted says so", {
   local_mocked_bindings(.installed_rtft_commit = function(...) sha_a)
   dir <- trial_bundle(kfold = FALSE)
   for (i in 1:2) run_quietly(dir, "fit", i)
-  quiet <- function(expr) suppressWarnings(expr)
+  # warnings and the collection's own message aside, so only the version is heard
+  quiet <- function(expr)
+    suppressWarnings(suppressMessages(expr, classes = "rTFT_hpc_collected"))
   # the same rTFT: nothing is said
   expect_no_message(quiet(collect_hpc(dir)), class = "rTFT_collected_by_other_version")
   # another commit of the same version

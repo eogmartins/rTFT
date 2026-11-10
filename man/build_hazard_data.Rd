@@ -103,7 +103,8 @@ divided further where \code{grid_dT} requires it.}
 \item{grid_dT}{A single positive number, the largest change in temperature
 allowed within an interval at risk, in degrees. An interval over which
 temperature changes by more is divided into equal parts (see \emph{The time grid}).
-Defaults to 0.1; \code{Inf} keeps the intervals as given.}
+Defaults to 0.1; \code{Inf} keeps the intervals as given. A grid that would cut one
+individual's exposure into more than 100,000 intervals is refused.}
 
 \item{costressors}{An optional list of \link{costressor} objects declaring
 non-temperature stressors (dissolved oxygen and the like). Each adds a

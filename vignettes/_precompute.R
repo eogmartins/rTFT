@@ -22,7 +22,9 @@
 # vignettes it fits only theirs and leaves the saved results of the others as they
 # are (e.g., `Rscript vignettes/_precompute.R 2` for the second vignette). The third
 # vignette takes much longer than the others (about six hours), because each of its
-# four models is fitted and then refitted 12 times, once without each trial.
+# four models is fitted and then refitted 12 times, once without each trial. The
+# fifth vignette, on the clusters, is not fitted here: its results-05.rds holds what
+# was captured from real runs on a cluster, as the vignette says.
 #
 # Inputs:
 #   data/static_assay.rda

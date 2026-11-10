@@ -52,6 +52,7 @@ reference:
   - plot_check
   - hazard_residuals
   - plot_residuals
+  - check_prior
 - title: Derived quantities
   desc: >
     Critical thermal maxima, thermal death time curves and thermal tolerance

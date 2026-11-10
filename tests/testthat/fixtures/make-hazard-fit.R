@@ -55,7 +55,7 @@ rate    <- 0.25
 b_true  <- 0.4
 
 mass   <- round(stats::runif(n_fish, 5, 15), 1)
-loga   <- -5 + 0.2 * (mass - 10) 
+loga   <- -5 + 0.2 * (mass - 10)
 br     <- b_true * rate
 t_fail <- log1p(stats::rexp(n_fish) * br / exp(loga)) / br
 

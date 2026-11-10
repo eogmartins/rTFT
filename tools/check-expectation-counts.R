@@ -4,13 +4,15 @@
 # meant to execute and refuses any departure in either direction: a drop means a
 # check stopped checking; a rise is usually welcome but still has to be written
 # down. It also refuses a test file that is on disk but absent from the
-# manifest, since such a file runs green and invisible to the count.
+# manifest, since such a file runs green and invisible to the count, and a warning
+# that a test raises without expecting it, which the silent reporter used here
+# would otherwise hide.
 #
 # Run from the repository root, with skips disabled so the count is comparable:
 #   NOT_CRAN=true Rscript tools/check-expectation-counts.R
 
 suppressPackageStartupMessages(library(testthat))
-options(rlang_backtrace_on_error = "none")
+options(rlang_backtrace_on_error = "none", width = 120)   # the table on one line
 
 if (!requireNamespace("pkgload", quietly = TRUE)) {
   cli::cli_abort(c(
@@ -48,14 +50,16 @@ if (length(absent)) {
 
 observed <- vapply(manifest$file, function(f) {
   r <- as.data.frame(testthat::test_file(file.path(test_dir, f), reporter = "silent"))
-  c(passed = sum(r$passed), failed = sum(r$failed), skipped = sum(r$skipped))
-}, numeric(3)) |> t() |> as.data.frame()
+  c(passed = sum(r$passed), failed = sum(r$failed), skipped = sum(r$skipped),
+    warned = sum(r$warning))
+}, numeric(4)) |> t() |> as.data.frame()
 observed$file <- manifest$file
 res <- merge(manifest, observed, by = "file")
 res$delta <- res$passed - res$expectations
 
 cat("\n")
-print(res[, c("file", "expectations", "passed", "delta", "failed", "skipped")],
+print(res[, c("file", "expectations", "passed", "delta", "failed", "skipped",
+              "warned")],
       row.names = FALSE)
 cat("\n")
 
@@ -93,7 +97,16 @@ if (sum(res$skipped) > 0) {
     "i" = "Run with {.envvar NOT_CRAN=true} so the count is comparable."
   ))
 }
+if (sum(res$warned) > 0) {
+  warned <- res[res$warned > 0, , drop = FALSE]
+  cli::cli_abort(c(
+    "{sum(res$warned)} warning{?s} {?was/were} raised and not expected.",
+    stats::setNames(sprintf("{.file %s}: %d", warned$file, warned$warned),
+                    rep("*", nrow(warned))),
+    "i" = "A test that triggers a warning should expect it, by class, so that the warning is checked rather than let through; the silent reporter would otherwise hide it."
+  ))
+}
 
 cli::cli_alert_success(
-  "{sum(res$passed)} expectation{?s} across {nrow(res)} file{?s}: none failed, none skipped."
+  "{sum(res$passed)} expectation{?s} across {nrow(res)} file{?s}: none failed, none skipped, no warning let through."
 )

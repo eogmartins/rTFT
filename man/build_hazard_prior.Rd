@@ -35,7 +35,13 @@ that is not a parameter of the chosen functions is ignored with a warning.}
 
 \item{slope_prior}{A single prior string for every covariate slope (a
 population-level effect beyond the intercept), applied to each parameter that
-has one. Defaults to \code{"normal(0, 1)"}.}
+has one; or a named list of prior strings, one per parameter, e.g.
+\code{list(loga = "normal(0, 5)")}, the parameters left out taking \code{"normal(0, 1)"}.
+A name that is not a parameter of the chosen functions is ignored with a
+warning, as is one whose formula has no slope for it to reach (no covariate, or
+no intercept, when each coefficient takes the intercept prior). The group terms
+of log a take the wider of this and the prior scaled to the groups (see \emph{Groups
+whose failures lie far apart}). Defaults to \code{"normal(0, 1)"}.}
 
 \item{sd_prior}{A single prior string for every random-effect standard deviation,
 applied to each parameter that has one. Defaults to \code{"exponential(2)"}.}
@@ -59,11 +65,14 @@ keyed to each parameter's intercept and unaffected by whatever covariates the
 \code{dpar_formulas} add. For every parameter the chosen functions need, it sets a
 weakly-informative prior on the intercept (the parameter's value at the reference
 temperature and start of exposure), a generic Normal(0, 1) on any covariate
-slopes, and an Exponential(2) on the standard deviation of any random effect. The
+slopes, and an Exponential(2) on the standard deviation of any random effect;
+where the formula of log a has terms that mark groups, its priors are scaled to
+the groups instead (see \emph{Groups whose failures lie far apart}). The
 slope and random-effect priors are added only when the parameter actually has
 those terms, so brms raises no "no parameter" warning. Override the centre of any
-parameter through \code{intercept_priors}, or the shared slope and random-effect
-standard-deviation priors through \code{slope_prior} and \code{sd_prior}; or replace the
+parameter through \code{intercept_priors}, the slope priors through \code{slope_prior} (one
+for every parameter, or one per parameter) and the random-effect
+standard-deviation priors through \code{sd_prior}; or replace the
 whole set with your own \code{prior} when fitting with \code{\link[=fit_hazard]{fit_hazard()}}.
 }
 \details{
@@ -91,8 +100,9 @@ either way with 95\% probability. It is centred at zero, the memoryless case, so
 unless the data show a trend the fit stays near a flat baseline.
 }
 
-with \code{normal(0, 1)} on any covariate slope and \code{exponential(2)} on any
-random-effect standard deviation. Each co-stressor in \code{costressors} adds a
+with \code{normal(0, 1)} on any covariate slope (except the group terms of log a, see
+below) and \code{exponential(2)} on any random-effect standard deviation. Each
+co-stressor in \code{costressors} adds a
 \code{normal(0, 1)} on its main effect \verb{c<name>} and a tighter \code{normal(0, 0.5)} on its
 temperature interaction \verb{dT<name>}, both overridable through \code{intercept_priors}.
 
@@ -114,21 +124,105 @@ check against \code{exponential(1)} is cheap insurance.
 For the rates anchored at the reference temperature (\code{exp}, \code{zeroexp},
 \code{zeropower}, \code{power}), a is the rate at \code{Tr}, or its scale there, and \code{Tr} may lie
 a distance d = T_f - Tr from where failures were observed. The log rate at T_f is
-then loga plus a term in b and d (b d for \code{exp}), so loga is the log rate at T_f
-less that term, and it inherits the uncertainty in b across the distance:
+then log a plus a term in b and d (b d for \code{exp}), so log a is the log rate at
+T_f less that term, and it inherits the uncertainty in b across the distance:
 \itemize{
 \item its centre is the centre at T_f less the term at the prior median of b;
 \item its variance is 2^2 plus the square of (the change in the term per unit of b,
 times the prior standard deviation of b).
 }
 
-For \code{exp} this is \verb{normal(centre - 0.5 d, sqrt(4 + (1.07 d)^2))}: the usual prior
-when the reference is at the failures (d = 0), and a much wider one 14 degrees
-below them. A prior of standard deviation 2 on loga at a distant reference would
-in effect be a tight prior on b, and biases it. The threshold functions are
-anchored at \code{Tc}, not \code{Tr}, and take the centre at T_f unchanged. The calculation
-uses the default prior on \code{logb}; if you change that prior and keep a distant
-reference, set \code{loga} to match.
+For \code{exp} with the default prior on \code{logb} this is
+\verb{normal(centre - 0.5 d, sqrt(4 + (1.07 d)^2))}: the usual prior when the
+reference is at the failures (d = 0), and a much wider one 14 degrees below them.
+A prior of standard deviation 2 on log a at a distant reference would in effect
+be a tight prior on b, and biases it. The calculation uses the prior on \code{logb} in
+force: the one given in \code{intercept_priors} when it is a normal, normal(mu, s),
+whose b has median exp(mu) and standard deviation
+sqrt((exp(s^2) - 1) exp(2 mu + s^2)); the default for any other.
+
+The threshold functions are anchored at \code{Tc}, not \code{Tr}, so for them d is the
+distance from the centre of the prior on \code{Tc} in force to the failures. The default
+prior on \code{Tc} is centred at T_f, and so the centre of log a stays at T_f; so it
+does for a prior on \code{Tc} centred above the failures, where the rate is held near
+zero. However, \code{Tc} may lie anywhere in its prior, and well above \code{Tc} the data
+fix only log a less the function's term at the distance from \code{Tc} to the failures
+(log a - b \code{Tc} for \code{exp_threshold}). A prior of standard deviation 2 on log a
+would then hold \code{Tc} close to the failures with a confidence the data do not give:
+in simulations with \code{Tc} 4 degrees below the failures it placed \code{Tc} about 1.2
+degrees too high, with intervals that never covered the truth. Its variance
+therefore adds (slope b_hi)^2, where slope is the change per unit of b of the
+function's term at the reach of the prior on \code{Tc} in force, half the width of its
+central 95\% interval (1.96 times the standard deviation of a normal, 3 by default,
+or the 97.5\% quantile of a Student-t times its scale; the default reach for any
+other prior), and b_hi the 97.5\% quantile of the prior on b (about 3.5 by
+default): with the defaults, about 21 for \code{exp_threshold}, 22 for
+\code{zeroexp_threshold} and 6.6 for \code{zeropower_threshold}. \code{const_threshold} has no b
+and keeps 2. Where the data do place \code{Tc}, the wider prior changes nothing; where
+they do not, the intervals on \code{Tc} and log a are as wide as the data leave them,
+and the fit may take longer.
+}
+
+\section{Groups whose failures lie far apart}{
+
+The intercept prior on log a is centred at the failure temperature pooled over all
+individuals. Where log a differs between groups (species, say, or acclimation
+temperatures), a group's coefficient on log a is about -b times its distance in
+sCTmax from the reference group, so that with a steep b a tight prior holds it
+back. The result is a biased b and baseline shape while sCTmax looks right: in
+simulations of a three-species design with a Weibull shape of 4, the default
+priors of version 0.2.1 biased the shape of the reference species by about -0.7.
+
+Since version 0.2.2 the defaults on log a are therefore scaled to the groups,
+which removed that bias in the same simulations. The rule needs a b to
+extrapolate with, so \code{const} and \code{const_threshold} keep the priors of the section
+above for every term. A term of the formula of log a marks groups when each of
+its variables is a factor, a character or logical column, or a numeric column
+with two values, alone or in an interaction. Where there is such a term, with
+b_hi the 97.5\% quantile of the prior on b (exp(-0.7 + 1.96), about 3.5, by
+default; read from \code{intercept_priors} when the prior on \code{logb} given there is a
+normal):
+\itemize{
+\item the intercept keeps its centre and takes standard deviation
+sqrt(2^2 + (d_g b_hi)^2), where d_g is the largest distance from \code{Tr} of any
+group's median failure temperature, a group being a level of one variable or a
+combination of levels of an interaction (for the exponential function; for the
+other functions anchored at \code{Tr}, the change per unit of b of the function's
+term at that distance, as in the section above). For a threshold function,
+anchored at \code{Tc}, the distance from \code{Tr} plays no part and the intercept takes
+the standard deviation of the section above;
+\item each group term's coefficients take \code{normal(0, s)}, with
+s = sqrt(1 + (b_hi max(D, 1))^2), where D is the range in degrees of the median
+failure temperatures over the term's groups (its levels, or the combinations of
+levels of an interaction). The floor of 1 degree is there because a median
+mixes design with effect: a treatment given only in the ramps can lower
+tolerance while its median failure temperature barely moves. s is a prior on
+the difference between groups, which is what the coefficient of a factor or of
+a 0/1 column is; the coefficient of a numeric column with two other values is
+per unit of the column (per percentage point of oxygen coded 30 and 100), so s
+is divided by the gap between the two values, and across an interaction by the
+product of such gaps. The model and its coefficients stay in the units of the
+data. A group none of whose individuals failed has no median failure
+temperature and is left out of the rule, so its coefficient takes the width the
+other groups set among themselves; where such a group may be much more
+tolerant than the others, widen its prior through \code{slope_prior};
+\item a continuous covariate keeps the slope prior.
+}
+
+A group term takes the wider of this prior and the \code{slope_prior} that applies to
+log a, so that setting \code{slope_prior} for the other terms never narrows it; a
+\code{slope_prior} whose scale cannot be read (other than a normal, a Student-t or the
+flat prior \code{""}) gives way to it. A prior named for \code{loga} in \code{intercept_priors}
+replaces the rule for the intercept. A group term given a narrower prior than the
+rule's must be set through a full \code{prior} passed to \code{\link[=fit_hazard]{fit_hazard()}}. To widen
+further:
+
+\if{html}{\out{<div class="sourceCode r">}}\preformatted{build_hazard_prior(..., intercept_priors = list(loga = "normal(-0.8, 20)"),
+                   slope_prior = list(loga = "normal(0, 20)"))
+}\if{html}{\out{</div>}}
+
+Whether the priors of a fitted model pull its estimates, with these defaults or
+any others, can be checked without refitting with \code{\link[=check_prior]{check_prior()}}.
 }
 
 \section{The baseline term c of the power function}{
@@ -150,7 +244,7 @@ of controls failed over a time t, c is about -log(1 - q) / t, so for instance
 path   <- ramp_path("A", T_start = 20, rate = 0.25, t_max = 60)
 checks <- data.frame(path_id = "A", time = seq(0, 60, by = 1))
 ind    <- data.frame(id = 1:3, path_id = "A", event = c(1, 1, 0),
-                     t_upper = c(30, 40, 60), acclim = c(10, 15, 15))
+                     t_upper = c(30, 40, 60), acclim = c(10, 12.5, 15))
 long   <- build_hazard_data(ind, path, "interval", covariates = "acclim",
                             checks = checks)
 
@@ -158,9 +252,16 @@ long   <- build_hazard_data(ind, path, "interval", covariates = "acclim",
 build_hazard_prior("exp_threshold", baseline = "weibull", long = long)
 
 # Override a couple of priors (a cooler species, a tighter amplitude) and narrow
-# the covariate-slope prior; every other parameter keeps its default.
+# the slope prior of log a; every other parameter keeps its default.
 build_hazard_prior("exp_threshold", baseline = "weibull",
   dpar_formulas = list(loga = ~ 1 + acclim),
   intercept_priors = list(Tc = "normal(26, 4)", loga = "normal(-6, 1.5)"),
-  slope_prior = "normal(0, 0.5)", long = long)
+  slope_prior = list(loga = "normal(0, 0.5)"), long = long)
+
+# Two acclimation groups: log a has a group term, and its priors are scaled to
+# how far apart the groups fail.
+ind$acclim <- c(10, 15, 15)
+long <- build_hazard_data(ind, path, "interval", covariates = "acclim",
+                          checks = checks)
+build_hazard_prior("exp", dpar_formulas = list(loga = ~ 1 + acclim), long = long)
 }
