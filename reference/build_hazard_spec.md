@@ -125,7 +125,7 @@ build_hazard_spec("exp")
 # exposure time.
 build_hazard_spec("exp_threshold", baseline = "weibull")
 #> $formula
-#> failed ~ logshape - log(tau_ref) + (exp(logshape) - 1) * (log_tau - log(tau_ref)) + loga + exp(logb) * (Ta - Tc) - log1p(exp(-50 * (Ta - Tc))) + log_exposure 
+#> failed ~ logshape - log(tau_ref) + (exp(logshape) - 1) * (log_tau - log(tau_ref)) + loga + exp(logb) * (Ta - Tc) - 50 * (abs(Ta - Tc) - (Ta - Tc))/2 - log1p(exp(-50 * abs(Ta - Tc))) + log_exposure 
 #> loga ~ 1
 #> logb ~ 1
 #> Tc ~ 1
@@ -209,7 +209,7 @@ build_hazard_spec("exp", costressors = list(do))
 # Advanced: a gentler threshold switch than the catalogue default.
 build_hazard_spec("exp_threshold", k_sw = 20)
 #> $formula
-#> failed ~ loga + exp(logb) * (Ta - Tc) - log1p(exp(-20 * (Ta - Tc))) + log_exposure 
+#> failed ~ loga + exp(logb) * (Ta - Tc) - 20 * (abs(Ta - Tc) - (Ta - Tc))/2 - log1p(exp(-20 * abs(Ta - Tc))) + log_exposure 
 #> loga ~ 1
 #> logb ~ 1
 #> Tc ~ 1

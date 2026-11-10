@@ -12,11 +12,17 @@ The threshold functions add a small constant inside a logarithm so it
 stays finite at the critical temperature. The constant is written
 `10^-12` and not `1e-12`, because brms spaces out the minus sign of a
 number in scientific notation when it writes the Stan program
-(`1e - 12`), which Stan does not accept. The temperature column is named
-`Ta` rather than Kingsolver and Umbanhowar's `T`, because `T` is an
-alias for `TRUE` in R and a column of that name would silently shadow it
-in the data-handling code. The threshold functions also reference
-`k_sw`, the softening steepness, taken from the `k_sw` field of
+(`1e - 12`), which Stan does not accept. The switch of a threshold
+function, log(1 + exp(-`k_sw` (Ta - Tc))), is written in the equal form
+`k_sw` (\|Ta - Tc\| - (Ta - Tc)) / 2 + log(1 + exp(-`k_sw` \|Ta -
+Tc\|)), because the exponential of the plain form overflows once `Ta`
+lies more than about 709 / `k_sw` degrees below `Tc` (14 degrees at the
+default `k_sw` of 50), which leaves the rate and its gradient undefined
+there. The temperature column is named `Ta` rather than Kingsolver and
+Umbanhowar's `T`, because `T` is an alias for `TRUE` in R and a column
+of that name would silently shadow it in the data-handling code. The
+threshold functions also reference `k_sw`, the softening steepness,
+taken from the `k_sw` field of
 [M_catalogue](https://eogmartins.github.io/rTFT/reference/M_catalogue.md)
 when the model formula is built by brms. The strings are the single
 shared definition that fitting, simulation and reporting all evaluate.

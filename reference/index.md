@@ -32,6 +32,8 @@ temperature of each trial, and fitting the model.
   : Residuals of a fitted model, one per individual
 - [`plot_residuals()`](https://eogmartins.github.io/rTFT/reference/plot_residuals.md)
   : Plot the residuals of a fitted model
+- [`check_prior()`](https://eogmartins.github.io/rTFT/reference/check_prior.md)
+  : Check whether the priors of a fitted model pull its estimates
 
 ## Derived quantities
 

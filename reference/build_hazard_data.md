@@ -147,7 +147,9 @@ build_hazard_data(
   A single positive number, the largest change in temperature allowed
   within an interval at risk, in degrees. An interval over which
   temperature changes by more is divided into equal parts (see *The time
-  grid*). Defaults to 0.1; `Inf` keeps the intervals as given.
+  grid*). Defaults to 0.1; `Inf` keeps the intervals as given. A grid
+  that would cut one individual's exposure into more than 100,000
+  intervals is refused.
 
 - costressors:
 

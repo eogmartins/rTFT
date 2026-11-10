@@ -21,7 +21,7 @@ finer sub-grid is required but can be provided."><meta property="og:image" conte
 
     <a class="navbar-brand me-2" href="../index.html">rTFT</a>
 
-    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.2.1</small>
+    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.2.2</small>
 
 
     <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbar" aria-controls="navbar" aria-expanded="false" aria-label="Toggle navigation">
@@ -187,7 +187,8 @@ divided further where <code>grid_dT</code> requires it.</p></dd>
 <dd><p>A single positive number, the largest change in temperature
 allowed within an interval at risk, in degrees. An interval over which
 temperature changes by more is divided into equal parts (see <em>The time grid</em>).
-Defaults to 0.1; <code>Inf</code> keeps the intervals as given.</p></dd>
+Defaults to 0.1; <code>Inf</code> keeps the intervals as given. A grid that would cut one
+individual's exposure into more than 100,000 intervals is refused.</p></dd>
 
 
 <dt id="arg-costressors">costressors<a class="anchor" aria-label="anchor" href="#arg-costressors"></a></dt>

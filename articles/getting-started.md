@@ -227,6 +227,30 @@ build_hazard_prior("exp", baseline = "weibull", dpar_formulas = formulas, long =
 #>     normal(0, 1)     b Intercept                 logshape <NA> <NA>       user
 ```
 
+Whether the priors pull the estimates of a fitted model, with these
+defaults or any others, can be checked without refitting it with
+[`check_prior()`](https://eogmartins.github.io/rTFT/reference/check_prior.md).
+It uses the power-scaling sensitivity analysis of [Kallioinen et
+al. (2024)](https://doi.org/10.1007/s11222-023-10366-5), through the
+[`priorsense`](https://n-kall.github.io/priorsense/) package, which must
+be installed for the check. The analysis measures how much the posterior
+of each parameter, and of the quantities derived from it such as sCTmax,
+would change if the prior, or the likelihood, were made slightly
+stronger or weaker. An estimate that changes with the prior but not with
+the likelihood is set by the prior rather than by the data (with a
+caveat for the group-level terms, such as the standard deviation among
+trials, explained in
+[`?check_prior`](https://eogmartins.github.io/rTFT/reference/check_prior.md)),
+and one that changes with both points to a conflict between them. The
+check matters most when groups (e.g., species) failed at different
+temperatures, because the amplitude a is then the failure rate (with
+this vignette’s Weibull baseline, the cumulative hazard over the
+reference time) at a reference temperature shared by all groups, which
+lies farther from the failures of some groups than of others; how the
+default priors allow for this is described in
+[`?build_hazard_prior`](https://eogmartins.github.io/rTFT/reference/build_hazard_prior.md),
+under *Groups whose failures lie far apart*.
+
 Fitting takes a few minutes, so the code below was run once and its
 results were saved with the package (see the note at the end of this
 vignette).

@@ -120,22 +120,17 @@ fitted models was run once and its results were saved with the package
 
 | Model | Largest R-hat | Smallest bulk ESS | Smallest tail ESS | Divergent transitions |
 |:---|---:|---:|---:|---:|
-| Exponential, memoryless | 1.004 | 758 | 1254 | 1 |
-| Exponential, Weibull | 1.002 | 926 | 1290 | 0 |
-| Exponential, log-logistic | 1.005 | 863 | 1385 | 0 |
-| Zero-power threshold, memoryless | 1.002 | 1814 | 1516 | 0 |
+| Exponential, memoryless | 1.002 | 903 | 1408 | 0 |
+| Exponential, Weibull | 1.003 | 1246 | 1762 | 0 |
+| Exponential, log-logistic | 1.002 | 1052 | 1305 | 0 |
+| Zero-power threshold, memoryless | 1.004 | 1101 | 1306 | 0 |
 
 Table 1: Convergence of the four models: the largest $`\hat{R}`$ and the
 smallest bulk and tail effective sample sizes among the parameters, and
 the number of divergent transitions.
 
-The four models converged ([Table 1](#tbl-convergence)), with 1
-divergent transition among the 4,000 draws of one of them. A few
-divergent transitions among thousands of draws are not a concern in
-themselves when $`\hat{R}`$ and the effective sample sizes are
-satisfactory (see the vignette [*Getting started with
-rTFT*](https://eogmartins.github.io/rTFT/articles/getting-started.md)).
-Each model was also checked against the data with
+The four models converged ([Table 1](#tbl-convergence)). Each model was
+also checked against the data with
 [`check_survival()`](https://eogmartins.github.io/rTFT/reference/check_survival.md)
 and
 [`hazard_residuals()`](https://eogmartins.github.io/rTFT/reference/hazard_residuals.md),
@@ -144,10 +139,10 @@ rTFT*](https://eogmartins.github.io/rTFT/articles/getting-started.md).
 
 | Model                            | Times outside the band | P (residuals) |
 |:---------------------------------|-----------------------:|--------------:|
-| Exponential, memoryless          |               0 of 458 |          0.63 |
-| Exponential, Weibull             |               0 of 458 |          0.79 |
-| Exponential, log-logistic        |               0 of 458 |          0.70 |
-| Zero-power threshold, memoryless |              16 of 458 |          0.08 |
+| Exponential, memoryless          |               0 of 458 |          0.62 |
+| Exponential, Weibull             |               0 of 458 |          0.77 |
+| Exponential, log-logistic        |               0 of 458 |          0.66 |
+| Zero-power threshold, memoryless |              14 of 458 |          0.41 |
 
 Table 2: Fit of each model to the data: the number of observation times,
 among all those of the three ramps, at which the proportion of fish
@@ -159,11 +154,12 @@ The three models with the exponential failure rate described the data
 well: the observed survival was within the simulated band at all times
 and the residuals did not depart from the uniform distribution
 ([Table 2](#tbl-checks)). Under the zero-power threshold model, the
-observed survival was outside the band at 16 of the 458 times (10 in the
-slowest ramp and 6 in the fastest), and the residuals followed the
-uniform distribution less closely. A model that describes the data
-poorly would normally be revised or set aside at this point. We keep it
-here to show how the cross-validation treats it.
+observed survival was outside the band at 14 of the 458 times (9 in the
+slowest ramp and 5 in the fastest), although its residuals did not
+depart from the uniform distribution (Kolmogorov–Smirnov test, P =
+0.41). A model that misses the data at some times would normally be
+revised or set aside at this point. We keep it here to show how the
+cross-validation treats it.
 
 The parameters of each model are obtained with
 [`derive_tdt_ttl()`](https://eogmartins.github.io/rTFT/reference/derive_tdt_ttl.md),
@@ -178,10 +174,10 @@ params <- lapply(fits, \(fit) {
 
 | Model | a | b | Shape (k) | Scale (min) | Tc (°C) |
 |:---|---:|---:|---:|---:|---:|
-| Exponential, memoryless | 0.0632 (0.0470–0.0840) | 1.44 (1.25–1.68) |  |  |  |
-| Exponential, Weibull | 6.51 (4.46–9.23) | 1.54 (1.33–1.81) | 1.32 (1.02–1.64) |  |  |
-| Exponential, log-logistic | 26.1 (10.8–68.9) | 1.53 (1.31–1.76) | 1.92 (1.41–2.81) | 257 (133–606) |  |
-| Zero-power threshold, memoryless | 3.75e-06 (4.19e-07–2.19e-05) | 5.86 (4.92–6.93) |  |  | 22.0 (21.4–22.4) |
+| Exponential, memoryless | 0.0635 (0.0473–0.0875) | 1.44 (1.24–1.68) |  |  |  |
+| Exponential, Weibull | 6.50 (4.32–9.65) | 1.55 (1.34–1.79) | 1.32 (1.02–1.67) |  |  |
+| Exponential, log-logistic | 26.0 (10.2–76.8) | 1.54 (1.32–1.78) | 1.95 (1.40–2.85) | 256 (133–669) |  |
+| Zero-power threshold, memoryless | 5.09e-08 (7.87e-11–2.11e-06) | 7.70 (6.06–10.0) |  |  | 21.1 (19.6–22.0) |
 
 Table 3: Parameters of the four models for a fish of 15 g (posterior
 medians and 95% credible intervals). The amplitude $`a`$ and the
@@ -222,10 +218,10 @@ threshold of about 0.7).
 
 | Model                            |   elpd |   SE | Largest k | Trials with k \> 0.7 |
 |:---------------------------------|-------:|-----:|----------:|---------------------:|
-| Exponential, memoryless          | -905.4 | 20.8 |      0.89 |                    4 |
-| Exponential, Weibull             | -903.5 | 21.7 |      0.74 |                    2 |
-| Exponential, log-logistic        | -903.6 | 22.0 |      0.76 |                    4 |
-| Zero-power threshold, memoryless | -914.2 | 24.4 |      0.89 |                    3 |
+| Exponential, memoryless          | -905.3 | 20.8 |      0.78 |                    3 |
+| Exponential, Weibull             | -904.1 | 21.8 |      0.94 |                    4 |
+| Exponential, log-logistic        | -903.4 | 21.9 |      0.86 |                    2 |
+| Zero-power threshold, memoryless | -909.6 | 23.1 |      0.78 |                    2 |
 
 Table 4: Leave-one-trial-out cross-validation by importance sampling:
 the expected log predictive density (elpd) of each model with its
@@ -263,9 +259,9 @@ loo::loo_compare(cv)
 | Model | elpd | SE | Difference in elpd | SE of the difference |
 |:---|---:|---:|---:|---:|
 | Exponential, log-logistic | -904.5 | 22.0 | 0.0 | 0.0 |
-| Exponential, Weibull | -904.5 | 21.7 | 0.0 | 2.3 |
-| Exponential, memoryless | -905.9 | 20.6 | -1.4 | 2.1 |
-| Zero-power threshold, memoryless | -920.8 | 28.7 | -16.3 | 13.7 |
+| Exponential, Weibull | -904.6 | 21.7 | -0.1 | 2.3 |
+| Exponential, memoryless | -905.8 | 20.7 | -1.4 | 2.0 |
+| Zero-power threshold, memoryless | -912.0 | 24.2 | -7.5 | 7.2 |
 
 Table 5: Comparison of the four models by cross-validation that leaves
 out one trial at a time, by refitting. The difference in elpd and its
@@ -275,16 +271,16 @@ The three models with the exponential failure rate could not be told
 apart. Their elpd differed by at most 1.4, which is less than the
 standard errors of the differences ([Table 5](#tbl-compare)). The
 zero-power threshold model predicted the trials left out worse than the
-others (a difference of -16.3), although its difference from the best
-model was only 1.2 times its standard error. These standard errors are
+others (a difference of -7.5), although its difference from the best
+model was only 1.0 times its standard error. These standard errors are
 computed among 12 trials and are themselves uncertain, so differences of
 this size should not be read as evidence that one model is better than
 another.
 
 For the three exponential models, the elpd obtained by refitting was
-within 1.0 of that obtained by importance sampling
-([Table 4](#tbl-psis)). For the zero-power threshold model it was 7
-lower (-920.8 against -914.2). The warning of
+within 1.1 of that obtained by importance sampling
+([Table 4](#tbl-psis)). For the zero-power threshold model it was 2
+lower (-912.0 against -909.6). The warning of
 [`loo_hazard()`](https://eogmartins.github.io/rTFT/reference/loo_hazard.md)
 indicates only that the approximation cannot be relied on for the trials
 concerned, and not in which direction it errs. The comparison with the
@@ -314,17 +310,17 @@ w_pseudobma <- hazard_weights(cv, method = "pseudobma")
 
 | Model                            | Stacking | Pseudo-BMA |
 |:---------------------------------|---------:|-----------:|
-| Exponential, log-logistic        |     0.50 |       0.41 |
-| Exponential, Weibull             |     0.50 |       0.44 |
-| Zero-power threshold, memoryless |     0.00 |       0.01 |
+| Exponential, log-logistic        |     0.51 |       0.40 |
+| Exponential, Weibull             |     0.49 |       0.42 |
+| Zero-power threshold, memoryless |     0.01 |       0.04 |
 | Exponential, memoryless          |     0.00 |       0.14 |
 
 Table 6: Weights of the four models by stacking and as pseudo-BMA
 weights.
 
 Stacking gave nearly all of the weight to two models, the exponential
-failure rate with the log-logistic baseline (0.50) and with the Weibull
-baseline (0.50) ([Table 6](#tbl-weights)). The memoryless model received
+failure rate with the log-logistic baseline (0.51) and with the Weibull
+baseline (0.49) ([Table 6](#tbl-weights)). The memoryless model received
 a weight of 0.00 although its elpd was within 1.4 of the best. This is
 how stacking treats a model whose predictions for the trials left out
 are close to those of models already in the combination: it adds nothing
@@ -386,11 +382,11 @@ in preference to its median.
 
 | Model | sCTmax, 60 min | dCTmax, 0.01°C per min | dCTmax, 0.3°C per min | dCTmax, 1°C per min |
 |:---|---:|---:|---:|---:|
-| Exponential, memoryless | 26.2 (26.0–26.5) | 26.1 (25.8–26.5) | 28.5 (28.3–28.7) | 29.3 (29.1–29.6) |
-| Exponential, Weibull | 26.7 (26.2–27.1) | 25.8 (25.4–26.3) | 28.7 (28.4–28.9) | 29.7 (29.3–30.1) |
-| Exponential, log-logistic | 26.9 (26.4–27.3) | 26.6 (26.1–27.0) | 28.8 (28.5–29.1) | 30.2 (29.7–31.0) |
-| Zero-power threshold, memoryless | 25.9 (25.7–26.1) | 26.0 (25.7–26.2) | 28.5 (28.3–28.8) | 29.8 (29.5–30.2) |
-| Average | 26.8 (26.3–27.3) | 26.2 (25.5–26.9) | 28.7 (28.5–29.0) | 29.9 (29.4–30.8) |
+| Exponential, memoryless | 26.2 (26.0–26.5) | 26.1 (25.7–26.5) | 28.5 (28.3–28.7) | 29.3 (29.0–29.6) |
+| Exponential, Weibull | 26.7 (26.2–27.1) | 25.8 (25.5–26.2) | 28.7 (28.4–29.0) | 29.7 (29.3–30.2) |
+| Exponential, log-logistic | 26.9 (26.4–27.3) | 26.6 (26.1–27.0) | 28.8 (28.5–29.1) | 30.2 (29.6–31.0) |
+| Zero-power threshold, memoryless | 26.1 (25.8–26.3) | 26.1 (25.8–26.3) | 28.5 (28.3–28.7) | 29.6 (29.3–30.0) |
+| Average | 26.8 (26.2–27.3) | 26.2 (25.5–26.9) | 28.8 (28.5–29.0) | 29.9 (29.4–30.9) |
 
 Table 7: Static critical thermal maximum (sCTmax, °C) of a 15 g fish for
 an exposure of 60 min, from each model and averaged over the models, and
@@ -404,11 +400,11 @@ directly. The dCTmax at 0.3°C per min, one of the rates of the assay,
 was 28.5–28.8°C among the four models ([Table 7](#tbl-sctmax)). They
 agreed less on quantities further from the conditions of the assay: the
 dCTmax was 25.8–26.6°C at 0.01°C per min and 29.3–30.2°C at 1°C per min,
-and the sCTmax for 60 min was 25.9–26.9°C. Averaged over the models, the
-sCTmax was 26.8°C (95% credible interval: 26.3–27.3°C), an interval
+and the sCTmax for 60 min was 26.1–26.9°C. Averaged over the models, the
+sCTmax was 26.8°C (95% credible interval: 26.2–27.3°C), an interval
 wider than that of any of the models because it also includes the
 uncertainty among models. The average changed little with the weights
-used: with the pseudo-BMA weights the sCTmax was 26.7°C (26.1–27.2°C).
+used: with the pseudo-BMA weights the sCTmax was 26.7°C (26.0–27.2°C).
 
 The thermal death time curves and the thermal tolerance landscape
 averaged over the models are drawn with
@@ -503,12 +499,12 @@ used to simulate the data.
 
 | Model | Stacking weight | Pseudo-BMA weight | Mean | Median | 95% CrI |
 |:---|---:|---:|---:|---:|---:|
-| Exponential, memoryless | 0.00 | 0.14 | 38 | 37 | 14–66 |
-| Exponential, Weibull | 0.50 | 0.44 | 74 | 78 | 31–100 |
-| Exponential, log-logistic | 0.50 | 0.41 | 1 | 1 | 0–3 |
-| Zero-power threshold, memoryless | 0.00 | 0.01 | 10 | 9 | 3–22 |
-| Average, stacking weights |  |  | 37 | 5 | 0–99 |
-| Average, pseudo-BMA weights |  |  | 38 | 32 | 0–99 |
+| Exponential, memoryless | 0.00 | 0.14 | 38 | 37 | 15–68 |
+| Exponential, Weibull | 0.49 | 0.42 | 75 | 79 | 31–100 |
+| Exponential, log-logistic | 0.51 | 0.40 | 1 | 1 | 0–3 |
+| Zero-power threshold, memoryless | 0.01 | 0.04 | 10 | 8 | 2–25 |
+| Average, stacking weights |  |  | 37 | 4 | 0–100 |
+| Average, pseudo-BMA weights |  |  | 37 | 29 | 0–99 |
 
 Table 8: Probability (%) that a 15 g fish fails by the end of the 30
 days of the stream record, predicted by each model (with its stacking
@@ -519,9 +515,9 @@ distribution, whose 95% credible interval (CrI) is given once.
 The four models gave very different predictions for the same record
 ([Figure 3](#fig-survival); [Table 8](#tbl-mortality)). The probability
 of failing by the end of the 30 days was 1% (0–3%) under the
-log-logistic baseline, 9% (3–22%) under the zero-power threshold model,
-37% (14–66%) under the exponential model with the memoryless baseline
-and 78% (31–100%) under the Weibull baseline. The two models that
+log-logistic baseline, 8% (2–25%) under the zero-power threshold model,
+37% (15–68%) under the exponential model with the memoryless baseline
+and 79% (31–100%) under the Weibull baseline. The two models that
 cross-validation weighted the most, and could not tell apart, gave the
 two most distant predictions.
 
@@ -540,35 +536,36 @@ the log-logistic baseline, it falls after an initial rise, and it is
 under this baseline alone that the heat wave carries almost no risk,
 because it comes after two weeks of exposure. Where that fall begins is
 set by the scale of the log-logistic baseline (its hazard turns down at
-about 245 min on the posterior medians, against a longest exposure of
+about 249 min on the posterior medians, against a longest exposure of
 561 min in the assay), which the data inform only weakly (see
 [`?h0_catalogue`](https://eogmartins.github.io/rTFT/reference/h0_catalogue.md)),
 so the posterior of that scale rests partly on its prior, and so does
 the prediction of this model for the record. The zero-power threshold
 model predicts few failures for another reason, which is that its
 failure rate is zero below the critical temperature $`T_c`$, estimated
-at 22.0°C (95% credible interval: 21.4–22.4°C; [Table 3](#tbl-params)),
-and the stream exceeded that temperature only during the afternoons of
-the heat wave.
+at 21.1°C (95% credible interval: 19.6–22.0°C; [Table 3](#tbl-params)),
+and the stream exceeded that temperature at 73 of the 721 hourly
+readings of the record, nearly all of them in the afternoons of the heat
+wave.
 
 The average reflects this disagreement. With the stacking weights, its
-95% credible interval was 0–99%, which includes nearly every possible
-outcome, and its median was 5%.
+95% credible interval was 0–100%, which includes nearly every possible
+outcome, and its median was 4%.
 
 The median is not a value between the predictions of the two models with
 the highest weights, as might be expected of an average. A model average
 is a mixture of the posterior distributions of the models, in which each
 model contributes posterior draws in proportion to its weight, and what
 is reported is the median and the interval of that mixture. Here, about
-half of the draws came from the log-logistic model (501 of 1000), all of
+half of the draws came from the log-logistic model (507 of 1000), all of
 which predict a mortality of a few percent, and about half from the
-Weibull model (499), nearly all of which predict a mortality above 30%,
+Weibull model (487), nearly all of which predict a mortality above 30%,
 with almost no draws in between. The median of a mixture with two
 separate groups of values lies at the edge of whichever group holds
 slightly more than half of the draws, and a small change in the weights,
 or in the number of draws each model happens to contribute, moves it
 from one group to the other. With the pseudo-BMA weights, the interval
-was nearly the same (0–99%) but the median was 32%.
+was nearly the same (0–99%) but the median was 29%.
 
 This is a consequence of the disagreement among the models, and not of
 model averaging. Where the models agree, as for the sCTmax above, the
@@ -594,19 +591,19 @@ same whichever of the two is reported. For each model on its own, the
 two differed by at most 4 percentage points.
 
 For the average they differed greatly. The mean was 37% with the
-stacking weights and 38% with the pseudo-BMA weights, against medians of
-5% and 32%, so the mean changed little with the weights. The mean of the
+stacking weights and 37% with the pseudo-BMA weights, against medians of
+4% and 29%, so the mean changed little with the weights. The mean of the
 pooled draws is the prediction that stacking is built to give, and
 relying on it amounts to treating the weights as the degree to which
 each model should be believed for this record. The weights measure how
 well each model predicts within the conditions of the assay, which is
 not the same, and the mean of 37% is a value that neither of the two
 models with the highest weights predicts: it is what is expected on
-average when the mortality is either about 1% or about 78%. Relying on
+average when the mortality is either about 1% or about 79%. Relying on
 the median amounts to reporting the centre of a posterior that has no
 centre here. Where the models agree, the choice is of no consequence:
 for the warmest day of the record (see below), the mean and the median
-of the average were 14% and 13%.
+of the average were 14% and 12%.
 
 The weights indicate how well each model predicts failures under the
 conditions of the assay. They do not indicate which model extrapolates
@@ -635,11 +632,11 @@ so one of the four candidates has the form of the model that generated
 them. The model used to simulate the data gives an sCTmax for 60 min of
 27.0°C and a mortality of 81% along the stream record, which are close
 to the estimates of the candidate fitted with the Weibull baseline
-(26.7°C and 78%).
+(26.7°C and 79%).
 
 Cross-validation did not identify that candidate. The Weibull and the
 log-logistic baselines predicted the trials left out equally well, and
-stacking gave them weights of 0.50 and 0.50. An assay with exposures of
+stacking gave them weights of 0.49 and 0.51. An assay with exposures of
 at most 9.4 h does not contain the information needed to choose between
 two baselines that differ in what they imply for exposures of weeks.
 
@@ -661,11 +658,11 @@ average_survival(fits, w, warmest_day, newdata = fish)$mortality
 
 | Model | 30 days | Heat wave, 5 days | Warmest day, 24 h |
 |:---|---:|---:|---:|
-| Exponential, memoryless | 37 (14–66) \[38\] | 35 (14–63) \[36\] | 15 (6–30) \[16\] |
-| Exponential, Weibull | 78 (31–100) \[74\] | 53 (24–86) \[54\] | 18 (8–34) \[19\] |
-| Exponential, log-logistic | 1 (0–3) \[1\] | 8 (3–19) \[9\] | 9 (4–19) \[10\] |
-| Zero-power threshold, memoryless | 9 (3–22) \[10\] | 9 (3–22) \[10\] | 5 (2–12) \[6\] |
-| Average | 5 (0–99) \[37\] | 21 (3–83) \[31\] | 13 (4–30) \[14\] |
+| Exponential, memoryless | 37 (15–68) \[38\] | 35 (14–64) \[36\] | 15 (6–31) \[16\] |
+| Exponential, Weibull | 79 (31–100) \[75\] | 54 (25–87) \[55\] | 18 (8–33) \[19\] |
+| Exponential, log-logistic | 1 (0–3) \[1\] | 7 (3–19) \[8\] | 9 (4–19) \[9\] |
+| Zero-power threshold, memoryless | 8 (2–25) \[10\] | 8 (2–25) \[10\] | 5 (1–13) \[5\] |
+| Average | 4 (0–100) \[37\] | 17 (3–83) \[31\] | 12 (4–31) \[14\] |
 | Model used to simulate the data | 81 | 45 | 12 |
 
 Table 9: Probability (%) that a 15 g fish fails by the end of the whole
@@ -677,10 +674,10 @@ the model used to simulate the data. For the two shorter periods, the
 exposure is counted from their first reading.
 
 For the warmest day alone, the four models predicted a mortality of
-5–18%, and their average was 13% (95% credible interval: 4–30%), against
+5–18%, and their average was 12% (95% credible interval: 4–31%), against
 12% under the model used to simulate the data ([Table 9](#tbl-shorter)).
-For the five days of the heat wave they predicted 8–53% (45% under the
-model used to simulate the data), and for the 30 days 1–78% (81%). A
+For the five days of the heat wave they predicted 7–54% (45% under the
+model used to simulate the data), and for the 30 days 1–79% (81%). A
 ramping assay therefore supports best the predictions for events that
 last about as long as its trials (e.g., a hot afternoon or a hot day),
 for which the choice of baseline matters little. These predictions count
@@ -713,10 +710,9 @@ and its median where they differ, and the coverage reported by
 > **Precomputed results**
 >
 > The models in this vignette were fitted and cross-validated on
-> 2026-10-08 with the development version of `rTFT` that became 0.1.0
-> (0.0.0.9000), by the script `vignettes/_precompute.R` in the package’s
-> repository. The vignette displays the saved summaries, and all other
-> code runs when the vignette is built.
+> 2026-11-09 with `rTFT` 0.2.2, by the script `vignettes/_precompute.R`
+> in the package’s repository. The vignette displays the saved
+> summaries, and all other code runs when the vignette is built.
 
 ## References
 

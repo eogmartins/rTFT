@@ -19,7 +19,7 @@ build_hazard_data assumes and that reporting later evaluates."><meta property="o
 
     <a class="navbar-brand me-2" href="../index.html">rTFT</a>
 
-    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.2.1</small>
+    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.2.2</small>
 
 
     <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbar" aria-controls="navbar" aria-expanded="false" aria-label="Toggle navigation">
@@ -161,7 +161,7 @@ a parameter the chosen functions do not use is ignored with a warning.</p>
 <span class="r-in"><span><span class="co"># exposure time.</span></span></span>
 <span class="r-in"><span><span class="fu">build_hazard_spec</span><span class="op">(</span><span class="st">"exp_threshold"</span>, baseline <span class="op">=</span> <span class="st">"weibull"</span><span class="op">)</span></span></span>
 <span class="r-out co"><span class="r-pr">#&gt;</span> $formula</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> failed ~ logshape - log(tau_ref) + (exp(logshape) - 1) * (log_tau - log(tau_ref)) + loga + exp(logb) * (Ta - Tc) - log1p(exp(-50 * (Ta - Tc))) + log_exposure </span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> failed ~ logshape - log(tau_ref) + (exp(logshape) - 1) * (log_tau - log(tau_ref)) + loga + exp(logb) * (Ta - Tc) - 50 * (abs(Ta - Tc) - (Ta - Tc))/2 - log1p(exp(-50 * abs(Ta - Tc))) + log_exposure </span>
 <span class="r-out co"><span class="r-pr">#&gt;</span> loga ~ 1</span>
 <span class="r-out co"><span class="r-pr">#&gt;</span> logb ~ 1</span>
 <span class="r-out co"><span class="r-pr">#&gt;</span> Tc ~ 1</span>
@@ -245,7 +245,7 @@ a parameter the chosen functions do not use is ignored with a warning.</p>
 <span class="r-in"><span><span class="co"># Advanced: a gentler threshold switch than the catalogue default.</span></span></span>
 <span class="r-in"><span><span class="fu">build_hazard_spec</span><span class="op">(</span><span class="st">"exp_threshold"</span>, k_sw <span class="op">=</span> <span class="fl">20</span><span class="op">)</span></span></span>
 <span class="r-out co"><span class="r-pr">#&gt;</span> $formula</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> failed ~ loga + exp(logb) * (Ta - Tc) - log1p(exp(-20 * (Ta - Tc))) + log_exposure </span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> failed ~ loga + exp(logb) * (Ta - Tc) - 20 * (abs(Ta - Tc) - (Ta - Tc))/2 - log1p(exp(-20 * abs(Ta - Tc))) + log_exposure </span>
 <span class="r-out co"><span class="r-pr">#&gt;</span> loga ~ 1</span>
 <span class="r-out co"><span class="r-pr">#&gt;</span> logb ~ 1</span>
 <span class="r-out co"><span class="r-pr">#&gt;</span> Tc ~ 1</span>

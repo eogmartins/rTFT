@@ -7,7 +7,7 @@
 
     <a class="navbar-brand me-2" href="../index.html">rTFT</a>
 
-    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.2.1</small>
+    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.2.2</small>
 
 
     <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbar" aria-controls="navbar" aria-expanded="false" aria-label="Toggle navigation">
@@ -39,6 +39,34 @@
       <small>Source: <a href="https://github.com/eogmartins/rTFT/blob/main/NEWS.md" class="external-link"><code>NEWS.md</code></a></small>
     </div>
 
+    <div class="section level2">
+<h2 class="pkg-version" data-toc-text="0.2.2" id="rtft-022">rTFT 0.2.2<a class="anchor" aria-label="anchor" href="#rtft-022"></a></h2>
+<p>The default prior on log a changes for two kinds of model, a model whose formula of log a has terms that mark groups and a model with a threshold function, for which it is wider, and it is built with the prior of the user’s own on log b (a normal) or on <code>Tc</code> (a normal or a Student-t) where one is given, rather than with the defaults. A refit of such a model gives different estimates. Every other model is given the same priors as in 0.2.1.</p>
+<div class="section level3">
+<h3 id="default-priors-0-2-2">Default priors<a class="anchor" aria-label="anchor" href="#default-priors-0-2-2"></a></h3>
+<ul><li>The default prior on log a of <code><a href="../reference/build_hazard_prior.html">build_hazard_prior()</a></code> is scaled to the design. Where the formula of log a has terms that mark groups (a factor, a character or logical column, or a numeric column with two values, alone or in an interaction), the standard deviation of its intercept grows with the largest distance between the reference temperature <code>Tr</code> and the median failure temperature of any group, and the coefficients of each group term are given a prior whose standard deviation grows with the range of the groups’ median failure temperatures (a term whose coefficients are the levels’ own values, as in a formula without an intercept, takes the intercept’s prior instead). With groups that failed far from <code>Tr</code> or from each other, the prior of 0.2.1 pulled their differences towards zero and biased the shape of the Weibull baseline low (by about 0.7 in simulations of three species whose failures lay some degrees apart). A formula without such terms keeps the prior of 0.2.1.</li>
+<li>The default prior on log a is carried from the failures to <code>Tr</code> with the priors on log b and <code>Tc</code> that apply to the fit: a normal prior of the user’s own on log b, and a normal or Student-t prior on <code>Tc</code>, are read, where 0.2.1 used the defaults whatever was given. For a threshold function, the prior on the intercept of log a is carried across the range of temperatures the prior on <code>Tc</code> spans, so it is wider than in 0.2.1 (a standard deviation of 6.6 rather than 2 for the zero-power threshold model of the vignette <em>Comparing and averaging models</em>).</li>
+<li>
+<code>slope_prior</code> can be given per parameter, as a named list. A prior named for a parameter whose formula has nothing for it to reach warns (for log a, a group term whose coefficients are differences between groups counts, intercept or not), and anything that is not a prior string, or a named list of them, is refused.</li>
+<li>The coefficients of a group term of log a are named as brms names them whatever order the formula is written in. An interaction written before one of its main effects (<code>~ 1 + species:do + do</code>) was named in R’s order, which brms does not use, so <code><a href="../reference/fit_hazard.html">fit_hazard()</a></code> stopped in brms with a prior on a coefficient that did not exist.</li>
+<li>The data are refused, each case with its own condition, when they lack a column of the formula of log a, have missing values in one, or have a categorical column with a single value; these had given an infinite standard deviation or an error from R that did not say what was wrong.</li>
+</ul></div>
+<div class="section level3">
+<h3 id="checking-the-priors-0-2-2">Checking the priors<a class="anchor" aria-label="anchor" href="#checking-the-priors-0-2-2"></a></h3>
+<ul><li>
+<code><a href="../reference/check_prior.html">check_prior()</a></code> measures how much the priors pull the estimates of a fitted model, without refitting it, by the power-scaling sensitivity analysis of Kallioinen et al. (2024, <a href="https://doi.org/10.1007/s11222-023-10366-5" class="external-link uri">https://doi.org/10.1007/s11222-023-10366-5</a>) in the package priorsense, now suggested at version 1.4.0 or later. It scales each block of priors in turn (one per parameter, one per co-stressor, the group-level priors, and all of them together) and reports the sensitivity of every population-level coefficient and, with <code>newdata</code>, of each quantity that <code><a href="../reference/derive_tdt_ttl.html">derive_tdt_ttl()</a></code> reports, sCTmax included when <code>t_ref</code> is given. Each sensitivity comes with the Pareto k of the power-scaling that produced it (<code>k_prior</code>, <code>k_likelihood</code>), with a warning when a scaling is unreliable; a block whose priors are all flat is left out, with a message. A second table sets the prior of each coefficient beside its posterior. The help of <code><a href="../reference/build_hazard_prior.html">build_hazard_prior()</a></code> and the vignette <em>Getting started with rTFT</em> point to it.</li>
+</ul></div>
+<div class="section level3">
+<h3 id="fitting-0-2-2">Fitting<a class="anchor" aria-label="anchor" href="#fitting-0-2-2"></a></h3>
+<ul><li>The switch of the threshold functions is written in a form whose exponential cannot overflow. In the plain form, a temperature more than about 14 degrees below <code>Tc</code> (at the default <code>k_sw</code>) gave the rate an infinite logarithm and Stan an undefined gradient, so a chain whose <code>Tc</code> started or wandered that far above the coolest temperature of the data could not go on. The two forms give the same rate wherever the plain one was finite.</li>
+<li>
+<code><a href="../reference/build_hazard_data.html">build_hazard_data()</a></code> refuses a <code>grid_dT</code> that would cut one individual’s exposure into more than 100,000 intervals, before the table is built; nothing had bounded the rows a very fine grid makes.</li>
+</ul></div>
+<div class="section level3">
+<h3 id="documentation-0-2-2">Documentation<a class="anchor" aria-label="anchor" href="#documentation-0-2-2"></a></h3>
+<ul><li>The models of the vignette <em>Comparing and averaging models</em> are fitted again under 0.2.2. With its wider prior on log a, the zero-power threshold model predicts the trials left out better than before (its elpd is 7.5 below that of the best model rather than 16.3) and receives a little more weight; the averaged sCTmax and dCTmax are almost unchanged.</li>
+</ul></div>
+</div>
     <div class="section level2">
 <h2 class="pkg-version" data-toc-text="0.2.1" id="rtft-021">rTFT 0.2.1<a class="anchor" aria-label="anchor" href="#rtft-021"></a></h2>
 <div class="section level3">
