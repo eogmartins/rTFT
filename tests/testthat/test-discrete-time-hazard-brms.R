@@ -622,7 +622,11 @@ test_that("where the path bends within an interval, the parts over the steep str
   # changes by more than 0.1 degC, and the interval of the failure stays whole
   ind_i  <- data.frame(id = 1:2, path_id = "A", event = c(1, 0), t_upper = c(30, 40))
   checks <- data.frame(path_id = "A", time = c(0, 15, 30, 40))
-  out_i  <- suppressMessages(build_hazard_data(ind_i, bent, "interval", checks = checks))
+  # the interval of the failure spans 0.54 degrees, which is said
+  expect_warning(
+    out_i <- suppressMessages(build_hazard_data(ind_i, bent, "interval",
+                                                checks = checks)),
+    class = "rTFT_wide_failure_interval")
   expect_true(all(span(out_i)[out_i$failed == 0] <= 0.1 + 1e-9))
   expect_equal(out_i$exposure[out_i$failed == 1], 15)
 })
