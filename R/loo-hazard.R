@@ -66,10 +66,10 @@
 # individual. With no unit given, the unit is the coarsest shared grouping variable
 # that keeps each individual within one level (the trial, when individuals share a
 # trial's effect), with a message saying so, and otherwise the individual. Nested
-# groupings (e.g. multiple tanks within trials) are handled by that: leaving out a 
-# trial takes its tanks with it. Crossed groupings are not (e.g., families spread 
+# groupings (e.g. multiple tanks within trials) are handled by that: leaving out a
+# trial takes its tanks with it. Crossed groupings are not (e.g., families spread
 # across  trials): no single unit removes the effects of both, and which to leave out
-# depends on what is to be predicted, new trials or new families, so the unit must 
+# depends on what is to be predicted, new trials or new families, so the unit must
 # then be given.
 #
 # A unit can be given by name, or as "id" for the individual. Where one level of a
@@ -349,7 +349,7 @@ loo_hazard <- function(fit, unit = NULL) {
 }
 
 # Assemble the result in the layout of a loo kfold object, so that
-# loo::loo_compare() can use it: the summed estimate with its standard error over 
+# loo::loo_compare() can use it: the summed estimate with its standard error over
 # the units, and one pointwise value per unit.
 .kfold_result <- function(elpd, unit, K, folds) {
   n  <- length(elpd)

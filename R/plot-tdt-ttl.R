@@ -208,8 +208,8 @@
 #'
 #' By default each fraction `p` has its own colour, from blue for the fewest failed
 #' to red for the most, and each setting of `newdata` its own panel. Each setting has
-#' its own curve, so settings are shown or left out, never averaged: with more than 
-#' six, a numeric covariate with more than five values is cut down to the values 
+#' its own curve, so settings are shown or left out, never averaged: with more than
+#' six, a numeric covariate with more than five values is cut down to the values
 #' nearest its minimum, quartiles and maximum, and a message says which were kept.
 #'
 #' With `colour_by`, the curves of every value of one numeric covariate are drawn

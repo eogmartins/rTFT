@@ -597,12 +597,12 @@ brms_log_h0 <- list(
 #' critical temperature `Tc` keep their unstressed meaning, and a model with the
 #' co-stressor held at its reference is the same as one without it. This follows
 #' from centring the column at a chosen reference rather than at the sample mean.
-#' 
+#'
 #' The three pieces the standardisation needs (a reference, a scale, and a
 #' direction) are all required, as none has a safe default. A domain-chosen scale
 #' (per mg/L of oxygen, per unit concentration) is preferred to a data standard
-#' deviation, which is unstable with only two or three treatment levels. As an 
-#' example, for dissolved oxygen with a reference at air-saturation (ref = 8.5 mg/L), 
+#' deviation, which is unstable with only two or three treatment levels. As an
+#' example, for dissolved oxygen with a reference at air-saturation (ref = 8.5 mg/L),
 #' a scale of 1 mg/L (scale = 1), and less oxygen meaning more stress (direction = -1),
 #' z = -1 * (X - 8.5) / 1 = 8.5 - X, the oxygen deficit is: z = 0 at
 #' saturation and z = 2.5 at 6 mg/L (below saturation). The direction re-orients every
@@ -655,7 +655,7 @@ brms_log_h0 <- list(
 #' exponential forms, `Tc` for the threshold forms). That is a genuine
 #' temperature-by-treatment interaction, though a different parameterisation from the
 #' co-stressor's `dT<name>` term, as it scales the temperature slope rather than adding
-#' to it (see \sQuote{Two kinds of temperature interaction} below). A two-level 
+#' to it (see \sQuote{Two kinds of temperature interaction} below). A two-level
 #' treatment can instead be encoded 0/1 and passed to `costressor()`, which then gives
 #' the co-stressor's own main and interaction terms.
 #'
@@ -681,14 +681,14 @@ brms_log_h0 <- list(
 #' temperature and the stressor (on the proportional-hazards scale): positive
 #' steepens the thermal slope, negative flattens it, and a large enough negative
 #' value reverses it (an antagonistic crossover where warming becomes protective
-#' under severe harm caused by the co-stressor). The alternative is to let the 
-#' stressor rescale thermal sensitivity by a proportion, which keeps it positive: 
+#' under severe harm caused by the co-stressor). The alternative is to let the
+#' stressor rescale thermal sensitivity by a proportion, which keeps it positive:
 #' set `interaction = FALSE` (so the co-stressor adds only its main effect and the
-#' `z_<name>` column) and put that column on the sensitivity parameter through 
-#' `dpar_formulas` instead: `logb ~ 1 + z_<name>` for the exponential forms (for the 
+#' `z_<name>` column) and put that column on the sensitivity parameter through
+#' `dpar_formulas` instead: `logb ~ 1 + z_<name>` for the exponential forms (for the
 #' threshold forms a factor on `Tc` shifts the threshold location, a different effect).
 #' Choose the additive form for a conventional interaction and the freedom for the
-#' slope to change sign (e.g., an antagonistic crossover), the multiplicative form 
+#' slope to change sign (e.g., an antagonistic crossover), the multiplicative form
 #' when the biology is a proportional change in sensitivity that should stay positive
 #' (it can attenuate the thermal slope but not reverse it).
 #'
@@ -1712,7 +1712,8 @@ build_hazard_spec <- function(m_form, baseline = "mem", dpar_formulas = list(),
 
 # The functions a prior string may use in its arguments for them to be read as
 # numbers, e.g. "normal(log(60), 1)".
-.prior_arithmetic <- c("(", "+", "-", "*", "/", "^", "log", "exp", "sqrt", "log1p", "expm1")
+.prior_arithmetic <- c("(", "+", "-", "*", "/", "^", "log", "exp", "sqrt", "log1p",
+                       "expm1")
 
 # Read a prior string as brms writes it, such as "normal(-0.7, 1)", into its family
 # and its arguments. The arguments are evaluated with arithmetic and the functions
@@ -1826,7 +1827,8 @@ build_hazard_spec <- function(m_form, baseline = "mem", dpar_formulas = list(),
 # brackets, commas and quotes and spell out the arithmetic signs (brms 2.23.0, its
 # internal rename()). A prior set on a coefficient must use these names.
 .brms_coef_names <- function(x) {
-  from <- c(" ", "(", ")", "[", "]", ",", "\"", "'", "?", "+", "-", "*", "/", "^", "=", "$")
+  from <- c(" ", "(", ")", "[", "]", ",", "\"", "'", "?", "+", "-", "*", "/", "^", "=",
+            "$")
   to   <- c(rep("", 9), "P", "M", "MU", "D", "E", "EQ", "USD")
   for (i in seq_along(from)) x <- gsub(from[i], to[i], x, fixed = TRUE)
   x
@@ -1892,7 +1894,8 @@ build_hazard_spec <- function(m_form, baseline = "mem", dpar_formulas = list(),
   tt <- stats::terms(stats::reformulate(labels,
                                         intercept = attr(tt, "intercept") == 1L))
   labels <- attr(tt, "term.labels")
-  mf <- stats::model.frame(tt, long, na.action = stats::na.pass, drop.unused.levels = TRUE)
+  mf <- stats::model.frame(tt, long, na.action = stats::na.pass,
+                           drop.unused.levels = TRUE)
   categorical <- vapply(mf, \(x) is.factor(x) || is.character(x) || is.logical(x),
                         logical(1))
   one <- names(mf)[categorical & vapply(mf, \(x) length(unique(x)) < 2L, logical(1))]
@@ -2230,7 +2233,8 @@ build_hazard_prior <- function(m_form, baseline = "mem", dpar_formulas = list(),
   per_time <- if (baseline %in% c("mem", "gompertz")) -log(tau_ref) else 0
   logb_default <- c(-0.7, 1)
   tc_sd <- 3
-  given <- function(par) if (par %in% names(intercept_priors)) intercept_priors[[par]] else ""
+  given <- function(par)
+    if (par %in% names(intercept_priors)) intercept_priors[[par]] else ""
   logb <- .normal_in_force(given("logb"), logb_default)
   tc   <- .reach_in_force(given("Tc"), c(T_fail, stats::qnorm(0.975) * tc_sd))
   loga <- .loga_prior(m_form, centre = -1 + per_time, distance = T_fail - long$Tr[1],
@@ -2238,7 +2242,8 @@ build_hazard_prior <- function(m_form, baseline = "mem", dpar_formulas = list(),
 
   # Intercept prior per parameter, on the parameter's own scale (the log-scale
   # parameters carry priors in log units).
-  normal <- function(centre, sd) paste0("normal(", signif(centre, 4), ", ", signif(sd, 4), ")")
+  normal <- function(centre, sd)
+    paste0("normal(", signif(centre, 4), ", ", signif(sd, 4), ")")
   icpt <- c(loga = normal(loga$centre, loga$sd),
             logb = normal(logb_default[1], logb_default[2]),
             Tc   = normal(T_fail, tc_sd),

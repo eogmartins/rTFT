@@ -109,7 +109,8 @@
     if (!length(v)) return(NULL)
     cf <- substring(v, nchar(nl) + 4L)
     data.frame(variable = v, nlpar = nl, coef = cf,
-               block = if (nl %in% names(costressor_block)) costressor_block[[nl]] else nl,
+               block = if (nl %in% names(costressor_block))
+                 costressor_block[[nl]] else nl,
                prior = vapply(cf, \(x) .coef_prior(pt, nl, x), character(1)),
                row.names = NULL)
   }))
@@ -122,8 +123,8 @@
 
   lp <- lapply(seq_len(nrow(coefs)), \(j)
     .prior_lpdf(draws[[coefs$variable[j]]], coefs$prior[j], coefs$variable[j]))
-  blocks <- lapply(split(seq_len(nrow(coefs)), factor(coefs$block, unique(coefs$block))),
-                   \(j) Reduce(`+`, lp[j]))
+  by_block <- split(seq_len(nrow(coefs)), factor(coefs$block, unique(coefs$block)))
+  blocks   <- lapply(by_block, \(j) Reduce(`+`, lp[j]))
   rest <- draws$lprior - Reduce(`+`, blocks)
   # The draws of a cmdstanr fit are stored to eight significant figures, so the
   # rebuilt log prior differs from lprior by rounding, in proportion to its size.
@@ -253,7 +254,8 @@
   x   <- posterior::as_draws_df(tab)
   psd <- priorsense::create_priorsense_data(
     posterior::subset_draws(x, variable = q_names),
-    log_prior = posterior::subset_draws(x, variable = c("lprior", paste0("lprior_", names(blocks)))),
+    log_prior = posterior::subset_draws(
+      x, variable = c("lprior", paste0("lprior_", names(blocks)))),
     log_lik   = posterior::subset_draws(x, variable = "log_lik"))
   # the larger Pareto k of the two scalings of one component (the block `selection`
   # of the prior, or the likelihood), with priorsense's threshold for it
@@ -299,10 +301,13 @@
   centre_scale <- vapply(coefs$prior, \(pr) {
     p <- .prior_args(pr)
     if (is.null(p)) return(c(NA_real_, NA_real_))
-    switch(p$family, normal = p$args[1:2], student_t = p$args[2:3], c(NA_real_, NA_real_))
+    switch(p$family, normal = p$args[1:2], student_t = p$args[2:3],
+           c(NA_real_, NA_real_))
   }, numeric(2), USE.NAMES = FALSE)
-  med <- vapply(coefs$variable, \(v) stats::median(draws[[v]]), numeric(1), USE.NAMES = FALSE)
-  sds <- vapply(coefs$variable, \(v) stats::sd(draws[[v]]), numeric(1), USE.NAMES = FALSE)
+  med <- vapply(coefs$variable, \(v) stats::median(draws[[v]]), numeric(1),
+                USE.NAMES = FALSE)
+  sds <- vapply(coefs$variable, \(v) stats::sd(draws[[v]]), numeric(1),
+                USE.NAMES = FALSE)
   tibble::tibble(parameter = coefs$nlpar, coefficient = coefs$coef, prior = coefs$prior,
                  prior_centre = centre_scale[1, ], prior_scale = centre_scale[2, ],
                  median = med, sd = sds,

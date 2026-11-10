@@ -31,14 +31,16 @@ test_that("the prior in force on a coefficient is its own, else its parameter's"
   pt$lb[1] <- "0"
   expect_error(.coef_prior(pt, "loga", "mass"), class = "rTFT_prior_unsupported")
   # as in the fitted models
-  expect_equal(.coef_prior(as.data.frame(fit_exp$prior), "loga", "mass"), "normal(0, 1)")
+  expect_equal(.coef_prior(as.data.frame(fit_exp$prior), "loga", "mass"),
+               "normal(0, 1)")
 })
 
 
 test_that("the log density of a prior is that brms adds to the log prior", {
   x <- c(-3, 0, 1.5)
   expect_equal(.prior_lpdf(x, "normal(-0.7, 1)", "b"), dnorm(x, -0.7, 1, log = TRUE))
-  expect_equal(.prior_lpdf(x, "normal(log(60), 2)", "b"), dnorm(x, log(60), 2, log = TRUE))
+  expect_equal(.prior_lpdf(x, "normal(log(60), 2)", "b"),
+               dnorm(x, log(60), 2, log = TRUE))
   # brms's student_t(nu, mu, sigma)
   expect_equal(.prior_lpdf(x, "student_t(3, 1, 2.5)", "b"),
                dt((x - 1) / 2.5, df = 3, log = TRUE) - log(2.5))
@@ -53,7 +55,8 @@ test_that("the log prior by block adds up to the log prior brms kept", {
   d <- as.data.frame(brms::as_draws_df(fit_exp))
   pb <- .prior_blocks(fit_exp, d)
   expect_named(pb$blocks, c("loga", "logb"))
-  expect_equal(pb$coefs$variable, c("b_loga_Intercept", "b_loga_mass", "b_logb_Intercept"))
+  expect_equal(pb$coefs$variable,
+               c("b_loga_Intercept", "b_loga_mass", "b_logb_Intercept"))
   expect_equal(pb$coefs$block, c("loga", "loga", "logb"))
   expect_equal(pb$coefs$prior[2], "normal(0, 1)")
   expect_equal(Reduce(`+`, pb$blocks), d$lprior, tolerance = 1e-6)
@@ -71,12 +74,14 @@ test_that("a co-stressor's main effect and interaction make one block", {
   fit <- structure(list(
     prior = prior_table(c("normal(-7, 6)", "normal(0, 1)", "normal(0, 0.5)"),
                         coef = "Intercept", nlpar = c("loga", "cDO", "dTDO")),
-    rtft = list(costressors = list(costressor("DO", "do", 8.5, 1, -1, interaction = TRUE)))),
+    rtft = list(costressors = list(
+      costressor("DO", "do", 8.5, 1, -1, interaction = TRUE)))),
     class = "brmsfit")
   d <- data.frame(b_loga_Intercept = c(-6, -8), b_cDO_Intercept = c(0.2, -1),
                   b_dTDO_Intercept = c(0.1, 0.3))
   d$lprior <- dnorm(d$b_loga_Intercept, -7, 6, log = TRUE) +
-    dnorm(d$b_cDO_Intercept, 0, 1, log = TRUE) + dnorm(d$b_dTDO_Intercept, 0, 0.5, log = TRUE)
+    dnorm(d$b_cDO_Intercept, 0, 1, log = TRUE) +
+      dnorm(d$b_dTDO_Intercept, 0, 0.5, log = TRUE)
   pb <- .prior_blocks(fit, d)
   expect_named(pb$blocks, c("loga", "cDO"))
   expect_equal(pb$coefs$block, c("loga", "cDO", "cDO"))
@@ -88,7 +93,8 @@ test_that("a co-stressor's main effect and interaction make one block", {
 test_that("the log prior by block refuses what it cannot read", {
   d <- as.data.frame(brms::as_draws_df(fit_exp))
   # no log prior among the draws
-  expect_error(.prior_blocks(fit_exp, d[setdiff(names(d), "lprior")]), class = "rTFT_no_lprior")
+  expect_error(.prior_blocks(fit_exp, d[setdiff(names(d), "lprior")]),
+               class = "rTFT_no_lprior")
   # a log prior the priors read from the fit do not add up to
   off <- d; off$lprior <- off$lprior + 0.01
   expect_error(.prior_blocks(fit_exp, off), class = "rTFT_prior_mismatch")
@@ -100,7 +106,8 @@ test_that("the log prior by block refuses what it cannot read", {
   expect_error(.prior_blocks(fit_exp, mono), class = "rTFT_prior_unsupported")
   # a prior family the check cannot evaluate
   other <- fit_exp
-  other$prior$prior[other$prior$nlpar == "loga" & other$prior$coef == ""] <- "cauchy(0, 1)"
+  wide <- other$prior$nlpar == "loga" & other$prior$coef == ""
+  other$prior$prior[wide] <- "cauchy(0, 1)"
   expect_error(.prior_blocks(other, d), class = "rTFT_prior_unsupported")
 })
 
@@ -130,10 +137,12 @@ test_that("the quantities checked are the coefficients, then each row's paramete
   # a at mass 12, from the same draws in the same order
   expect_equal(qs$values[[8]], exp(d$b_loga_Intercept + 12 * d$b_loga_mass))
   # sCTmax as derive_tdt_ttl() reports it, from every draw
-  sct <- derive_tdt_ttl(fit_exp, newdata = nd, p = 0.5, t_ref = 60, n_draws = NULL)$sctmax
+  sct <- derive_tdt_ttl(fit_exp, newdata = nd, p = 0.5, t_ref = 60,
+                        n_draws = NULL)$sctmax
   expect_equal(c(median(qs$values[[7]]), median(qs$values[[11]])), sct$median)
   # without newdata, the coefficients alone
-  expect_length(.check_quantities(fit_exp, d, pb$coefs, NULL, 0.5, NULL, NULL)$values, 3)
+  expect_length(.check_quantities(fit_exp, d, pb$coefs, NULL, 0.5, NULL, NULL)$values,
+                3)
 })
 
 
@@ -181,7 +190,8 @@ test_that("the check gives each block's sensitivity for each quantity", {
                        "k_prior", "k_likelihood"))
   expect_equal(nrow(only), 9)
   # a model with a trial SD has the block sd; a model without covariates takes one row
-  tr <- check_prior(fit_trials, newdata = data.frame(row.names = 1), t_ref = 30)$sensitivity
+  tr <- check_prior(fit_trials, newdata = data.frame(row.names = 1),
+                    t_ref = 30)$sensitivity
   expect_equal(unique(tr$block), c("all", "loga", "logb", "sd"))
   expect_true("sCTmax" %in% tr$quantity)
 })
@@ -214,8 +224,10 @@ test_that("the check refuses what it cannot do", {
   expect_error(check_prior(fit_exp, nd, t_ref = -1), class = "rTFT_bad_t_ref")
   expect_error(check_prior(fit_exp, nd, t_ref = c(30, 60)), class = "rTFT_bad_t_ref")
   expect_error(check_prior(fit_exp, nd, t_ref = 60, p = 1), class = "rTFT_bad_p")
-  expect_error(check_prior(fit_exp, nd, t_ref = 60, p = c(0.1, 0.5)), class = "rTFT_bad_p")
-  expect_error(check_prior(fit_exp, data.frame(size = 10)), class = "rTFT_missing_covariates")
+  expect_error(check_prior(fit_exp, nd, t_ref = 60, p = c(0.1, 0.5)),
+               class = "rTFT_bad_p")
+  expect_error(check_prior(fit_exp, data.frame(size = 10)),
+               class = "rTFT_missing_covariates")
   # p is checked whether or not t_ref is given
   expect_error(check_prior(fit_exp, nd, p = 2), class = "rTFT_bad_p")
   # a column of newdata may not take a name of the table returned, nor hold NA

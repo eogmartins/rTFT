@@ -3,9 +3,9 @@
 # count, the help pages, non-ASCII characters in the R code, and, for the
 # vignettes, the links from one to another and whether an editor can open them.
 #
-# Each gate fires only when a commit touches what it is about. The 
-# expectation-count gate covers R/, tests/ and tools/ -- tools/ included so 
-# a control cannot be edited with nothing firing. The help-page gate covers 
+# Each gate fires only when a commit touches what it is about. The
+# expectation-count gate covers R/, tests/ and tools/ -- tools/ included so
+# a control cannot be edited with nothing firing. The help-page gate covers
 # R/ and DESCRIPTION, the only things that can leave man/ or NAMESPACE stale.
 # The non-ASCII gate covers the R files of R/ and tests/ in the commit: R CMD
 # check warns about a character outside ASCII in R code (a degree sign typed
@@ -22,7 +22,7 @@
 # `tools/hooks/install` is run. Nothing does that automatically or announces
 # it has not been done.
 #
-# NOT_CRAN is set so no test skips itself, as a skipped file lowers the count 
+# NOT_CRAN is set so no test skips itself, as a skipped file lowers the count
 # and a lower count is taken as check that stopped checking.
 
 staged=$(git diff --cached --name-only)
