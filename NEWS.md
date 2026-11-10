@@ -1,3 +1,87 @@
+# rTFT 0.2.2
+
+The default prior on log a changes for two kinds of model, a model whose
+formula of log a has terms that mark groups and a model with a threshold
+function, for which it is wider, and it is built with the prior of the user's
+own on log b (a normal) or on `Tc` (a normal or a Student-t) where one is given,
+rather than with the defaults. A refit of such a model gives different
+estimates. Every other model is given the same priors as in 0.2.1.
+
+## Default priors
+
+* The default prior on log a of `build_hazard_prior()` is scaled to the design.
+  Where the formula of log a has terms that mark groups (a factor, a character
+  or logical column, or a numeric column with two values, alone or in an
+  interaction), the standard deviation of its intercept grows with the largest
+  distance between the reference temperature `Tr` and the median failure
+  temperature of any group, and the coefficients of each group term are given a
+  prior whose standard deviation grows with the range of the groups' median
+  failure temperatures (a term whose coefficients are the levels' own values,
+  as in a formula without an intercept, takes the intercept's prior instead).
+  With groups that failed far from `Tr` or from each other, the prior of 0.2.1
+  pulled their differences towards zero and biased the shape of the Weibull
+  baseline low (by about 0.7 in simulations of three species whose failures lay
+  some degrees apart). A formula without such terms keeps the prior of 0.2.1.
+* The default prior on log a is carried from the failures to `Tr` with the
+  priors on log b and `Tc` that apply to the fit: a normal prior of the user's
+  own on log b, and a normal or Student-t prior on `Tc`, are read, where 0.2.1
+  used the defaults whatever was given. For a threshold function, the prior on
+  the intercept of log a is carried across the range of temperatures the prior
+  on `Tc` spans, so it is wider than in 0.2.1 (a standard deviation of 6.6
+  rather than 2 for the zero-power threshold model of the vignette *Comparing
+  and averaging models*).
+* `slope_prior` can be given per parameter, as a named list. A prior named for
+  a parameter whose formula has nothing for it to reach warns (for log a, a
+  group term whose coefficients are differences between groups counts,
+  intercept or not), and anything that is not a prior string, or a named list
+  of them, is refused.
+* The coefficients of a group term of log a are named as brms names them
+  whatever order the formula is written in. An interaction written before one
+  of its main effects (`~ 1 + species:do + do`) was named in R's order, which
+  brms does not use, so `fit_hazard()` stopped in brms with a prior on a
+  coefficient that did not exist.
+* The data are refused, each case with its own condition, when they lack a
+  column of the formula of log a, have missing values in one, or have a
+  categorical column with a single value; these had given an infinite standard
+  deviation or an error from R that did not say what was wrong.
+
+## Checking the priors
+
+* `check_prior()` measures how much the priors pull the estimates of a fitted
+  model, without refitting it, by the power-scaling sensitivity analysis of
+  Kallioinen et al. (2024, <https://doi.org/10.1007/s11222-023-10366-5>) in the
+  package priorsense, now suggested at version 1.4.0 or later. It scales each
+  block of priors in turn (one per parameter, one per co-stressor, the
+  group-level priors, and all of them together) and reports the sensitivity of
+  every population-level coefficient and, with `newdata`, of each quantity that
+  `derive_tdt_ttl()` reports, sCTmax included when `t_ref` is given. Each
+  sensitivity comes with the Pareto k of the power-scaling that produced it
+  (`k_prior`, `k_likelihood`), with a warning when a scaling is unreliable; a
+  block whose priors are all flat is left out, with a message. A second
+  table sets the prior of each coefficient beside its posterior. The help of
+  `build_hazard_prior()` and the vignette *Getting started with rTFT* point to
+  it.
+
+## Fitting
+
+* The switch of the threshold functions is written in a form whose exponential
+  cannot overflow. In the plain form, a temperature more than about 14 degrees
+  below `Tc` (at the default `k_sw`) gave the rate an infinite logarithm and
+  Stan an undefined gradient, so a chain whose `Tc` started or wandered that far
+  above the coolest temperature of the data could not go on. The two forms give
+  the same rate wherever the plain one was finite.
+* `build_hazard_data()` refuses a `grid_dT` that would cut one individual's
+  exposure into more than 100,000 intervals, before the table is built; nothing
+  had bounded the rows a very fine grid makes.
+
+## Documentation
+
+* The models of the vignette *Comparing and averaging models* are fitted again
+  under 0.2.2. With its wider prior on log a, the zero-power threshold model
+  predicts the trials left out better than before (its elpd is 7.5 below that
+  of the best model rather than 16.3) and receives a little more weight; the
+  averaged sCTmax and dCTmax are almost unchanged.
+
 # rTFT 0.2.1
 
 ## Bug fixes
